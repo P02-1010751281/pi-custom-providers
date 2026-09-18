@@ -1,7 +1,7 @@
 # 通用多线 Provider 引擎 — 设计方案（v4.0）
 
 - 日期：2026-09-18（v4.0：端点词汇回归 pi 原生；凭据与计费归 provider；覆盖链压到 4 层。v1–v3.3 的历史见文末「版本沿革」）
-- 状态：待人工确认
+- 状态：**已确认并实施**（用户 2026-09-18：「按 pi 的来，开始执行」；下方 §15 已按实际结果回填证据，实施记录见 §18）
 - 仓库：`pi-custom-providers`（master，0 commit）
 
 **一句话**：文件层只说 pi 自己的话（`api` / `baseUrl` / `headers` / `compat` / `models[]` / `modelOverrides`），我们只做 pi 做不了的四件事 —— 目录扫描、模型发现、per-model 端点的复刻、多账号展开。
@@ -459,10 +459,40 @@
 17. pi 全局 `models.json` 的 provider 级 `compat` 只贴**有效默认协议**上的模型（§4/§5.3）—— 这是对 pi 原义的**刻意偏离**：`applyModelsJson` 把 `config.compat` 合进**每一条** base 模型（不分协议），而把 OpenAI 系 compat 贴到用户搬到 Anthropic 端点的模型上属无意义的跨族搬运，也与 §5.3「跨协议键只报不改」自相矛盾。
 18. **能力元数据（`reasoning` / `input`）的权威 = 官方 / pi 内置目录**（用户 2026-09-18 裁决）。实测三条中转线的 `/models` 都不发能力字段（codecommand 只给 `id/name/context_length/supported_endpoints`；scnet 的 OpenAI 形只有 `id/object/ownedBy`；其 Anthropic 形 `capabilities` 18 行全 `null`），CodeCommand 的能力页自己就自相矛盾（embedded vision=false / rendered vision=true），而 pi 内置目录对同一 id 跨 provider **一致**（少数第三方托管点的孤立异议被多数票压过）。⇒ 生成器写 `catalog.ts` 时按此优先级逐字段定：**内置目录（按 `normalizeModelId` 归一后多数票）→ 能力页 embedded → 旧值**；页面/旧值与内置不一致时**报告**。`maxTokens` / `contextWindow` **不在**此列（仍代理权威、只报不自动应用：中转线会截断，高报会 400）。**`thinkingLevelMap` 的例外边界**（用户 2026-09-18 追加裁决「按 pi 的来」）：只取 **anthropic 协议线**的内置映射——那里映射的是 Anthropic 自己的 adaptive-effort 档位（哪些档存在、`off: null` = 关不掉思考），是**模型事实**，跨端点可搬；OpenAI 形线的 effort 词表是**网关自定义**（同一 id 在 9 个托管点有 9 种映射：`off:"none"` / `minimal:null` …），照搬别的网关的映射会发出端点不认的值 ⇒ 不用、只报。实测：机械套用「同协议内置多数票」会命中 75 行，其中约 40 行是「内置无映射」，套用等于**删掉**我们的映射（pi 沉默 ≠ 无档位）；另有整行只有单一第三方托管点（openrouter/vercel）一票——与 `mimo-v2.5` 的孤立异议同类，不采信。实际落地 6 行（`claude-sonnet-5`/`sonnet-4-6`/`fable-5`/`fable-5-1`/`opus-4-8`/`opus-4-7`；`claude-opus-5` 内置平票 → 保留并报告）。`cost` 仍保留旧值。
 
-### 待用户回答
+### 已答复（2026-09-18）
 
-1. v4.0 照此实施？（有异议报决策编号 1–18）
-2. 第 0 步（提交 SCNet 合并 + `v0.1.0`）是否授权？git 归你。
+1. v4.0 **照此实施**（用户原话「开始执行」）。
+2. 第 0 步**已授权并执行**：`5a1c5ba` + tag `v0.1.0`（48 files / 5084 insertions）。
+
+## 18. 实施记录（2026-09-18）
+
+按 §15 的顺序落地，实际结果：
+
+| # | 步骤 | 证据 |
+|---|---|---|
+| 0 | 提交基线 + `v0.1.0` | `5a1c5ba`，tag `v0.1.0` |
+| 1 | 冻结基线 | `node tests/run-all.mjs` → 6 passed |
+| 2–3 | `apis-test` + `config.ts` 的 api 规则 | `tests/apis-test.mjs`：`BUILTIN_APIS` 与 pi 注册表逐一比对一致（10/10）；别名归一；`resolveModelEndpoint` 五种情形；SCNet 一个 vendor 两端点、模型级 `api` 迁移、provider 级 `api` 翻转、别名键配置 |
+| 4–5 | `provider-files.ts` + index 接线 | `tests/provider-files-test.mjs`：扫描/校验/凭据键越位/compat 越位/`apis` 重复声明（同协议两种拼写不会互相覆盖）/坏文件 fail-closed/接管边界/别名撞名 |
+| 6–7 | 账号展开 | `tests/accounts-test.mjs`：`default` 指针、后缀、无指针则抑制 base id（含报告文案）、无 `accounts.json` 仍注册、非法名与非认证键被报告、账号层 `providers.<accountId>` |
+| 8 | `sync-models.ts` | `tests/sync-test.mjs`：按字段差异、`--write` 才写、`.bak`、round-trip、用户层不入基底 |
+| 9 | responses 端到端 | `tests/responses-test.mjs`：pi 自己的 `openai-responses` 实现发出 `POST https://demo.example/responses`，body 带 `model` |
+| 10 | 命令 | `provider-files-test` 末尾断言 `files` / `<id>` / 未知 id / `drift` 的实际输出 |
+| 11 | 生成器多协议 + 重命名 | `node scripts/refresh-catalog.mjs --dry-run` → `commandcode 70 / scnet 19`，全 `+0 -0 ~0`；`catalog.ts` 按 vendor 键 |
+| 12 | 全量 + 部署 | `run-all` 10/10（连跑两次）；部署副本 `diff -rq` in sync；`loadtest` 经 pi 真实 loader 加载无错 |
+| 13 | 文档 | README 重写（三文件布局、4 层、命令、升级说明）；`.codestable/attention.md` 增「引擎行为」节 |
+
+实施中发现并修掉的三个真问题（设计未写死、按 §2/§10 的精神处理）：
+
+1. **`sync` 曾把派生值写回基底**：显示名后缀与端点 `baseUrl` 是注册期产物，写进 `<id>/models.json` 会把第 2 层的计算冻进第 1 层 → 新增 `baseTableView()`，`sync` 只写基底（发现只补 id/name/contextWindow）。
+2. **`session_start` 一度不再联网**：重写时把在线刷新丢了（只剩 pi 自己的离线轮）→ 恢复为「启动注册（离线）→ `session_start` 在线刷新」，并为「失败但有 memo」保留 `live` 语义。
+3. **`apis` 里同协议的两种拼写会互相覆盖**：`anthropic` 与 `anthropic-messages` 归一后撞车，后者按文件顺序覆盖前者 → 改为首次声明胜 + 报告。
+
+实施偏差（均为收窄，未放宽任何边界）：
+
+- 文件名从 `config.ts` 拆出 `provider-files.ts` / `sync-models.ts`（§11 已列），api 规则放在 `config.ts`（§11 如此写），未新增设计外的文件。
+- `thinkingLevelMap` 的权威按用户追加裁决收窄到 **anthropic 协议线**（详见决策 18 的追加段落）。
+- 别名键（`providers.codecommand`）会被 pi 自己也注册成一个 provider（config-only provider），于是选择器里多一个条目；本扩展无法阻止，只能读作第 3 层并报告，README 的「从旧版升级」给出了把键改名为 `commandcode` 的一步迁移。
 
 ## 17. 后期候选（本轮不做）
 

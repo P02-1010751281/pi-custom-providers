@@ -158,6 +158,15 @@ cd /tmp && pi -p --no-tools --no-session --session-dir /tmp/pi-review-ctx \
 | 实现 | 权威逻辑收进 `builtin.ts`（`capabilityAuthority` / `builtinLevelMap` / `votes` / `levelMaps`），生成器与运行期 `drift` **共用一份**，两边不可能再各说一套 |
 | 验证 | 写盘后 `--dry-run` 三条线全 `+0 -0 ~0`；`summarizeDrift` 实测 codecommand/scnet/scnet-anthropic 的 `reasoning 0 / input 0`（只剩代理权威的 `maxTokens`/`contextWindow`）；`tests/run-all.mjs` 6/6 |
 
+## 第五轮：实施后复核（2026-09-18）
+
+设计已按用户授权落地（`5a1c5ba` 基线 + v4.0 引擎），设计文档 §18 记录实施顺序与偏差。评审文件此处只登记**实施中暴露的设计盲点**，供下次设计参考：
+
+1. `sync` 的写入语义漏写了「派生值不得回写」：`api`/`baseUrl`/显示名后缀属于注册期计算，§9 只说「基底 ⊕ 发现」，没说清「基底」是**未派生**的那一层。已补进实现与 §18。
+2. 「启动注册（离线）→ 在线刷新」在 §6.1 写的是启动 + `session_start`，但没说 `session_start` 必须**自己**发起在线轮（pi 的重注册只跟离线轮），实现时一度丢掉，已修。
+3. §3.1 的 `apis` 去重只写了「键 = 默认协议」（#6b），漏了「键经别名归一后撞车」（`anthropic` vs `anthropic-messages`）。已按「首次声明胜 + 报告」实现。
+4. 别名键与 pi 的 config-only provider 叠加：`aliases` 让旧 `providers.codecommand` 继续当第 3 层，但 pi 仍会把该 id 注册成独立 provider（§8 注只说了「不需要 override」，没说「会多一个 provider」）。已改为报告 + README 迁移提示。
+
 ## 处置表
 
 | 发现 | 判定 | 落在哪 |

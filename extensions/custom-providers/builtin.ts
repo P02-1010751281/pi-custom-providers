@@ -79,6 +79,8 @@ export interface BuiltinCatalog {
 	 * wins" is also the safe direction, since omitting `temperature` never fails.
 	 */
 	rejectsTemperature: ReadonlySet<string>;
+	/** The pi provider ids themselves — the takeover boundary of design §8. */
+	providers: ReadonlySet<string>;
 	/** False when the catalog could not be read (older pi, different loader). */
 	available: boolean;
 }
@@ -88,6 +90,7 @@ export const EMPTY_BUILTIN_CATALOG: BuiltinCatalog = {
 	votes: new Map(),
 	levelMaps: new Map(),
 	rejectsTemperature: new Set(),
+	providers: new Set(),
 	available: false,
 };
 
@@ -148,7 +151,7 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 				if (model.compat?.supportsTemperature === false) rejectsTemperature.add(key);
 			}
 		}
-		return { byId, votes, levelMaps, rejectsTemperature, available: byId.size > 0 };
+		return { byId, votes, levelMaps, rejectsTemperature, providers: new Set(piAi.getProviders().map(String)), available: byId.size > 0 };
 	} catch {
 		return EMPTY_BUILTIN_CATALOG;
 	}

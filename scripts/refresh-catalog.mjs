@@ -41,8 +41,8 @@ const extDir = path.join(root, "extensions/custom-providers");
 const catalogPath = path.join(extDir, "catalog.ts");
 const dryRun = process.argv.includes("--dry-run");
 
-/** Capability reference pages, per source that publishes one. */
-const CAPS_DOCS = { codecommand: "https://commandcode.ai/docs/reference/cli/models" };
+/** Capability reference pages, per vendor that publishes one. */
+const CAPS_DOCS = { commandcode: "https://commandcode.ai/docs/reference/cli/models" };
 
 function findPiPackage() {
 	const candidates = [];
@@ -87,19 +87,27 @@ const builtin = await loadBuiltinCatalog();
 loadEnvFile(path.join(homedir(), ".pi", "agent", ".env"));
 loadEnvFile(path.join(homedir(), ".omp", "agent", ".env"));
 
-/** Probe endpoints derived from the runtime table, so a URL cannot drift between them. */
-const PROBES = Object.fromEntries(
-	SOURCES.map((source) => [
-		source.id,
-		{
-			baseUrl: source.baseUrl,
-			path: source.modelsPath ?? "/models",
-			env: source.envVar,
-			auth: source.api === "anthropic-messages" ? "anthropic" : "bearer",
-			siblingId: source.siblingId,
-		},
-	]),
-);
+/**
+ * Probe targets derived from the runtime table, so a URL cannot drift between them: one per
+ * *declared* endpoint (the default one plus every `apis.<api>`), because discovery is per
+ * endpoint and a model served by a second protocol endpoint must be discovered there.
+ * An endpoint without a `modelsPath` is listed with `path: undefined` — no discovery is far
+ * better than guessing `/models`.
+ */
+const ENDPOINTS = SOURCES.flatMap((vendor) => {
+	const env = vendor.builtinAccount.envVar;
+	const defaults = { vendor, env };
+	return [
+		{ ...defaults, api: vendor.declaration.api, baseUrl: vendor.declaration.baseUrl, path: vendor.declaration.modelsPath },
+		...Object.entries(vendor.declaration.apis).map(([api, endpoint]) => ({
+			...defaults,
+			api,
+			baseUrl: endpoint.baseUrl,
+			// Absent = inherit the vendor's path, and if that is absent too: no discovery.
+			path: endpoint.modelsPath ?? vendor.declaration.modelsPath,
+		})),
+	];
+});
 
 async function fetchJson(url, headers, attempts = 3) {
 	let last;
@@ -116,14 +124,25 @@ async function fetchJson(url, headers, attempts = 3) {
 	throw last;
 }
 
-async function probeModels(sourceId) {
-	const config = PROBES[sourceId];
-	const key = process.env[config.env];
-	const headers = config.auth === "anthropic" ? { "anthropic-version": "2023-06-01", ...(key ? { "x-api-key": key } : {}) } : key ? { Authorization: `Bearer ${key}` } : {};
-	const payload = await fetchJson(`${config.baseUrl}${config.path}`, headers);
+/**
+ * The auth shape is decided by the protocol, never by an account's `authHeader`: an
+ * Anthropic endpoint wants `x-api-key` + a version, everything else takes a bearer token.
+ */
+const endpointAuth = (api, key) =>
+	api === "anthropic-messages"
+		? { "anthropic-version": "2023-06-01", ...(key ? { "x-api-key": key } : {}) }
+		: key
+			? { Authorization: `Bearer ${key}` }
+			: {};
+
+async function probeEndpoint(endpoint) {
+	if (!endpoint.path) return { rows: [], skipped: true };
+	const key = process.env[endpoint.env];
+	const url = `${endpoint.baseUrl.replace(/\/+$/, "")}${endpoint.path.startsWith("/") ? endpoint.path : `/${endpoint.path}`}`;
+	const payload = await fetchJson(url, endpointAuth(endpoint.api, key));
 	const rows = Array.isArray(payload.data) ? payload.data : payload.models;
-	if (!Array.isArray(rows)) throw new Error(`${sourceId}: no data/models array`);
-	return rows.filter((row) => row && typeof row.id === "string");
+	if (!Array.isArray(rows)) throw new Error(`${endpoint.vendor.id}/${endpoint.api}: no data/models array (GET ${url})`);
+	return { rows: rows.filter((row) => row && typeof row.id === "string"), skipped: false };
 }
 
 async function probeCaps(url) {
@@ -168,7 +187,7 @@ const familyMax = (id) => {
 };
 const clampMax = (value, ctx, id) => (Number.isInteger(value) && value > 0 && value < ctx ? value : Math.min(familyMax(id), Math.max(1024, ctx - 1)));
 
-function freshModel(row, previous, page, defaultApi) {
+function freshModel(row, previous, page, defaultApi, probeApi) {
 	const ctx = Number(row.context_length ?? row.contextWindow) || previous?.contextWindow || 128000;
 	const authority = builtinCapability(row.id);
 	// Capability authority: official / pi built-in first, then the reseller's page, then
@@ -176,16 +195,20 @@ function freshModel(row, previous, page, defaultApi) {
 	const reasoning = authority?.reasoning ?? page?.reasoning ?? previous?.reasoning ?? false;
 	const vision = authority?.image ?? page?.vision ?? previous?.input?.includes("image") ?? false;
 	const capabilityKnown = authority !== undefined || page !== undefined;
+	// `supported_endpoints` says which protocols the *default* endpoint serves for this id;
+	// when it lists only `/messages`, the id speaks anthropic-messages even though it came
+	// back from the OpenAI-shaped registry.
 	const messagesOnly = Array.isArray(row.supported_endpoints) && row.supported_endpoints.length > 0 && row.supported_endpoints.every((e) => e === "/messages");
+	const modelApi = messagesOnly ? "anthropic-messages" : probeApi !== defaultApi ? probeApi : previous?.api ?? defaultApi;
 	// Level maps are only taken from the built-in catalog on the anthropic wire (there the
 	// map is a model fact); elsewhere the endpoint's own map wins by default and a differing
 	// built-in map is reported, never copied.
-	const api = messagesOnly ? "anthropic-messages" : previous?.api ?? defaultApi;
+	const api = modelApi;
 	const levelMap = builtinLevelMap(builtin, row.id, api) ?? previous?.thinkingLevelMap;
 	return {
 		id: row.id,
 		name: typeof row.name === "string" && row.name.length > 0 ? row.name : previous?.name ?? row.id,
-		...(messagesOnly ? { api: "anthropic-messages" } : previous?.api ? { api: previous.api } : {}),
+		...(modelApi !== defaultApi ? { api: modelApi } : {}),
 		reasoning,
 		input: capabilityKnown ? (vision ? ["text", "image"] : ["text"]) : previous?.input ?? ["text"],
 		contextWindow: ctx,
@@ -201,7 +224,7 @@ function serialize(catalog) {
 		"/**",
 		" * GENERATED FILE — do not edit by hand.",
 		" *",
-		" * Regenerate with `node scripts/refresh-catalog.mjs`, which probes the provider",
+		" * Regenerate with `node scripts/refresh-catalog.mjs`, which probes every declared",
 		" * /models endpoints and the CodeCommand capability reference, then diffs the result",
 		" * against this file (+added -removed ~changed).",
 		" *",
@@ -214,9 +237,9 @@ function serialize(catalog) {
 		" * `cost` is always present: pi requires it (`calculateCost` dereferences",
 		" * `model.cost`). These are subscription lanes with no per-token price, so cost is zero.",
 		" */",
-		'import type { CatalogModel, SourceId } from "./types.ts";',
+		'import type { CatalogModel, VendorId } from "./types.ts";',
 		"",
-		"export const CATALOG: Record<SourceId, CatalogModel[]> = {",
+		"export const CATALOG: Record<VendorId, CatalogModel[]> = {",
 	];
 	for (const [source, models] of Object.entries(catalog)) {
 		lines.push(`\t${JSON.stringify(source)}: [`);
@@ -230,22 +253,60 @@ function serialize(catalog) {
 }
 
 const previous = (await importTs("catalog.ts")).CATALOG;
-const missing = SOURCES.map((source) => source.id).filter((id) => !Array.isArray(previous[id]));
-if (missing.length > 0) throw new Error(`catalog.ts has no entry for: ${missing.join(", ")} (sources.ts and catalog.ts are out of sync)`);
+const missing = SOURCES.filter((vendor) => !Array.isArray(previous[vendor.id]) && !vendor.aliases.some((alias) => Array.isArray(previous[alias])));
+if (missing.length > 0) throw new Error(`catalog.ts has no entry for: ${missing.map((vendor) => vendor.id).join(", ")} (sources.ts and catalog.ts are out of sync)`);
 
 const [probed, caps] = await Promise.all([
-	Promise.all(SOURCES.map(async (source) => [source.id, await probeModels(source.id)])),
+	Promise.all(ENDPOINTS.map(async (endpoint) => {
+		try {
+			return { endpoint, ...(await probeEndpoint(endpoint)) };
+		} catch (error) {
+			if (!dryRun) throw error;
+			return { endpoint, rows: [], skipped: false, error: String(error) };
+		}
+	})),
 	Promise.all(Object.entries(CAPS_DOCS).map(async ([id, url]) => [id, await probeCaps(url)])),
 ]);
-const rowsById = Object.fromEntries(probed);
 const capsById = Object.fromEntries(caps);
-const capFor = (sourceId, modelId) => capsById[sourceId]?.embedded.get(capsKey(modelId));
+const capFor = (vendorId, modelId) => capsById[vendorId]?.embedded.get(capsKey(modelId));
 
+/**
+ * One vendor's model list, assembled from every endpoint's rows. An id served by the
+ * default endpoint needs no `api` (and gets none: that keeps `providers.<id>.baseUrl` able
+ * to redirect it); an id only a second endpoint serves carries that endpoint's api, which
+ * the loader turns into `api` + `apis.<api>.baseUrl` (§5.2). The previous value is only
+ * kept when discovery says nothing about the api.
+ */
 const catalog = {};
-for (const source of SOURCES) {
-	const own = new Map((previous[source.id] ?? []).map((model) => [model.id, model]));
-	const sibling = source.siblingId ? new Map((previous[source.siblingId] ?? []).map((model) => [model.id, model])) : undefined;
-	catalog[source.id] = rowsById[source.id].map((row) => freshModel(row, own.get(row.id) ?? sibling?.get(row.id), capFor(source.id, row.id), source.api));
+for (const vendor of SOURCES) {
+	const perEndpoint = probed.filter((entry) => entry.endpoint.vendor.id === vendor.id);
+	const previousOf = new Map(
+		[...(previous[vendor.id] ?? []), ...vendor.aliases.flatMap((alias) => previous[alias] ?? [])].map((model) => [model.id, model]),
+	);
+	const defaultApi = vendor.declaration.api;
+	const ids = [];
+	const seen = new Set();
+	const rowsById = new Map();
+	for (const entry of perEndpoint) {
+		for (const row of entry.rows) {
+			if (!seen.has(row.id)) {
+				seen.add(row.id);
+				ids.push(row.id);
+			}
+			// The default endpoint's row wins when several endpoints return the same id: its
+			// `supported_endpoints` is what says whether the id may use the default protocol.
+			const existing = rowsById.get(row.id);
+			if (!existing || entry.endpoint.api === defaultApi) rowsById.set(row.id, { row, probeApi: entry.endpoint.api });
+		}
+	}
+	catalog[vendor.id] = ids.map((id) => {
+		const { row, probeApi } = rowsById.get(id);
+		return freshModel(row, previousOf.get(id), capFor(vendor.id, id), defaultApi, probeApi);
+	});
+}
+for (const entry of probed) {
+	if (entry.skipped) console.log(`  ${entry.endpoint.vendor.id}/${entry.endpoint.api}: no modelsPath declared -> no discovery for this endpoint`);
+	if (entry.error) console.log(`  ${entry.endpoint.vendor.id}/${entry.endpoint.api}: probe failed (dry run, previous values kept): ${entry.error}`);
 }
 
 const report = (name, before, after) => {
@@ -262,11 +323,14 @@ const report = (name, before, after) => {
 	if (removed.length) console.log(`  removed: ${removed.join(", ")}`);
 	for (const model of changed) console.log(`  changed: ${model.id}`);
 };
-for (const source of SOURCES) report(source.id, previous[source.id] ?? [], catalog[source.id]);
+for (const vendor of SOURCES) {
+	const before = previous[vendor.id] ?? vendor.aliases.flatMap((alias) => previous[alias] ?? []);
+	report(vendor.id, before, catalog[vendor.id]);
+}
 
 // Both are silent-drift traps, so they are reported instead of guessed at.
-for (const [sourceId, { embedded, rendered }] of Object.entries(capsById)) {
-	const ids = rowsById[sourceId].map((row) => row.id);
+for (const [vendorId, { embedded, rendered }] of Object.entries(capsById)) {
+	const ids = (catalog[vendorId] ?? []).map((row) => row.id);
 	const unknown = ids.filter((id) => !embedded.has(capsKey(id)) && !builtinCapability(id));
 	if (unknown.length > 0) console.log(`  caps: no capability source for ${unknown.join(", ")} (previous values preserved)`);
 	const conflicts = [...embedded]
@@ -285,20 +349,20 @@ const builtinDecided = [];
 const pageAgainstBuiltin = [];
 const levelMapApplied = [];
 const levelMapKept = [];
-for (const source of SOURCES) {
-	for (const model of catalog[source.id] ?? []) {
+for (const vendor of SOURCES) {
+	for (const model of catalog[vendor.id] ?? []) {
 		const authority = builtinCapability(model.id);
 		if (authority) {
-			builtinDecided.push(`${source.id}/${model.id}`);
-			const page = capFor(source.id, model.id);
+			builtinDecided.push(`${vendor.id}/${model.id}`);
+			const page = capFor(vendor.id, model.id);
 			if (page && (page.reasoning !== authority.reasoning || page.vision !== authority.image)) {
 				pageAgainstBuiltin.push(`${model.id}: built-in reasoning=${authority.reasoning} image=${authority.image} | page reasoning=${page.reasoning} vision=${page.vision}`);
 			}
 		}
 		// Level maps: counted separately, because only the anthropic wire's map is taken.
 		if (!model.thinkingLevelMap) continue;
-		if (builtinLevelMap(builtin, model.id, model.api ?? source.api)) levelMapApplied.push(`${source.id}/${model.id}`);
-		else levelMapKept.push(`${source.id}/${model.id}`);
+		if (builtinLevelMap(builtin, model.id, model.api ?? vendor.declaration.api)) levelMapApplied.push(`${vendor.id}/${model.id}`);
+		else levelMapKept.push(`${vendor.id}/${model.id}`);
 	}
 }
 console.log(`  caps: built-in (official) authority decided ${builtinDecided.length} models`);

@@ -1,7 +1,7 @@
 /**
  * GENERATED FILE — do not edit by hand.
  *
- * Regenerate with `node scripts/refresh-catalog.mjs`, which probes the provider
+ * Regenerate with `node scripts/refresh-catalog.mjs`, which probes every declared
  * /models endpoints and the CodeCommand capability reference, then diffs the result
  * against this file (+added -removed ~changed).
  *
@@ -14,10 +14,10 @@
  * `cost` is always present: pi requires it (`calculateCost` dereferences
  * `model.cost`). These are subscription lanes with no per-token price, so cost is zero.
  */
-import type { CatalogModel, SourceId } from "./types.ts";
+import type { CatalogModel, VendorId } from "./types.ts";
 
-export const CATALOG: Record<SourceId, CatalogModel[]> = {
-	"codecommand": [
+export const CATALOG: Record<VendorId, CatalogModel[]> = {
+	"commandcode": [
 		{ id: "claude-sonnet-5", name: "Claude Sonnet 5", api: "anthropic-messages", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"xhigh":"xhigh","max":"max"} },
 		{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", api: "anthropic-messages", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"max":"max"} },
 		{ id: "claude-fable-5-1", name: "Claude Fable 5.1", api: "anthropic-messages", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"off":null,"xhigh":"xhigh","max":"max"} },
@@ -91,26 +91,6 @@ export const CATALOG: Record<SourceId, CatalogModel[]> = {
 	],
 	"scnet": [
 		{ id: "MiniMax-M2.5", name: "MiniMax-M2.5", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },
-		{ id: "DeepSeek-V4-Flash", name: "DeepSeek-V4-Flash", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "DeepSeek-V4-Pro", name: "DeepSeek-V4-Pro", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "Kimi-K2.6", name: "Kimi-K2.6", reasoning: true, input: ["text","image"], contextWindow: 256000, maxTokens: 65536, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },
-		{ id: "GLM-5.1", name: "GLM-5.1", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },
-		{ id: "MiniMax-M2.7", name: "MiniMax-M2.7", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },
-		{ id: "MiniMax-M3", name: "MiniMax-M3", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"minimal":"minimal","low":"low","medium":"medium","high":"high","xhigh":"xhigh"} },
-		{ id: "Kimi-K2.5", name: "Kimi-K2.5", reasoning: true, input: ["text","image"], contextWindow: 256000, maxTokens: 65536, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },
-		{ id: "GLM-5", name: "GLM-5", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },
-		{ id: "GLM-5.2", name: "GLM-5.2", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "Kimi-K2.7-Code", name: "Kimi-K2.7-Code", reasoning: true, input: ["text","image"], contextWindow: 262144, maxTokens: 65536, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"minimal":"minimal","low":"low","medium":"medium","high":"high","xhigh":"xhigh"} },
-		{ id: "Kimi-K3", name: "Kimi-K3", reasoning: true, input: ["text","image"], contextWindow: 1048576, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "DeepSeek-V4-Flash-0731", name: "DeepSeek-V4-Flash-0731", reasoning: true, input: ["text"], contextWindow: 1048576, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "Qwen3.8-Max", name: "Qwen3.8-Max", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"minimal":"minimal","low":"low","medium":"medium","high":"high"} },
-		{ id: "DeepSeek-V4-Pro-0813", name: "DeepSeek-V4-Pro-0813", reasoning: true, input: ["text"], contextWindow: 1048576, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "GLM-5.3", name: "GLM-5.3", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "Qwen3.8-Flash", name: "Qwen3.8-Flash", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"minimal":"minimal","low":"low","medium":"medium","high":"high"} },
-		{ id: "GLM-5.3-Flash", name: "GLM-5.3-Flash", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 131072, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-		{ id: "DeepSeek-V4.1-Flash", name: "DeepSeek-V4.1-Flash", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
-	],
-	"scnet-anthropic": [
 		{ id: "DeepSeek-V4-Flash", name: "DeepSeek-V4-Flash", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
 		{ id: "DeepSeek-V4-Pro", name: "DeepSeek-V4-Pro", reasoning: true, input: ["text"], contextWindow: 1000000, maxTokens: 384000, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, thinkingLevelMap: {"low":"low","high":"high","max":"max"} },
 		{ id: "Kimi-K2.6", name: "Kimi-K2.6", reasoning: true, input: ["text","image"], contextWindow: 256000, maxTokens: 65536, cost: {"input":0,"output":0,"cacheRead":0,"cacheWrite":0} },

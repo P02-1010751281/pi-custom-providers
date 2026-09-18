@@ -25,7 +25,7 @@ await factory({
 	registerTool: () => {},
 	getFlag: () => undefined,
 });
-const config = providers.get("codecommand");
+const config = providers.get("commandcode");
 
 // The refresh phase only runs when a credential resolves, so give the env-based
 // apiKey (`$CMD_API_KEY` in the provider config) something to resolve.
@@ -36,14 +36,14 @@ const create = (modelsStore) => ModelRuntime.create({ modelsPath: null, modelsSt
 
 // --- a previous session's snapshot is restored before any network access -------
 const seededStore = new InMemoryCodingAgentModelsStore();
-await seededStore.write("codecommand", {
+await seededStore.write("commandcode", {
 	checkedAt: Date.now(),
 	models: [
 		{
 			id: "claude-opus-5",
 			name: "Seeded Opus 5",
 			api: "anthropic-messages",
-			provider: "codecommand",
+			provider: "commandcode",
 			baseUrl: "https://api.commandcode.ai/provider/v1",
 			reasoning: true,
 			input: ["text", "image"],
@@ -54,20 +54,20 @@ await seededStore.write("codecommand", {
 	],
 });
 const seeded = await create(seededStore);
-seeded.registerProvider("codecommand", config);
-await seeded.refresh({ allowNetwork: false, providers: ["codecommand"] });
-const seededOpus = seeded.getModels("codecommand").find((model) => model.id === "claude-opus-5");
+seeded.registerProvider("commandcode", config);
+await seeded.refresh({ allowNetwork: false, providers: ["commandcode"] });
+const seededOpus = seeded.getModels("commandcode").find((model) => model.id === "claude-opus-5");
 assert(seededOpus?.contextWindow === 424_242, `offline phase restores the persisted snapshot (got ${seededOpus?.contextWindow})`);
-assert(seeded.getModels("codecommand").length === config.models.length, "the restored snapshot is merged over the full catalog, not used alone");
+assert(seeded.getModels("commandcode").length === config.models.length, "the restored snapshot is merged over the full catalog, not used alone");
 
 // --- pi's refresh phase persists the refreshed catalog -------------------------
 const store = new InMemoryCodingAgentModelsStore();
 const runtime = await create(store);
-runtime.registerProvider("codecommand", config);
-const before = runtime.getModels("codecommand");
+runtime.registerProvider("commandcode", config);
+const before = runtime.getModels("commandcode");
 assert(before.length === config.models.length, `runtime exposes the registered catalog (got ${before.length})`);
 assert(before.find((model) => model.id === "claude-opus-5")?.compat?.supportsTemperature === false, "absorbed compat reaches the composed model");
-assert(!(await store.read("codecommand")), "nothing persisted before a network refresh");
+assert(!(await store.read("commandcode")), "nothing persisted before a network refresh");
 
 const realFetch = globalThis.fetch;
 globalThis.fetch = async () => ({
@@ -75,18 +75,18 @@ globalThis.fetch = async () => ({
 	json: async () => ({ data: [{ id: "claude-opus-5", name: "Opus 5 (pi native)", context_length: 777_777 }] }),
 });
 try {
-	const result = await runtime.refresh({ allowNetwork: true, force: true, providers: ["codecommand"] });
+	const result = await runtime.refresh({ allowNetwork: true, force: true, providers: ["commandcode"] });
 	assert(result.errors.size === 0, `refresh reported no errors (${[...result.errors.keys()].join(", ")})`);
 
-	const opus = runtime.getModels("codecommand").find((model) => model.id === "claude-opus-5");
+	const opus = runtime.getModels("commandcode").find((model) => model.id === "claude-opus-5");
 	assert(opus?.contextWindow === 777_777, `runtime picked up the refreshed context window (got ${opus?.contextWindow})`);
 	assert(opus?.name === "Opus 5 (pi native)", "runtime picked up the refreshed display name");
 	assert(opus?.compat?.supportsTemperature === false, "absorbed compat survives pi's refresh phase");
-	assert(runtime.getModels("codecommand").every((model) => model.cost && typeof model.cost.input === "number"), "every refreshed model carries cost");
+	assert(runtime.getModels("commandcode").every((model) => model.cost && typeof model.cost.input === "number"), "every refreshed model carries cost");
 
-	const persisted = await store.read("codecommand");
+	const persisted = await store.read("commandcode");
 	assert(typeof persisted?.checkedAt === "number", "persisted entry carries checkedAt");
-	assert(persisted.models.find((model) => model.id === "claude-opus-5")?.provider === "codecommand", "persisted models are provider-stamped");
+	assert(persisted.models.find((model) => model.id === "claude-opus-5")?.provider === "commandcode", "persisted models are provider-stamped");
 	// The persisted snapshot is read back by pi, so a wrong baseUrl here is a wrong URL
 	// on every later session. pi's Anthropic client appends `/v1/messages` itself.
 	const persistedAnthropic = persisted.models.find((model) => model.id === "claude-opus-5");
@@ -105,23 +105,23 @@ try {
 // committed catalog, otherwise the refresh would be undone a moment after it ran.
 const coldStore = new InMemoryCodingAgentModelsStore();
 const cold = await create(coldStore);
-cold.registerProvider("codecommand", config);
-await cold.refresh({ allowNetwork: false, providers: ["codecommand"] });
-const coldOpus = cold.getModels("codecommand").find((model) => model.id === "claude-opus-5");
+cold.registerProvider("commandcode", config);
+await cold.refresh({ allowNetwork: false, providers: ["commandcode"] });
+const coldOpus = cold.getModels("commandcode").find((model) => model.id === "claude-opus-5");
 assert(CATALOG_OPUS5_CONTEXT !== 777_777, "test premise: the live value differs from the catalog value");
 assert(
 	coldOpus?.contextWindow === 777_777,
 	`a cache-only phase keeps this process's live value (got ${coldOpus?.contextWindow}, catalog is ${CATALOG_OPUS5_CONTEXT})`,
 );
-assert(!(await coldStore.read("codecommand")), "the cache-only phase does not persist anything");
+assert(!(await coldStore.read("commandcode")), "the cache-only phase does not persist anything");
 
 // The persisted snapshot also survives a re-registration, so the catalog value never leaks back.
-runtime.registerProvider("codecommand", config);
+runtime.registerProvider("commandcode", config);
 await new Promise((resolve) => setTimeout(resolve, 50));
-const afterReregister = runtime.getModels("codecommand").find((model) => model.id === "claude-opus-5");
+const afterReregister = runtime.getModels("commandcode").find((model) => model.id === "claude-opus-5");
 assert(afterReregister?.contextWindow === 777_777, `live values survive a re-registration (got ${afterReregister?.contextWindow})`);
-assert((await store.read("codecommand")).models.find((model) => model.id === "claude-opus-5")?.contextWindow === 777_777, "the cache-only phase does not persist the catalog over the snapshot");
+assert((await store.read("commandcode")).models.find((model) => model.id === "claude-opus-5")?.contextWindow === 777_777, "the cache-only phase does not persist the catalog over the snapshot");
 
 console.log(`runtime models: ${before.length}; catalog claude-opus-5 contextWindow=${CATALOG_OPUS5_CONTEXT}`);
-console.log(`persisted models: ${(await store.read("codecommand")).models.length}`);
+console.log(`persisted models: ${(await store.read("commandcode")).models.length}`);
 console.log("OK");

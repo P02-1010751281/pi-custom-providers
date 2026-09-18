@@ -3,7 +3,13 @@
  *
  * Hand-written on purpose: `catalog.ts` is generated and holds data only, so the
  * schema lives here and the generator emits no declarations at all.
+ *
+ * The vocabulary is pi's own wherever pi has one (`api`, `baseUrl`, `headers`,
+ * `compat`, `models[]`). Four things are ours because pi has no word for them:
+ * `apis` (a second protocol endpoint), `modelsPath` (discovery path), `override`
+ * (taking over a built-in provider id) and `accounts.json`.
  */
+import type { JsonObject, ProviderDeclaration } from "./config.ts";
 
 export type CatalogThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -13,73 +19,75 @@ export type ModelCompat = Record<string, unknown>;
 export interface CatalogModel {
 	id: string;
 	name: string;
-	api?: "openai-completions" | "anthropic-messages";
+	/**
+	 * The protocol this model speaks when it is *not* the provider's effective default
+	 * one; the loader decides whether such an entry needs its own `baseUrl` too (§5.2).
+	 * Absent = the default protocol, which keeps `providers.<id>.baseUrl` able to
+	 * redirect the default endpoint.
+	 */
+	api?: string;
 	reasoning: boolean;
 	input: ("text" | "image")[];
 	contextWindow: number;
 	maxTokens: number;
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
 	thinkingLevelMap?: Partial<Record<CatalogThinkingLevel, string | null>>;
-	/**
-	 * Per-model base URL override. Set by `models.json` `models[]` entries, or derived
-	 * from `Source.anthropicBaseUrl` for models on the Anthropic wire (whose client
-	 * appends `/v1/messages` itself, see `Source.anthropicBaseUrl`).
-	 */
+	/** Per-model endpoint override (a `models.json` entry, or the loader's own stamp). */
 	baseUrl?: string;
-	/**
-	 * Merged from, lowest priority first: the whitelist absorbed from pi's built-in
-	 * catalog, `Source.compat`, a `models.json` model entry, then the `models.json`
-	 * provider-level `compat`. pi only honors per-model compat here — a provider-level
-	 * `compat` passed to `registerProvider` is dropped by `applyExtension()`.
-	 */
+	/** A whole vendor's models can share compat, but only per model entry (pi's rule). */
 	compat?: ModelCompat;
+	headers?: JsonObject;
 }
 
-export type SourceId = "codecommand" | "scnet" | "scnet-anthropic";
+/** One vendor: a built-in one from `sources.ts`, or a directory under `custom-providers/`. */
+export type VendorId = string;
 
-/**
- * A pi provider id. Deliberately not the same namespace as `SourceId`: one provider id may
- * be served by several wires when they serve the same model ids (`Source.providerId`).
- */
-export type ProviderId = string;
+/** One credential set. It only ever carries authentication — never endpoints or models. */
+export interface Account {
+	id: string;
+	/** Suffix in the display name; the account registered as the base id has none. */
+	name?: string;
+	/** pi value syntax (`$VAR` / `${VAR}` / `!command` / `$$` / `$!` / literal). */
+	apiKey?: string;
+	authHeader?: boolean;
+	headers?: JsonObject;
+}
 
-/** One reseller endpoint on one wire. It registers under `providerId ?? id`. */
-export interface Source {
-	id: SourceId;
-	/**
-	 * pi provider id to register under; defaults to `id`. Set when two wires of one vendor
-	 * serve the same model ids (SCNet): one provider id can hold a given model id only once,
-	 * so the wires are merged into one provider and the user picks the wire per model via
-	 * `models.json` (`providers.<id>.wire`). Leaving it unset keeps the wire a provider of
-	 * its own — the only shape that can switch protocol per request.
-	 */
-	providerId?: ProviderId;
+/** A validation finding, reported through `ctx.ui.notify` and the `files` command. */
+export interface LoadIssue {
+	level: "error" | "warning";
+	message: string;
+}
+
+export type VendorOrigin = "builtin" | "directory";
+
+/** A loadable vendor, whatever its origin: one provider id, one endpoint table, N accounts. */
+export interface Vendor {
+	id: VendorId;
 	name: string;
-	/** `models.json` provider keys that configure this source, its own id first. */
+	/** Other `models.json` provider keys this vendor answers to (its own id first). */
 	aliases: readonly string[];
-	baseUrl: string;
-	api: "openai-completions" | "anthropic-messages";
+	declaration: ProviderDeclaration;
+	/** Built-in vendors ship their model table; directory vendors read `<id>/models.json`. */
+	models: readonly CatalogModel[];
+	origin: VendorOrigin;
+	/** A built-in vendor's fallback account (`envVar` + `authHeader`), used when no account covers it. */
+	builtinAccount?: Account & { envVar: string };
+	/** Resolved accounts. The one that registers as `<id>` is `baseAccount`, if any. */
+	accounts: readonly Account[];
 	/**
-	 * Base URL for this source's models that speak the Anthropic wire, when it differs
-	 * from `baseUrl`. pi hands `model.baseUrl` straight to the Anthropic SDK, which
-	 * appends `/v1/messages` itself — so a gateway whose OpenAI base already ends in
-	 * `/v1` needs the shorter root here, or every Anthropic request doubles it
-	 * (measured: `POST /provider/v1/v1/messages` -> 404 "not a registered API route").
+	 * The account that registers as `<id>`. Absent means the vendor still registers the
+	 * base id but without credentials (design §3.3 ②: `/login` / `--api-key` can still
+	 * rescue it) — or, for a directory vendor with accounts but no usable `default`
+	 * pointer, that the base id is not registered at all (`baseSuppressed`).
 	 */
-	anthropicBaseUrl?: string;
-	/** Appended to baseUrl when listing models; defaults to "/models". */
-	modelsPath?: string;
-	envVar: string;
-	authHeader: boolean;
-	/**
-	 * Set when this wire belongs to the same vendor as another one: only credentials
-	 * (`apiKey` / `authHeader`) are inherited from that wire's `models.json` entry. The model
-	 * list, endpoint, wire and `compat` are not — an OpenAI-shaped compat key on the Anthropic
-	 * wire breaks it (see `INHERITED_KEYS` in `config.ts`).
-	 */
-	siblingId?: SourceId;
-	/** Wire-wide compat merged onto every model of this source (see `CatalogModel.compat`). */
-	compat?: ModelCompat;
+	baseAccount?: Account;
+	/** True when the base id must not be registered (directory vendor, accounts, no `default`). */
+	baseSuppressed?: boolean;
+	/** `provider.json` set `"override": true`: allowed to take over a built-in pi provider id. */
+	override?: boolean;
+	directory?: string;
+	issues: readonly LoadIssue[];
 }
 
 /** The subset of a `GET /models` row this package understands. */
@@ -90,3 +98,5 @@ export interface LiveModelRow {
 	contextWindow?: number;
 	supported_endpoints?: string[];
 }
+
+export type { JsonObject, ProviderDeclaration };

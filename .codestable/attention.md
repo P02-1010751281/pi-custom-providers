@@ -21,23 +21,23 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 测试
 
-- `node tests/run-all.mjs` 跑全部；单跑 `node tests/smoke.mjs` / `node tests/catalog-test.mjs` / `node tests/builtin-test.mjs` / `node tests/pi-native-test.mjs`。
+- `node tests/run-all.mjs` 跑全部（10 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `provider-files-test.mjs` / `accounts-test.mjs` / `sync-test.mjs` / `responses-test.mjs` / `pi-native-test.mjs`。
 - 测试通过 pi 自己的 jiti loader 加载 TS（见 `tests/harness.mjs`），不写 `~/.pi`；`PI_PKG` 可指定 pi 安装目录。
 - `tests/harness.mjs` 在导入被测代码前把 `PI_CODING_AGENT_DIR` 指向临时目录：不这样会被 `getAgentDir()` 带回你真实的 `~/.pi/agent/models.json`，断言会随本机配置变化（曾因此把 scnet 的 `compat` 覆盖进测试）。
 - `catalog-test.mjs` 会调用 pi-ai 的 `calculateCost()`，是「模型缺 `cost` 就崩」的回归防线。
 - `tests/pi-native-test.mjs` 用 pi 真正的 `ModelRuntime` 跑 `registerProvider → refresh → publish`，全程打桩 `fetch` + 内存 store；改动 `refreshModels`/持久化时先跑它。
-- 测试里**不要留着真 `fetch`**：一旦某段走了真网络，断言就随网速/代理时好时坏（曾出现“同一测试三次跑两样”）。每个改 `globalThis.fetch` 的段落都要在 `finally` 里恢复，包括调 `session_start` handler 的时候（它内部会发真请求）。
+- 测试里**不要留着真 `fetch`**：一旦某段走了真网络，断言就随网速/代理时好时坏（曾出现“同一测试三次跑两样”）。每个改 `globalThis.fetch` 的段落都要在 `finally` 里恢复。`harness.mjs` 的 `sessionStart()` 已内置「离线 fetch」包装（`session_start` 会发真请求）；想测在线刷新就自己打桩后直接调 `provider.refreshModels({allowNetwork:true,...})`。
+- `harness.mjs` 的 `startExtension()` 是唯一入口：写 `agentPath("models.json")` / `agentPath("custom-providers", "<id>", ...)` 之后再调它。jiti 的 `moduleCache:false` 让每次 `loadTs` 都是新实例，所以「发现结果 memo」要在**同一个** `startExtension()` 返回值上触发（`ext.providers.get(id).refreshModels(...)`），另起一个实例看不到。
 
 ### 命令与脚本陷阱
 
 - `node scripts/refresh-catalog.mjs` 会重写 `catalog.ts`；先 `--dry-run` 看增删改。CodeCommand `/models` 偶发 TLS/http2 失败（脚本会重试，但整次运行仍可能中止且不写文件）；重跑即可，不要在半途手动改 `catalog.ts`。
-- 脚本不再自己维护端点表：它 import `extensions/custom-providers/{sources,env}.ts`（经 jiti）。改 baseUrl/envVar 就只改 `sources.ts`；被 import 的模块必须保持无依赖（`types.ts`/`sources.ts`/`env.ts`），否则脚本需要 pi 的 alias map。
+- 脚本不再自己维护端点表：它 import `extensions/custom-providers/{sources,env,builtin}.ts`（经 jiti，带 `@earendil-works/pi-ai` → compat 的 alias）。`sources.ts` 现在是**vendor 表**：`{ id, name, aliases, declaration: { api, baseUrl, modelsPath, apis } }`，生成器对 `declaration.api` + 每个 `apis.<api>` 各探一次（`ENDPOINTS`），合并时默认端点胜。改 baseUrl/envVar 只改 `sources.ts`。
+- 「能力权威」不在这处重复实现：`reasoning`/`input`/`thinkingLevelMap` 都走 `builtin.ts` 的 `capabilityAuthority()` / `builtinLevelMap()`（生成器与运行期 `drift` 共用一份），所以 `drift` 里 `reasoning`/`input` 恒为 0；若哪天不为 0，说明 catalog 过期，重新生成即可。
 - 脚本只写数据：schema 在 `types.ts`，生成物只有 `import type` + `CATALOG`。改字段要先改 `types.ts` 再改脚本里的 `freshModel`/`serialize` 字段表，两边不同步就会静默丢字段。
-- 生成的 `catalog.ts` 中 `scnet-anthropic` 作为对象键必须带引号（含连字符），手改时注意。
+- `catalog.ts` 现在按 **vendor** 键（`commandcode` / `scnet`）分块，`Record<VendorId, CatalogModel[]>`；`scnet-anthropic` 这个键已经不存在（Anthropic 端点是 `apis."anthropic-messages"`）。
 - `probeCaps()` 读的是能力页内嵌的 RSC（flight）数据，键名按**去日期后缀 + 小写**对齐（文档 `claude-haiku-4-5` vs 注册表 `claude-haiku-4-5-20251001`）。归一化前这类 id 会静默沿用旧值。键名对不上、以及内嵌数据与渲染表格自相矛盾，现在都会在脚本输出里列出来。
 - CodeCommand `/models` 首次请求可能 TLS 重置，脚本已内建重试；断言失败前先重试。
-- 生成的 `catalog.ts` 中 `scnet-anthropic` 作为对象键必须带引号（含连字符），手改时注意。
-
 ### 路径与目录约定
 
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写，生成器也 import）、`config.ts` models.json 层 + 兄弟线继承、`env.ts` .env 解析（扩展与脚本共用）、`catalog.ts` 生成的数据、`builtin.ts` 内置目录交叉校验与 compat 吸收、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。
@@ -86,3 +86,11 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `scripts/refresh-catalog.mjs --dry-run` **需要网络**且会依次探测所有线：`commandcode.ai` 连不上时直接抛 `ConnectTimeoutError` 退出，这是网络问题而不是幂等失败，别误判成目录漂移。
 - **缺凭据不会在注册时抛错**（本机实测，修正早先推断）：`composeModelProvider` 里那句 `no authentication method configured` 实际几乎不可达（`composeApiKeyAuth` 在「无 key 且无 oauth」时仍返回对象而非 `undefined`）。真实后果：该 provider 的模型**不进可用快照**（`configuredProviders` 不含它 → picker 里看不到，实测 `getAvailableSnapshot()` = 0）；请求时 `authHeader: true` 报 `No API key found for "<id>"`，`authHeader: false` 则**不带 `Authorization` 静默发出**（网关 401）。所以「无凭据的账号不注册 + 启动时报告」是扩展主动选择，不是 pi 逼的。
 - **实测（`ModelRuntime` 真运行时）**：模型条目自带 `api`+`baseUrl`、provider 级什么都不给，注册与 `getModels()` 都正常（provider 级只是 fallback）；模型条目上的未知键 `wire` 会被 pi **原样保留**（`{...definition, api, provider, baseUrl, headers: undefined}` 是展开拷贝）；`ModelRuntime.create(...)` 返回 **Promise**，忘了 `await` 会得到 `registerProvider is not a function`。
+
+### 引擎行为（v4.0）
+
+- 四个自有词汇之外全部是 pi 的字段：`apis`(第二协议端点) / `modelsPath`(发现路径) / `override`(接管内置 id) / `accounts.json`。协议用 pi 的 `api` 值，别名（`openai`/`chat`、`anthropic`/`messages`、`responses`）在加载时归一。
+- 落端点规则：默认协议上的模型**不带** `api`/`baseUrl`（保住 `providers.<id>.baseUrl` 的重定向能力）；非默认协议两者都带，名字加 ` (协议)`。实现见 `config.ts` 的 `resolveModelEndpoint()`，别在别处再写一套。
+- 写盘只有两条且都在明面上：`sync --write`（先留 `.bak`，写基底 ⊕ 发现）与 pi 自己的 `models-store.json` 缓存。扩展永不写 `models.json`。
+- 报告一律走 `ctx.ui.notify` 并裁剪（8 行 + `(+N more)`）；扩展**不写 stderr**。
+- 目录名撞内置 vendor 的 `aliases`（如同时有 `commandcode/` 与 `codecommand/`）会跳过后者并报告：两个目录会争同一个 provider 的配置。

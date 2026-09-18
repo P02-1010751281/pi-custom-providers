@@ -93,3 +93,50 @@ export async function loadTs(relativePath) {
 export function assert(condition, message) {
 	if (!condition) throw new Error(`FAIL: ${message}`);
 }
+
+/** The temp agent dir every test writes into (`PI_CODING_AGENT_DIR`). */
+export const AGENT_DIR = process.env.PI_CODING_AGENT_DIR;
+
+/** Absolute path of a file under the temp agent dir. */
+export const agentPath = (...parts) => path.join(AGENT_DIR, ...parts);
+
+/**
+ * Load the extension with a stub pi and hand back what it registered. Tests write their
+ * `models.json` / `custom-providers/<id>/...` into the temp agent dir first, so this is the
+ * one entry point for "what would pi see with this configuration".
+ */
+export async function startExtension() {
+	const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
+	const providers = new Map();
+	const events = new Map();
+	const commands = new Map();
+	const notifications = [];
+	const pi = {
+		on: (event, handler) => events.set(event, handler),
+		registerCommand: (name, options) => commands.set(name, options),
+		registerProvider: (id, config) => providers.set(id, config),
+		registerFlag: () => {},
+		registerShortcut: () => {},
+		registerTool: () => {},
+		getFlag: () => undefined,
+	};
+	await factory(pi);
+	const notify = (message, level) => notifications.push({ message, level });
+	/**
+	 * `session_start` refreshes live, so tests run it with fetch offline unless they stub it
+	 * themselves: the suite must never depend on the network. Tests that want a fetch result
+	 * call `refreshModels` with their own stub instead.
+	 */
+	const sessionStart = async (ctx = {}) => {
+		const real = globalThis.fetch;
+		globalThis.fetch = async () => {
+			throw new Error("offline test");
+		};
+		try {
+			return await events.get("session_start")?.({}, { hasUI: true, ui: { notify }, ...ctx });
+		} finally {
+			globalThis.fetch = real;
+		}
+	};
+	return { providers, events, commands, notifications, notify, sessionStart };
+}

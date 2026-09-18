@@ -29,7 +29,7 @@ const pi = {
 };
 await factory(pi);
 
-for (const id of ["codecommand", "scnet"]) {
+for (const id of ["commandcode", "scnet"]) {
 	assert(providers.has(id), `registered provider ${id}`);
 	const config = providers.get(id);
 	const models = config.models;
@@ -54,7 +54,7 @@ assert(!providers.has("scnet-anthropic"), "the Anthropic wire is not a provider 
 assert(providers.get("scnet").models.length === 19, `the merged provider holds the union of both wires (got ${providers.get("scnet").models.length})`);
 assert(providers.get("scnet").models.every((model) => model.api !== "anthropic-messages"), "without configuration every SCNet model keeps the OpenAI wire");
 assert(
-	providers.get("codecommand").models.find((model) => model.id === "claude-sonnet-5").baseUrl === "https://api.commandcode.ai/provider",
+	providers.get("commandcode").models.find((model) => model.id === "claude-sonnet-5").baseUrl === "https://api.commandcode.ai/provider",
 	"codecommand's Anthropic models are pointed at the route prefix without /v1",
 );
 

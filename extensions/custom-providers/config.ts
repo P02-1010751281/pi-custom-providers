@@ -1,71 +1,167 @@
 /**
- * The `models.json` layer (read-only): pi's user-config override surface.
+ * Two layers of user configuration, both read-only:
  *
- * Only two things are read from it — provider-level settings and a `models[]` array —
- * and both are re-applied here because pi's own merge cannot reach models that an
- * extension registers: `applyExtension()` rebuilds every declared model from the
- * extension definition alone, so a `models.json` compat block or model entry for one
- * of these providers is dropped before it is composed.
+ *   1. The api vocabulary — pi's built-in protocol ids and our aliases for them. The
+ *      endpoint a model lands on is decided here (§5.1/§5.2): the model's own `api`
+ *      wins, otherwise the *effective default* api = `providers.<id>.api` ??
+ *      `provider.json.api`, exactly like pi's own `model.api ?? provider.api`.
+ *   2. pi's global `models.json` — provider-level settings and a `models[]` array, both
+ *      re-applied here because pi's merge cannot reach models that an extension
+ *      registers: `applyExtension()` rebuilds every declared model from the extension
+ *      definition alone, so a `models.json` compat block or model entry for one of these
+ *      providers is dropped before it is composed.
+ *
+ * `models.json` stays read-only: this package writes user files only through
+ * `custom-providers sync --write` (`sync-models.ts`).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { Source } from "./types.ts";
 
 export type JsonObject = Record<string, any>;
 
 const isObject = (value: unknown): value is JsonObject => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
- * Keys a source may inherit from its sibling wire. Credentials are vendor-wide (SCNet's
- * two wires share one key). Everything else is wire-specific and must NOT be inherited:
- * `models` would register OpenAI-only ids on the Anthropic wire, `baseUrl`/`api` would
- * point requests at the wrong endpoint, and `compat` flags describe one wire's request
- * shape — they belong under that wire's own `models.json` entry.
+ * pi's built-in protocol ids — `BUILTIN_APIS` in `pi-ai/dist/compat.js:108`, which is a
+ * private const pair-list, so the ids are repeated here. `tests/apis-test.mjs` asserts
+ * this list against the registry pi actually populates (`getApiProviders()`), so a pi
+ * build that adds or drops one fails a test instead of silently rejecting a protocol.
+ * Registering or requesting any of them is pi's own job; nothing here implements one.
  */
-const INHERITED_KEYS = ["apiKey", "authHeader"] as const;
+export const BUILTIN_APIS = [
+	"anthropic-messages",
+	"openai-completions",
+	"openai-responses",
+	"openai-codex-responses",
+	"azure-openai-responses",
+	"google-generative-ai",
+	"google-vertex",
+	"mistral-conversations",
+	"bedrock-converse-stream",
+	"pi-messages",
+] as const;
 
 /**
- * Wire names accepted in `models.json`: the short protocol name and pi's own `api` id.
- * Anything else is passed through unchanged so a typo is reported rather than ignored.
+ * Accepted spellings, lowercased: three short names plus pi's ids themselves (a
+ * differently-cased pi id is a typo, not a different protocol). Anything else is
+ * reported and skipped rather than passed through — pi would only fail later, at
+ * registration, with a message that does not name the file it came from.
  */
-export function normalizeWire(value: unknown): string | undefined {
+const API_ALIASES: Record<string, string> = {
+	openai: "openai-completions",
+	chat: "openai-completions",
+	anthropic: "anthropic-messages",
+	messages: "anthropic-messages",
+	responses: "openai-responses",
+};
+
+/** Resolve one `api` value to a pi protocol id, or undefined when pi has no such protocol. */
+export function normalizeApi(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
-	const wire = value.trim().toLowerCase();
-	if (wire === "openai" || wire === "openai-completions" || wire === "chat") return "openai";
-	if (wire === "anthropic" || wire === "anthropic-messages" || wire === "messages") return "anthropic";
-	return wire.length > 0 ? wire : undefined;
+	const api = value.trim().toLowerCase();
+	if (api.length === 0) return undefined;
+	const resolved = API_ALIASES[api] ?? api;
+	return (BUILTIN_APIS as readonly string[]).includes(resolved) ? resolved : undefined;
 }
 
-/** Wire preference for one provider: a default, plus per-model entries that win over it. */
-export type WireSelection = { default?: string; models: Record<string, string> };
+/** One endpoint of one vendor: a protocol plus where it lives. */
+export interface Endpoint {
+	api: string;
+	baseUrl: string;
+	/** Path appended to `baseUrl` when listing models; absent = no discovery for this endpoint. */
+	modelsPath?: string;
+	headers?: JsonObject;
+}
 
 /**
- * Read the wire selection of one provider entry. Two accepted shapes:
- *
- *     "wire": "anthropic"                                            // whole provider
- *     "wire": { "default": "anthropic", "models": { "MiniMax-M2.5": "openai" } }
- *
- * `wire` is this package's own provider key, not pi's: pi validates `models.json`
- * type-strictly but tolerates unknown provider keys (measured), so nothing has to change on
- * pi's side for this to be read.
+ * The endpoint table of one vendor, in pi's own vocabulary: `api` + `baseUrl` is the
+ * default endpoint, `apis` holds every additional protocol endpoint (key = pi api id).
  */
-export function wireSelectionFor(providerConfig: JsonObject): WireSelection {
-	const raw = providerConfig.wire;
-	if (typeof raw === "string") {
-		const fallback = normalizeWire(raw);
-		return { ...(fallback ? { default: fallback } : {}), models: {} };
+export interface ProviderDeclaration {
+	api: string;
+	baseUrl: string;
+	modelsPath?: string;
+	headers?: JsonObject;
+	apis: Record<string, Omit<Endpoint, "api">>;
+}
+
+/** The endpoint table a model lands on, plus what must be stamped on its entry. */
+export interface EndpointChoice {
+	endpoint: Endpoint;
+	/** Stamp `api` on the model entry: it is not on the effective default protocol. */
+	stampApi: boolean;
+	/** Stamp `baseUrl`: the model has its own, or its protocol is not the default one. */
+	stampBaseUrl: boolean;
+}
+
+/**
+ * Decide a model's endpoint (design §5.1/§5.2). Two steps, no preference chain:
+ *
+ *   1. the model's own `api` when it names a pi protocol, else the effective default;
+ *   2. that protocol's declared endpoint — `apis.<api>` for a non-default protocol.
+ *
+ * A model on the default protocol gets neither `api` nor `baseUrl` stamped (unless it
+ * carries its own `baseUrl`), which keeps `providers.<id>.baseUrl` able to redirect the
+ * default endpoint. A model on another protocol gets both, or pi would speak the default
+ * protocol to the right host. When no endpoint can be resolved for a declared protocol
+ * the model falls back to the default one and the caller reports it.
+ */
+export function resolveModelEndpoint(
+	decl: ProviderDeclaration,
+	layer: JsonObject,
+	model: { id: string; api?: unknown; baseUrl?: unknown },
+): EndpointChoice & { issues: string[] } {
+	const issues: string[] = [];
+	if (layer.api !== undefined && normalizeApi(layer.api) === undefined) {
+		issues.push(`providers api ${JSON.stringify(layer.api)} is not a pi api; using "${decl.api}"`);
 	}
-	if (!isObject(raw)) return { models: {} };
-	const models: Record<string, string> = {};
-	if (isObject(raw.models)) {
-		for (const [id, value] of Object.entries(raw.models)) {
-			const wire = normalizeWire(value);
-			if (wire) models[id] = wire;
-		}
+	const defaultApi = normalizeApi(layer.api) ?? decl.api;
+	const layerBaseUrl = typeof layer.baseUrl === "string" && layer.baseUrl.length > 0 ? layer.baseUrl : undefined;
+	const declared = (api: string): Endpoint | undefined => {
+		if (api === decl.api) return { api, baseUrl: decl.baseUrl, ...(decl.modelsPath ? { modelsPath: decl.modelsPath } : {}), ...(decl.headers ? { headers: decl.headers } : {}) };
+		const extra = decl.apis[api];
+		return extra ? { api, ...extra } : undefined;
+	};
+
+	// The default endpoint: the declared one, unless the user's layer moved the default
+	// protocol (a flipped default keeps its own `apis.<api>` endpoint) or redirected it.
+	let defaultEndpoint = declared(defaultApi);
+	if (!defaultEndpoint) {
+		const moved = declared(decl.api);
+		issues.push(`no endpoint for the default api "${defaultApi}"; using "${decl.api}"`);
+		defaultEndpoint = { ...(moved ?? { api: decl.api, baseUrl: decl.baseUrl }), api: decl.api };
 	}
-	const fallback = normalizeWire(raw.default);
-	return { ...(fallback ? { default: fallback } : {}), models };
+	const defaultBaseUrl = layerBaseUrl ?? defaultEndpoint.baseUrl;
+
+	const requestedApi = normalizeApi(model.api);
+	if (requestedApi === undefined && model.api !== undefined) {
+		issues.push(`${model.id}: api ${JSON.stringify(model.api)} is not a pi api; using "${defaultApi}"`);
+	}
+	const api = requestedApi ?? defaultApi;
+	const own = typeof model.baseUrl === "string" && model.baseUrl.length > 0 ? model.baseUrl : undefined;
+
+	if (api === defaultApi) {
+		return {
+			endpoint: { api: defaultApi, baseUrl: own ?? defaultBaseUrl, ...(defaultEndpoint.modelsPath ? { modelsPath: defaultEndpoint.modelsPath } : {}), ...(defaultEndpoint.headers ? { headers: defaultEndpoint.headers } : {}) },
+			stampApi: false,
+			stampBaseUrl: own !== undefined,
+			issues,
+		};
+	}
+
+	const endpoint = declared(api);
+	const baseUrl = own ?? endpoint?.baseUrl ?? layerBaseUrl;
+	if (!baseUrl) {
+		issues.push(`${model.id}: no endpoint for api "${api}" (declare it under "apis" or set "baseUrl"); using "${defaultApi}"`);
+		return { endpoint: { api: defaultApi, baseUrl: defaultBaseUrl }, stampApi: false, stampBaseUrl: false, issues };
+	}
+	return {
+		endpoint: { api, baseUrl, ...(endpoint?.modelsPath ? { modelsPath: endpoint.modelsPath } : {}), ...(endpoint?.headers ? { headers: endpoint.headers } : {}) },
+		stampApi: true,
+		stampBaseUrl: true,
+		issues,
+	};
 }
 
 /**
@@ -90,11 +186,25 @@ export function readModelsConfig(): { config: JsonObject; issue?: string } {
 	}
 }
 
-/** Provider settings for a source: its own `models.json` entry over its sibling's. */
-export function sourceConfigFor(source: Source, config: JsonObject): JsonObject {
+/**
+ * The user's `providers.<id>` entry. `aliases` are the other keys the same vendor answers
+ * to (a renamed provider id keeps reading the old key), in priority order after its own id.
+ */
+export function providerLayerFor(id: string, aliases: readonly string[], config: JsonObject): JsonObject {
 	const providers = isObject(config.providers) ? config.providers : {};
-	const explicit = source.aliases.map((alias) => providers[alias]).find(isObject) ?? {};
-	const sibling = source.siblingId && isObject(providers[source.siblingId]) ? (providers[source.siblingId] as JsonObject) : {};
-	const inherited = Object.fromEntries(INHERITED_KEYS.filter((key) => sibling[key] !== undefined).map((key) => [key, sibling[key]]));
-	return { ...inherited, ...explicit };
+	return [id, ...aliases].map((key) => providers[key]).find(isObject) ?? {};
+}
+
+/**
+ * Apply one `models.json` entry onto a base model. Every field is a patch: what the entry
+ * writes wins, what it omits keeps the base value (pi's own `modelOverrides` semantics).
+ * `apiKey` / `authHeader` / `models` are provider-level fields, not model fields.
+ */
+export function applyModelPatch(base: JsonObject, row: JsonObject): JsonObject {
+	const patch: JsonObject = {};
+	for (const [key, value] of Object.entries(row)) {
+		if (key === "id" || key === "provider" || value === undefined || value === null) continue;
+		patch[key] = value;
+	}
+	return { ...base, ...patch };
 }
