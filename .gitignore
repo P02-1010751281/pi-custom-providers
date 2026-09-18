@@ -1,0 +1,5 @@
+node_modules/
+*.log
+.DS_Store
+# pi-project-context session archives (session-local state, same convention as the sibling repos)
+.agents/
