@@ -16,7 +16,7 @@ const compat = await (await loader()).import("@earendil-works/pi-ai");
 
 const SCNet = SOURCES.find((vendor) => vendor.id === "scnet");
 const SCNetAnthropic = SCNet.declaration.apis["anthropic-messages"].baseUrl;
-const CommandCodeAnthropic = SOURCES.find((vendor) => vendor.id === "commandcode").declaration.apis["anthropic-messages"].baseUrl;
+const anthropicMessagesBaseUrl = SOURCES.find((vendor) => vendor.id === "commandcode").declaration.apis["anthropic-messages"].baseUrl;
 
 // --- the built-in api vocabulary ----------------------------------------------
 // `BUILTIN_APIS` is a private const in pi, so our copy is asserted against the registry pi
@@ -56,7 +56,7 @@ assert(scnet.models.length === 19, `the vendor's model list is the union of both
 assert(scnet.models.every((model) => model.api === undefined), "without configuration no SCNet model carries an api (they are all on the default endpoint)");
 assert(scnet.models.every((model) => model.baseUrl === undefined), "and none carries a baseUrl");
 assert(scnet.models.every((model) => model.cost && typeof model.cost.input === "number"), "every model carries cost");
-assert(plain.providers.get("commandcode").models.find((model) => model.id === "claude-sonnet-5").baseUrl === CommandCodeAnthropic, "a model whose default endpoint cannot serve it is pointed at the declared endpoint");
+assert(plain.providers.get("commandcode").models.find((model) => model.id === "claude-sonnet-5").baseUrl === anthropicMessagesBaseUrl, "a model whose default endpoint cannot serve it is pointed at the declared endpoint");
 
 // --- moving one model to the vendor's second protocol endpoint -----------------
 writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { models: [{ id: "GLM-5.2", api: "anthropic-messages" }] } } }));

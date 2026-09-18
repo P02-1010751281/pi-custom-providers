@@ -315,7 +315,7 @@
 
 ⇒ 结论：**只有 `modelOverrides` / `apiKey` / `headers` / `authHeader` 四项还能从 models.json 流入我们的 provider**；其余全部靠我们复刻。
 
-**id 拼写**：provider id = `commandcode`（域名 commandcode.ai），`aliases = ["codecommand", "codegoat"]`（既有全局 `models.json` 的 `providers.codecommand` 继续生效）；显示名 `CommandCode (GOAT)`；`CMD_API_KEY` 不变。已知边界：pi 只按**注册 id** 找 `modelOverrides` ⇒ `providers.codecommand.modelOverrides` 失效，发现即报。
+**id 拼写**：provider id = `commandcode`（域名 commandcode.ai），`aliases = ["codecommand", "codegoat"]`（既有全局 `models.json` 的 `providers.codecommand` 继续生效）；显示名 `Command Code (GOAT)`；`CMD_API_KEY` 不变。已知边界：pi 只按**注册 id** 找 `modelOverrides` ⇒ `providers.codecommand.modelOverrides` 失效，发现即报。
 
 ## 9. 命令
 
@@ -457,7 +457,7 @@
 15. 已删概念不保留兼容：`wires` / `wire` / `siblingId` / `anthropicBaseUrl` / `providers.<id>.wire`（实测本机配置无 `wire` 键）。
 16. `oauth` / `streamSimple` / `refreshModels` 不支持（报告）。
 17. pi 全局 `models.json` 的 provider 级 `compat` 只贴**有效默认协议**上的模型（§4/§5.3）—— 这是对 pi 原义的**刻意偏离**：`applyModelsJson` 把 `config.compat` 合进**每一条** base 模型（不分协议），而把 OpenAI 系 compat 贴到用户搬到 Anthropic 端点的模型上属无意义的跨族搬运，也与 §5.3「跨协议键只报不改」自相矛盾。
-18. **能力元数据（`reasoning` / `input`）的权威 = 官方 / pi 内置目录**（用户 2026-09-18 裁决）。实测三条中转线的 `/models` 都不发能力字段（codecommand 只给 `id/name/context_length/supported_endpoints`；scnet 的 OpenAI 形只有 `id/object/ownedBy`；其 Anthropic 形 `capabilities` 18 行全 `null`），CodeCommand 的能力页自己就自相矛盾（embedded vision=false / rendered vision=true），而 pi 内置目录对同一 id 跨 provider **一致**（少数第三方托管点的孤立异议被多数票压过）。⇒ 生成器写 `catalog.ts` 时按此优先级逐字段定：**内置目录（按 `normalizeModelId` 归一后多数票）→ 能力页 embedded → 旧值**；页面/旧值与内置不一致时**报告**。`maxTokens` / `contextWindow` **不在**此列（仍代理权威、只报不自动应用：中转线会截断，高报会 400）。**`thinkingLevelMap` 的例外边界**（用户 2026-09-18 追加裁决「按 pi 的来」）：只取 **anthropic 协议线**的内置映射——那里映射的是 Anthropic 自己的 adaptive-effort 档位（哪些档存在、`off: null` = 关不掉思考），是**模型事实**，跨端点可搬；OpenAI 形线的 effort 词表是**网关自定义**（同一 id 在 9 个托管点有 9 种映射：`off:"none"` / `minimal:null` …），照搬别的网关的映射会发出端点不认的值 ⇒ 不用、只报。实测：机械套用「同协议内置多数票」会命中 75 行，其中约 40 行是「内置无映射」，套用等于**删掉**我们的映射（pi 沉默 ≠ 无档位）；另有整行只有单一第三方托管点（openrouter/vercel）一票——与 `mimo-v2.5` 的孤立异议同类，不采信。实际落地 6 行（`claude-sonnet-5`/`sonnet-4-6`/`fable-5`/`fable-5-1`/`opus-4-8`/`opus-4-7`；`claude-opus-5` 内置平票 → 保留并报告）。`cost` 仍保留旧值。
+18. **能力元数据（`reasoning` / `input`）的权威 = 官方 / pi 内置目录**（用户 2026-09-18 裁决）。实测三条中转线的 `/models` 都不发能力字段（codecommand 只给 `id/name/context_length/supported_endpoints`；scnet 的 OpenAI 形只有 `id/object/ownedBy`；其 Anthropic 形 `capabilities` 18 行全 `null`），Command Code 的能力页自己就自相矛盾（embedded vision=false / rendered vision=true），而 pi 内置目录对同一 id 跨 provider **一致**（少数第三方托管点的孤立异议被多数票压过）。⇒ 生成器写 `catalog.ts` 时按此优先级逐字段定：**内置目录（按 `normalizeModelId` 归一后多数票）→ 能力页 embedded → 旧值**；页面/旧值与内置不一致时**报告**。`maxTokens` / `contextWindow` **不在**此列（仍代理权威、只报不自动应用：中转线会截断，高报会 400）。**`thinkingLevelMap` 的例外边界**（用户 2026-09-18 追加裁决「按 pi 的来」）：只取 **anthropic 协议线**的内置映射——那里映射的是 Anthropic 自己的 adaptive-effort 档位（哪些档存在、`off: null` = 关不掉思考），是**模型事实**，跨端点可搬；OpenAI 形线的 effort 词表是**网关自定义**（同一 id 在 9 个托管点有 9 种映射：`off:"none"` / `minimal:null` …），照搬别的网关的映射会发出端点不认的值 ⇒ 不用、只报。实测：机械套用「同协议内置多数票」会命中 75 行，其中约 40 行是「内置无映射」，套用等于**删掉**我们的映射（pi 沉默 ≠ 无档位）；另有整行只有单一第三方托管点（openrouter/vercel）一票——与 `mimo-v2.5` 的孤立异议同类，不采信。实际落地 6 行（`claude-sonnet-5`/`sonnet-4-6`/`fable-5`/`fable-5-1`/`opus-4-8`/`opus-4-7`；`claude-opus-5` 内置平票 → 保留并报告）。`cost` 仍保留旧值。
 
 ### 已答复（2026-09-18）
 

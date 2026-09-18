@@ -35,7 +35,7 @@ export const SOURCES: readonly BuiltinVendor[] = [
 		// id = the domain, not the product nickname: `ai` in the old id was ours, and the
 		// `commandcode` spelling keeps reading the existing `providers.codecommand` block.
 		id: "commandcode",
-		name: "CommandCode (GOAT)",
+		name: "Command Code (GOAT)",
 		aliases: ["codecommand", "codegoat"],
 		declaration: {
 			/**

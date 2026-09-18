@@ -31,13 +31,13 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 命令与脚本陷阱
 
-- `node scripts/refresh-catalog.mjs` 会重写 `catalog.ts`；先 `--dry-run` 看增删改。CodeCommand `/models` 偶发 TLS/http2 失败（脚本会重试，但整次运行仍可能中止且不写文件）；重跑即可，不要在半途手动改 `catalog.ts`。
+- `node scripts/refresh-catalog.mjs` 会重写 `catalog.ts`；先 `--dry-run` 看增删改。Command Code `/models` 偶发 TLS/http2 失败（脚本会重试，但整次运行仍可能中止且不写文件）；重跑即可，不要在半途手动改 `catalog.ts`。
 - 脚本不再自己维护端点表：它 import `extensions/custom-providers/{sources,env,builtin}.ts`（经 jiti，带 `@earendil-works/pi-ai` → compat 的 alias）。`sources.ts` 现在是**vendor 表**：`{ id, name, aliases, declaration: { api, baseUrl, modelsPath, apis } }`，生成器对 `declaration.api` + 每个 `apis.<api>` 各探一次（`ENDPOINTS`），合并时默认端点胜。改 baseUrl/envVar 只改 `sources.ts`。
 - 「能力权威」不在这处重复实现：`reasoning`/`input`/`thinkingLevelMap` 都走 `builtin.ts` 的 `capabilityAuthority()` / `builtinLevelMap()`（生成器与运行期 `drift` 共用一份），所以 `drift` 里 `reasoning`/`input` 恒为 0；若哪天不为 0，说明 catalog 过期，重新生成即可。
 - 脚本只写数据：schema 在 `types.ts`，生成物只有 `import type` + `CATALOG`。改字段要先改 `types.ts` 再改脚本里的 `freshModel`/`serialize` 字段表，两边不同步就会静默丢字段。
 - `catalog.ts` 现在按 **vendor** 键（`commandcode` / `scnet`）分块，`Record<VendorId, CatalogModel[]>`；`scnet-anthropic` 这个键已经不存在（Anthropic 端点是 `apis."anthropic-messages"`）。
 - `probeCaps()` 读的是能力页内嵌的 RSC（flight）数据，键名按**去日期后缀 + 小写**对齐（文档 `claude-haiku-4-5` vs 注册表 `claude-haiku-4-5-20251001`）。归一化前这类 id 会静默沿用旧值。键名对不上、以及内嵌数据与渲染表格自相矛盾，现在都会在脚本输出里列出来。
-- CodeCommand `/models` 首次请求可能 TLS 重置，脚本已内建重试；断言失败前先重试。
+- Command Code `/models` 首次请求可能 TLS 重置，脚本已内建重试；断言失败前先重试。
 ### 路径与目录约定
 
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写，生成器也 import）、`config.ts` models.json 层 + 兄弟线继承、`env.ts` .env 解析（扩展与脚本共用）、`catalog.ts` 生成的数据、`builtin.ts` 内置目录交叉校验与 compat 吸收、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。
@@ -46,14 +46,14 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 环境变量与凭证
 
-- `CMD_API_KEY`（CodeCommand）、`SCNET_API_KEY`（SCNet 两条线）。
+- `CMD_API_KEY`（Command Code）、`SCNET_API_KEY`（SCNet 两条线）。
 - 启动时从 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐，已存在的环境变量不覆盖。
 - 仓库与 README 不写密钥。
-- CodeCommand 账号受限（2026-09-18 实测）：claude 系列全部 `MODEL_NOT_IN_PLAN`，部分 OpenAI 线模型 `insufficient credits`，所以目录里 claude 的 `reasoning`/`input` 只能在升级计划后实测。
+- Command Code 账号受限（2026-09-18 实测）：claude 系列全部 `MODEL_NOT_IN_PLAN`，部分 OpenAI 线模型 `insufficient credits`，所以目录里 claude 的 `reasoning`/`input` 只能在升级计划后实测。
 
 ### 其他
 
-- **Anthropic 线的 baseUrl 不能带 `/v1`**：pi 把 `model.baseUrl` 原样交给 Anthropic SDK，SDK 自己拼 `/v1/messages`（`anthropic-messages.js` 里 `new Anthropic({ baseURL: model.baseUrl })`，无任何归一化）。CodeCommand 的 OpenAI 线是 `/provider/v1`、Anthropic 线是 `/provider`，差异写在 `sources.ts` 的 `anthropicBaseUrl`，注册时按模型 `api` 贴 `baseUrl`。实测：`/provider/v1/messages` → 403 `MODEL_NOT_IN_PLAN`（路由存在），`/provider/v1/v1/messages` → 404。pi 自带目录同规律（`opencode`: `/zen/v1` vs `/zen`）。
+- **Anthropic 线的 baseUrl 不能带 `/v1`**：pi 把 `model.baseUrl` 原样交给 Anthropic SDK，SDK 自己拼 `/v1/messages`（`anthropic-messages.js` 里 `new Anthropic({ baseURL: model.baseUrl })`，无任何归一化）。Command Code 的 OpenAI 线是 `/provider/v1`、Anthropic 线是 `/provider`，差异写在 `sources.ts` 的 `anthropicBaseUrl`，注册时按模型 `api` 贴 `baseUrl`。实测：`/provider/v1/messages` → 403 `MODEL_NOT_IN_PLAN`（路由存在），`/provider/v1/v1/messages` → 404。pi 自带目录同规律（`opencode`: `/zen/v1` vs `/zen`）。
 - `models-store.json` 里可能残留旧的（错误的）`baseUrl`：实测扩展注册的模型优先，脏快照不影响请求路径，下一次 `pi update --models` 会写回正确值（`session_start` 的刷新不写盘，因为走的是 `allowNetwork:false` 的 `registerProvider` 离线轮）。
 - 验证请求路径的手段：把部署副本的 baseUrl 临时改成本地 mock（`/tmp/mock-gateway.mjs` 模式），`pi -p --no-tools --provider X --model Y` 跑一次，mock 会打出手里的真实路径（实测会看到 `POST /provider/v1/messages?beta=true`——`client.beta.messages` 会再加 `?beta=true`）。比读源码猜可靠。
 - 用真请求验证网关时的坑：**403/40x 与 404 要分开读**——403 `MODEL_NOT_IN_PLAN` 说明路由存在、是账号计划问题；404 + `cause` 里写着具体 URL 才是路径错。选 URL 的代码不要把“非 200”当成“路径不对”，否则后续探针全打在错路径上（本次就踩过）。
@@ -67,7 +67,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - **坑**：omp 的 provider 字段不是 pi 的字段。`disableStrictTools` / `replayUnsignedThinking`（来自 `~/.omp/agent/models.yml`）在整个 pi 包里没有任何读取点，抄进扩展只是死配置；写 provider 选项前先在 `$PI/dist` 里 grep 字段名。
 - **坑**：UPPER_SNAKE 的明文值一律当**环境变量名**。`resolveApiKey` 旧实现变量未设置时会 `return value`，把变量名当密钥发出去（表现为莫名 401）。`apiKeyConfig` 与 `resolveApiKey` 必须保持同一判定。
 - `claude-haiku-4-5-20251001` 的 `reasoning` 现为 `false`（能力页不标 Reasoning），因为键名对齐后能力页才真正生效。如实测确认支持 thinking，改回 `true` 并补 `thinkingLevelMap`。
-- CodeCommand 能力页（https://commandcode.ai/docs/reference/cli/models）**自相矛盾且相对实时注册表陈旧**，不要单看渲染出来的表格：
+- Command Code 能力页（https://commandcode.ai/docs/reference/cli/models）**自相矛盾且相对实时注册表陈旧**，不要单看渲染出来的表格：
   - 同一次抓取里，内嵌 flight 数据与渲染表格的 `aria-label` 只在 `claude-sonnet-5` 上不一致（flight `vision=false`、表格写 `Text input, Vision, Reasoning`）。
   - 两种视图都还挂着已不在实时注册表的 `gpt-6-astra` 和旧 id `claude-haiku-4-5`；flight 另缺 `deepseek/deepseek-v4-flash`。
   - 因此能力页只能当**弱证据**：68/70 与目录一致，2 个（`claude-haiku-4-5-20251001`、`deepseek/deepseek-v4-flash`）因 id 对不上而实际未采信。

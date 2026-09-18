@@ -2,7 +2,7 @@
  * GENERATED FILE — do not edit by hand.
  *
  * Regenerate with `node scripts/refresh-catalog.mjs`, which probes every declared
- * /models endpoints and the CodeCommand capability reference, then diffs the result
+ * /models endpoints and the Command Code capability reference, then diffs the result
  * against this file (+added -removed ~changed).
  *
  * Schema: `types.ts`. Endpoints and API key variables: `sources.ts` (the generator

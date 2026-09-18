@@ -1,5 +1,5 @@
 /**
- * Subscription providers — register reseller/gateway LLM endpoints (CodeCommand / GOAT and
+ * Subscription providers — register reseller/gateway LLM endpoints (Command Code / GOAT and
  * SCNet, OpenAI-shaped and Anthropic-shaped) using a versioned, in-repo model catalog plus
  * an optional per-vendor directory of configuration files.
  *
@@ -543,7 +543,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 	];
 
 	pi.registerCommand("refresh-custom-models", {
-		description: "Refresh the CodeCommand and SCNet model lists",
+		description: "Refresh the Command Code and SCNet model lists",
 		handler: async (_args, ctx) => {
 			for (const item of entries) registerEntry(pi, item.entry, item.layer, builtin, record, item.vendorIssues);
 			for (const item of entries) if (item.refresh) await item.refresh({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });

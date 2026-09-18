@@ -1,6 +1,6 @@
 # custom-providers
 
-pi extension：把订阅型中转站（CodeCommand / GOAT、SCNet）注册成 pi provider，模型目录随仓库维护，配置词汇全部用 pi 自己的字段。
+pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型目录随仓库维护，配置词汇全部用 pi 自己的字段。
 
 安装：`pi install git:github.com/P02-1010751281/pi-custom-providers@v0.1.0`（源码 `extensions/custom-providers/`）。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
 
@@ -38,7 +38,7 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 | `commandcode` | `openai-completions` | `https://api.commandcode.ai/provider/v1` | `anthropic-messages`: `https://api.commandcode.ai/provider` | `CMD_API_KEY` |
 | `scnet` | `openai-completions` | `https://api.scnet.cn/api/llm/v1` | `anthropic-messages`: `https://api.scnet.cn/api/llm/anthropic` | `SCNET_API_KEY` |
 
-SCNet 两条线服务同一批 id（19 个里重叠 18 个），注册成**一个** `scnet`：选择器里只有一条，每个模型带自己的协议。CodeCommand 的 8 个 Claude id 只走 Anthropic 端点，因此它们的条目自带 `api: "anthropic-messages"`。
+SCNet 两条线服务同一批 id（19 个里重叠 18 个），注册成**一个** `scnet`：选择器里只有一条，每个模型带自己的协议。Command Code 的 8 个 Claude id 只走 Anthropic 端点，因此它们的条目自带 `api: "anthropic-messages"`。
 
 ### 为什么 Anthropic 线的 baseUrl 要短一截
 

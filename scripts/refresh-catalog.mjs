@@ -5,7 +5,7 @@
  * table in `sources.ts`, so neither is duplicated here.
  *
  * What is refreshed:
- *   - CodeCommand: model id set, display name, context window and wire
+ *   - Command Code: model id set, display name, context window and wire
  *     (`supported_endpoints`).
  *   - Both SCNet wires: model id sets only (they differ — e.g. MiniMax-M2.5 is
  *     OpenAI-only). SCNet's wire returns ids with no parameters at all.
@@ -14,10 +14,10 @@
  * page first: the authority is the official / pi built-in catalog (per-field majority
  * vote across the built-in providers that ship the same normalized id — they agree,
  * and a lone third-party host disagreeing is outvoted). Wire registries publish no
- * capability metadata at all (measured 2026-09-18: CodeCommand's OpenAI-shaped
+ * capability metadata at all (measured 2026-09-18: Command Code's OpenAI-shaped
  * `/models` has `id/name/context_length/supported_endpoints`, SCNet's has only
  * `id/object/ownedBy` and its Anthropic-shaped `capabilities` is null for every row).
- * Order per field: **built-in → CodeCommand capability page (embedded JSON, which
+ * Order per field: **built-in → Command Code capability page (embedded JSON, which
  * keys its table by its own ids — normalized on both sides, otherwise those models
  * silently keep their previous values) → previous catalog value**. Page/previous
  * disagreements are reported, never silently overwritten; pages that contradict
@@ -225,7 +225,7 @@ function serialize(catalog) {
 		" * GENERATED FILE — do not edit by hand.",
 		" *",
 		" * Regenerate with `node scripts/refresh-catalog.mjs`, which probes every declared",
-		" * /models endpoints and the CodeCommand capability reference, then diffs the result",
+		" * /models endpoints and the Command Code capability reference, then diffs the result",
 		" * against this file (+added -removed ~changed).",
 		" *",
 		" * Schema: `types.ts`. Endpoints and API key variables: `sources.ts` (the generator",
