@@ -145,6 +145,20 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 `accounts.json` 的 `apiKey` 支持 pi 的值语法：`$VAR` / `${VAR}` / `!command` / `$$` / `$!`，以及裸 `UPPER_SNAKE`（视为环境变量名，交给 pi 前会规范化为 `$VAR` —— pi 只插值 `$…`，裸字符串会被当字面量发出去）。发现请求用的凭据顺序与 pi 的请求侧一致：stored（`auth.json` / `--api-key` / `/login`）→ 账号 `apiKey` → 第 3 层 `providers.<id>.apiKey` → 内置密钥变量。启动时读取 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐环境变量（已存在的不覆盖）。
 
+`!command` 就是给秘密后端留的插座——本插件不绑定任何后端，任何能把 key 打到 stdout 的命令都行：
+
+| 方式 | `apiKey` 写法 | 备注 |
+|---|---|---|
+| 直接写 | `"sk-…"` | 单机最省事；`accounts.json` 必须 gitignore + `chmod 600` |
+| 环境变量 | `"$SCNET_API_KEY"` | key 放自己的 `~/.pi/agent/.env`（该文件须在 `.gitignore` 里） |
+| 系统 keyring | `"!secret-tool lookup service scnet account main"` | GNOME `secret-tool` / KDE `kwallet-query` |
+| 密码库 | `"!keepassxc-cli show -q -s -a password ~/secrets.kdbx pi/scnet"` | 也可 `"!pass show scnet/work"`、`"!op read op://vault/item/credential"` |
+| 加密文件 | `"!gpg --batch --decrypt ~/.pi/secrets/scnet.gpg"` | `age` / `sops` 同理，能打印 key 即可 |
+
+`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
+
+**凭据永远不进仓库**（私有仓库、镜像仓库同理）：`accounts.json` 与 `.env` 属用户层，仓库里只该出现 `provider.json` / `models.json`。别人装本插件用的是自己的 `~/.pi/agent/custom-providers/<id>/accounts.json`，与本项目互不相干。
+
 ## 模型能力与目录生成
 
 `extensions/custom-providers/catalog.ts` 是生成物（`node scripts/refresh-catalog.mjs`，先 `--dry-run`）。其中：
