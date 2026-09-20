@@ -2,7 +2,7 @@
 
 pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型目录随仓库维护，配置词汇全部用 pi 自己的字段。
 
-安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.0`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
+安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.2`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
 
 ## 为什么独立成包
 
@@ -21,7 +21,7 @@ rm -f ~/.pi/agent/extensions/subscription-providers.ts
 **两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。本地开发用方式 B：
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.0   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.2   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B，随后 /reload
 ```
 

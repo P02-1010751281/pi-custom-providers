@@ -1,5 +1,5 @@
 /**
- * Subscription providers — register reseller/gateway LLM endpoints (Command Code / GOAT and
+ * custom-providers — register reseller/gateway LLM endpoints (Command Code / GOAT and
  * SCNet, OpenAI-shaped and Anthropic-shaped) using a versioned, in-repo model catalog plus
  * an optional per-vendor directory of configuration files.
  *
@@ -649,6 +649,6 @@ export default async function customProviders(pi: ExtensionAPI) {
 			}
 		}
 		const problems = problemLines();
-		if (problems.length > 0 && ctx.hasUI) ctx.ui.notify(`Subscription providers: ${toastLines(problems)}`, "warning");
+		if (problems.length > 0 && ctx.hasUI) ctx.ui.notify(`custom-providers: ${toastLines(problems)}`, "warning");
 	});
 }

@@ -38,6 +38,9 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `catalog.ts` 现在按 **vendor** 键（`commandcode` / `scnet`）分块，`Record<VendorId, CatalogModel[]>`；`scnet-anthropic` 这个键已经不存在（Anthropic 端点是 `apis."anthropic-messages"`）。
 - `probeCaps()` 读的是能力页内嵌的 RSC（flight）数据，键名按**去日期后缀 + 小写**对齐（文档 `claude-haiku-4-5` vs 注册表 `claude-haiku-4-5-20251001`）。归一化前这类 id 会静默沿用旧值。键名对不上、以及内嵌数据与渲染表格自相矛盾，现在都会在脚本输出里列出来。
 - Command Code `/models` 首次请求可能 TLS 重置，脚本已内建重试；断言失败前先重试。
+- **空列表 ≠ 目录漂移（2026-09-19 实测，本机 raw curl，非扩展）**：SCNet token plan 配额耗尽时，chat/completions 与 anthropic messages 都返回 **HTTP 429** `Token Plan quota has been exceeded`（两条线一致）；同一时刻 `GET /api/llm/v1/models` 与 `GET /api/llm/anthropic/v1/models` 仍返回 **HTTP 200 + 空数组**（`{"object":"list","data":[]}` / `{"data":[],"has_more":false,...}`），不是 401/429。因此**配额恢复前禁止**执行不带 `--dry-run` 的 `node scripts/refresh-catalog.mjs`：会把 `catalog.ts` 的 scnet 块 19 条全部当 removed 清空。
+- 运行期安全：`applyLiveModels()` 只增不删（`rows` 为空时原样返回；已知 id 只更新 name/contextWindow，新 id 才追加），catalog 的 19 条与 `models-store.json` 里的快照都不会被空列表抹掉。
+
 ### 路径与目录约定
 
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写，生成器也 import）、`config.ts` models.json 层 + 兄弟线继承、`env.ts` .env 解析（扩展与脚本共用）、`catalog.ts` 生成的数据、`builtin.ts` 内置目录交叉校验与 compat 吸收、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。
