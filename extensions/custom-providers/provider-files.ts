@@ -444,7 +444,6 @@ export function collectVendors(
 		const vendor = vendorFromDirectory(loaded, builtin, issues);
 		if (!vendor) continue;
 		byId.set(dir, vendor);
-		if (builtin) issues.push({ level: "warning", message: `custom-providers/${dir}: replaces the built-in definition of "${dir}"` });
 	}
 	return { vendors: [...byId.values()].sort((a, b) => a.id.localeCompare(b.id)), ignored, issues };
 }

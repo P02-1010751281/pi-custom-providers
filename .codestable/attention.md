@@ -38,7 +38,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `catalog.ts` 现在按 **vendor** 键（`commandcode` / `scnet`）分块，`Record<VendorId, CatalogModel[]>`；`scnet-anthropic` 这个键已经不存在（Anthropic 端点是 `apis."anthropic-messages"`）。
 - `probeCaps()` 读的是能力页内嵌的 RSC（flight）数据，键名按**去日期后缀 + 小写**对齐（文档 `claude-haiku-4-5` vs 注册表 `claude-haiku-4-5-20251001`）。归一化前这类 id 会静默沿用旧值。键名对不上、以及内嵌数据与渲染表格自相矛盾，现在都会在脚本输出里列出来。
 - Command Code `/models` 首次请求可能 TLS 重置，脚本已内建重试；断言失败前先重试。
-- **空列表 ≠ 目录漂移（2026-09-19 实测，本机 raw curl，非扩展）**：SCNet token plan 配额耗尽时，chat/completions 与 anthropic messages 都返回 **HTTP 429** `Token Plan quota has been exceeded`（两条线一致）；同一时刻 `GET /api/llm/v1/models` 与 `GET /api/llm/anthropic/v1/models` 仍返回 **HTTP 200 + 空数组**（`{"object":"list","data":[]}` / `{"data":[],"has_more":false,...}`），不是 401/429。因此**配额恢复前禁止**执行不带 `--dry-run` 的 `node scripts/refresh-catalog.mjs`：会把 `catalog.ts` 的 scnet 块 19 条全部当 removed 清空。
+- **空列表 ≠ 目录漂移（2026-09-19 实测，本机 raw curl，非扩展）**：SCNet token plan 配额耗尽时，chat/completions 与 anthropic messages 都返回 **HTTP 429** `Token Plan quota has been exceeded`（两条线一致）；同一时刻 `GET /api/llm/v1/models` 与 `GET /api/llm/anthropic/v1/models` 仍返回 **HTTP 200 + 空数组**（`{"object":"list","data":[]}` / `{"data":[],"has_more":false,...}`），不是 401/429。因此**配额恢复前禁止**执行不带 `--dry-run` 的 `node scripts/refresh-catalog.mjs`：会把 `catalog.ts` 的 scnet 块 19 条全部当 removed 清空。若只有一条 wire 耗尽（如 2026-09-22 的 scnet），正确做法 = 正常跑生成器 → 从 `git show HEAD:extensions/custom-providers/catalog.ts` 把该 vendor 块粘回 → `git diff` 必须只剩另一条 wire 的增量；配额恢复后再全量重生成。
 - 运行期安全：`applyLiveModels()` 只增不删（`rows` 为空时原样返回；已知 id 只更新 name/contextWindow，新 id 才追加），catalog 的 19 条与 `models-store.json` 里的快照都不会被空列表抹掉。
 
 ### 路径与目录约定
@@ -97,3 +97,4 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - 写盘只有两条且都在明面上：`sync --write`（先留 `.bak`，写基底 ⊕ 发现）与 pi 自己的 `models-store.json` 缓存。扩展永不写 `models.json`。
 - 报告一律走 `ctx.ui.notify` 并裁剪（8 行 + `(+N more)`）；扩展**不写 stderr**。
 - 目录名撞内置 vendor 的 `aliases`（如同时有 `commandcode/` 与 `codecommand/`）会跳过后者并报告：两个目录会争同一个 provider 的配置。
+- 同名目录覆盖**本扩展自己的**内置 vendor（`sources.ts` 的 `commandcode`/`scnet`，不是 pi 自带 provider）是预期用法的叠加层，**不再报告**（旧版会报 `replaces the built-in definition`，已被用户判定为噪音）。命中 **pi 自带** provider id 仍需 `"override": true`，那是另一条分支。

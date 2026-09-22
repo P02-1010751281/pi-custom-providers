@@ -299,7 +299,7 @@
 >
 > 实测补充：**`models.json` 里只写 `providers.<id>` 的 provider 会被 pi 自己注册**（`providerIds()` 含 `config.getProviderIds()`；`recomposeProvider` 在 `base === undefined` 时仍调 `composeModelProvider`；`applyModelsJson(…, [])` + `applyExtension(…, undefined)` 直接用 `config.models[]`，每条经 `modelFromJson` 取 `definition.api ?? config.api ?? defaults.api` / 同名 `baseUrl`）。所以「config-only provider」是真实存在的第二类接管对象 —— 我们注册同名 id 时它的模型表被我们的整表替换（其 `models[]` 由我们复刻），且它的 `models[]` 若缺 `api`/`baseUrl`，pi 在 `registerProvider` 的 `validateExtensionProvider` 里**直接抛**。
 
-**内置 vendor 的定义 = 「内置 provider + 内置基底账号」**：`sources.ts` 用同一 schema（`api`/`baseUrl`/`modelsPath`/`apis` + 一个内置账号的 `envVar`+`authHeader`，内部表示，不落文件）。用户建同名目录时：目录的 `provider.json` 覆盖内置定义（报告），`accounts.json` 里被 `default` 指针指中的账号接管 base id、其余账号追加；**若用户只写了附加账号、没写 `default` 指针，内置基底账号继续用**（不注销内置 base id —— §10 #11 只适用于目录 vendor）。⇒ `siblingId` 与 `anthropicBaseUrl` 两个特例字段删除（Anthropic 端点就是 `apis."anthropic-messages".baseUrl`）。
+**内置 vendor 的定义 = 「内置 provider + 内置基底账号」**：`sources.ts` 用同一 schema（`api`/`baseUrl`/`modelsPath`/`apis` + 一个内置账号的 `envVar`+`authHeader`，内部表示，不落文件）。用户建同名目录时：目录的 `provider.json` 叠加在内置定义上（静默，不再报告 —— 用户判定为噪音；旧版文案 `replaces the built-in definition` 已删），`accounts.json` 里被 `default` 指针指中的账号接管 base id、其余账号追加；**若用户只写了附加账号、没写 `default` 指针，内置基底账号继续用**（不注销内置 base id —— §10 #11 只适用于目录 vendor）。⇒ `siblingId` 与 `anthropicBaseUrl` 两个特例字段删除（Anthropic 端点就是 `apis."anthropic-messages".baseUrl`）。
 
 **接管后谁来做什么（逐项实测，非推测）**：
 

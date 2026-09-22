@@ -123,9 +123,11 @@ assert(collided.notifications.map((entry) => entry.message).join(" | ").includes
 reset();
 write(vendorDir("scnet"), "provider.json", provider({ baseUrl: "https://mirror.example/v1", modelsPath: "/models" }));
 const mirrored = await startExtension();
+await mirrored.sessionStart();
 assert(mirrored.providers.get("scnet").baseUrl === "https://mirror.example/v1", "a directory replaces the built-in default endpoint");
 assert(mirrored.providers.get("scnet").models.length === 19, "and keeps the built-in model table when it declares none");
 assert(mirrored.providers.get("scnet").models.some((model) => model.api === "anthropic-messages") === false, "the built-in endpoints still serve the models");
+assert(!mirrored.notifications.map((entry) => entry.message).join(" | ").includes("replaces the built-in"), "layering a directory over a built-in vendor is expected and not reported");
 
 
 // --- the commands that read this layer -------------------------------------------
