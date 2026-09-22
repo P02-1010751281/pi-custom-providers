@@ -275,7 +275,7 @@
 |---|---|
 | 失败 | 每条线独立；保留上一份（memo > 快照 > 基底）；错误单列（不覆盖 live 状态），消息含 URL |
 | 返回值自校验 | `refreshModels` 返回的表 pi 会在 `publish` 前用 `applyExtension` 再校一遍（缺 `api`/`baseUrl` 就抛）⇒ **我们返回前先自校**（每条 `cost` 存在、`api` 在 `BUILTIN_APIS`、`baseUrl` 可解析），不合规的条目剔除 + 报告，不让 pi 抛 |
-| 写盘 | pi `models-store.json`（pi 自己的 `publish`）+ 内存 memo。**只有 pi 写这个缓存**，我们自己的写盘永远只有 `sync --write`；`persist` 前每条补 `api`/`provider`/`baseUrl`（pi 的 `Model` 对象形状），恢复时读 `context.stored.models` |
+| 写盘 | pi `models-store.json`（pi 自己的 `publish`）+ 内存 memo。**只有 pi 写这个缓存**，我们自己的写盘只有 `sync --write` 与 `init`（后者有意破例：把出厂 `provider.json` 落地，让「无内置 id」后新装机器仍能一键起一个 vendor；已存在不覆盖）；`persist` 前每条补 `api`/`provider`/`baseUrl`（pi 的 `Model` 对象形状），恢复时读 `context.stored.models` |
 
 ## 7. 多账号
 
@@ -326,6 +326,7 @@
 | `custom-providers <id>` | 单 provider 详情：端点表（协议/baseUrl/modelsPath/每端点模型数）、逐模型实际生效的 `api`+`baseUrl`、全部校验问题 | 否 |
 | `… drift` | 与 pi 内置目录的差异（现有）；id 匹配用 `normalizeModelId`（去命名空间 / 去 `-YYYYMMDD` 日期尾 / 去分隔符 + 小写）；**内置目录读不到 → 静默跳过 drift**（只报“built-in catalog unavailable”，不当错误）。`reasoning`/`input` 已在**生成期**对齐内置（决策 18）⇒ 这两项还报差异即意味着 `catalog.ts` 过期（重新生成）；`maxTokens`/`contextWindow` 的差异按代理权威**只报不改** | 否 |
 | `… files` | 扫描结果：provider 目录、三文件在位情况、被忽略的目录、全部校验问题 | 否 |
+| `… init [<id>...] [--force]` | 把 `sources.ts` 的出厂默认（`name` + declaration）写成 `<id>/provider.json`；已存在不动，`--force` 才覆盖；**不写任何密钥** | `provider.json` |
 | `… sync <id> [--write]` | 打印「当前基底 ⊕ 发现 vs `<id>/models.json`」差异摘要；`--write` 才落盘（先 `models.json.bak`） | 仅 `--write` |
 
 输出约束：所有命令都走 `ctx.ui.notify`（toast）⇒ **必须裁剪**（每个 id 先列 8 行 + `(+N more)`；超长总数只给计数）。`sync --write` 写的内容 = **基底（catalog 或现有 `<id>/models.json`）⊕ 发现结果**，**不含** pi 全局 `models.json` 的用户层（第 3 层）与 `modelOverrides`（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id **保留** + 报告（删不删由用户定）。
@@ -377,7 +378,7 @@
 | `types.ts` | 改 | `api` 不再手写三种（改字符串 + 运行时按 `BUILTIN_APIS` 校验）；`Source` 删 `siblingId` / `anthropicBaseUrl`，加 `apis` / `modelsPath`（与 `provider.json` 同词）；新增 `ProviderFile` / `AccountsFile` / `LoadIssue` / `ProviderEntry` |
 | `provider-files.ts` | 新增 | 扫描目录、读三文件、校验（fail-closed、凭据键越位、账号只认认证键）、账号展开、issue 汇总（IO 注入便于测） |
 | `config.ts` | 改 | `normalizeWire`/`wireSelectionFor` → `normalizeApi`/`apiFor(model)`（§5.1 两条规则）；删 `siblingId` 继承与 `INHERITED_KEYS`（凭据归账号后无跨线继承）；保留并整理第 3 层复刻 |
-| `sync-models.ts` | 新增 | `sync` 的差异计算 + 原子写 + `.bak`（唯一写盘路径） |
+| `sync-models.ts` | 新增 | `sync` 的差异计算 + 原子写 + `.bak`（主写盘路径）；`init` 写 `provider.json` 是唯一另一处（有意破例） |
 | `sources.ts` | 改 | 内置 vendor 改同一 schema（`api`/`baseUrl`/`apis`）+ 内置基底账号字段；id `commandcode` + 别名；删 `siblingId`/`anthropicBaseUrl` |
 | `index.ts` | 改 | 输入 = 内置 vendor + 扫描到的目录；账号展开注册；memo 按 (provider, endpoint) 键控；命令扩展；状态结构扩展 |
 | `builtin.ts` | 改 | compat 吸收按协议家族过滤（四族；另四类协议不接受 compat） |
@@ -406,7 +407,7 @@
 
 - 部署（本机开发）：`rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/`，随后 pi `/reload`。正式安装走 `pi install git:…@v0.1.0`，两者**二选一**。
 - 迁移：现有全局 `models.json` 用法零迁移（`providers.scnet` / `providers.codecommand` 的 `baseUrl`/`compat`/`models[]` 继续生效）。不建 `custom-providers/` 目录 = 行为与今天一致。legacy `providers.<id>.wire` 无用户（实测本机配置无此键），不兼容、只报告。
-- 回滚：装回旧代码即可；无配置迁移。我们自己的写盘只有 `sync --write`（有 `.bak`）；pi 会写它自己的 `models-store.json` 缓存（`publish`，非用户配置）。
+- 回滚：装回旧代码即可；无配置迁移。我们自己的写盘只有 `sync --write`（有 `.bak`）与 `init`（写 `provider.json`，有意破例）；pi 会写它自己的 `models-store.json` 缓存（`publish`，非用户配置）。
 - 备份：`/tmp/pi-sub-prod-pre-merge-163841.tgz` 已存在。
 
 ## 14. 风险与对策
@@ -452,7 +453,7 @@
 10. **compat 是模型属性**：只写 `<id>/models.json` 的模型条目（容器由生成器批量写）；`provider.json` / `apis` 里出现即报告并忽略；pi 全局 `models.json` 的 provider 级 `compat` 仍复刻（那是 pi 自己的字段）。跨协议只报不改；吸收白名单只吸收「少发参数」类键。
 11. 坏文件 fail-closed（文件级）：`models.json` / `accounts.json` 解析失败 → 该 vendor 整条不注册；条目级问题不牵连 vendor。
 12. 接管边界 = 白名单（内置 vendor / 有 `provider.json` / `override: true`）。
-13. 写盘只有一条：`sync --write`（带 `.bak`）。没有别的写盘命令。
+13. 写盘：`sync --write`（带 `.bak`）为主；`init` 写 `provider.json` 是唯一另一处，有意破例（无内置 id 后靠它落地出厂默认）。
 14. provider id 改 `commandcode`；`aliases = ["codecommand", "codegoat"]` 只是「从哪些 `models.json` 键读配置」（不是 pi 别名，pi 无此机制）。
 15. 已删概念不保留兼容：`wires` / `wire` / `siblingId` / `anthropicBaseUrl` / `providers.<id>.wire`（实测本机配置无 `wire` 键）。
 16. `oauth` / `streamSimple` / `refreshModels` 不支持（报告）。
