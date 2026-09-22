@@ -39,7 +39,7 @@ export interface CatalogModel {
 	headers?: JsonObject;
 }
 
-/** One vendor: a built-in one from `sources.ts`, or a directory under `custom-providers/`. */
+/** One vendor: a directory under `custom-providers/` (the shipped `sources.ts` defaults only seed one). */
 export type VendorId = string;
 
 /** One credential set. It only ever carries authentication — never endpoints or models. */
@@ -59,20 +59,20 @@ export interface LoadIssue {
 	message: string;
 }
 
-export type VendorOrigin = "builtin" | "directory";
+export type VendorOrigin = "directory";
 
-/** A loadable vendor, whatever its origin: one provider id, one endpoint table, N accounts. */
+/** A loadable vendor: one provider id, one endpoint table, N accounts. */
 export interface Vendor {
 	id: VendorId;
 	name: string;
 	/** Other `models.json` provider keys this vendor answers to (its own id first). */
 	aliases: readonly string[];
 	declaration: ProviderDeclaration;
-	/** Built-in vendors ship their model table; directory vendors read `<id>/models.json`. */
+	/** The base model table: from `<id>/models.json`, or the shipped default for this id. */
 	models: readonly CatalogModel[];
 	origin: VendorOrigin;
-	/** A built-in vendor's fallback account (`envVar` + `authHeader`), used when no account covers it. */
-	builtinAccount?: Account & { envVar: string };
+	/** The shipped default account (`envVar` + `authHeader`) for this vendor id, used when the directory declares no accounts. */
+	defaultAccount?: Account & { envVar: string };
 	/** Resolved accounts. The one that registers as `<id>` is `baseAccount`, if any. */
 	accounts: readonly Account[];
 	/**

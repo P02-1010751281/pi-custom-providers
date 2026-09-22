@@ -1,7 +1,9 @@
 /**
- * The built-in vendor table — the single source of truth for base URLs, protocols and API
- * key variables. `scripts/refresh-catalog.mjs` imports this file, so a URL can no longer
- * drift between what the extension registers and what the generator probes.
+ * The shipped vendor defaults — base URLs, protocols and API key variables for the two known
+ * vendors. These are *not* registered as providers: a provider only exists when
+ * `~/.pi/agent/custom-providers/<id>/provider.json` does, and the matching default here is
+ * then used as its base (endpoints, model table, env-var account). `custom-providers init`
+ * writes one out; `scripts/refresh-catalog.mjs` imports this file, so a URL cannot drift.
  *
  * One entry = one *vendor*: one pi provider id, one default endpoint (`api` + `baseUrl`)
  * and any additional protocol endpoints under `apis` (key = pi's api id). The vocabulary is
@@ -19,7 +21,7 @@
 import type { Account } from "./types.ts";
 import type { ProviderDeclaration } from "./config.ts";
 
-export interface BuiltinVendor {
+export interface VendorDefault {
 	/** The pi provider id. */
 	id: string;
 	name: string;
@@ -27,10 +29,10 @@ export interface BuiltinVendor {
 	aliases: readonly string[];
 	declaration: ProviderDeclaration;
 	/** Used when no `accounts.json` covers this vendor (and as the `/login` fallback). */
-	builtinAccount: Account & { envVar: string };
+	defaultAccount: Account & { envVar: string };
 }
 
-export const SOURCES: readonly BuiltinVendor[] = [
+export const DEFAULTS: readonly VendorDefault[] = [
 	{
 		// id = the domain, not the product nickname: `ai` in the old id was ours, and the
 		// `commandcode` spelling keeps reading the existing `providers.codecommand` block.
@@ -55,7 +57,7 @@ export const SOURCES: readonly BuiltinVendor[] = [
 				},
 			},
 		},
-		builtinAccount: { id: "commandcode", envVar: "CMD_API_KEY", authHeader: true },
+		defaultAccount: { id: "commandcode", envVar: "CMD_API_KEY", authHeader: true },
 	},
 	{
 		id: "scnet",
@@ -73,6 +75,6 @@ export const SOURCES: readonly BuiltinVendor[] = [
 				},
 			},
 		},
-		builtinAccount: { id: "scnet", envVar: "SCNET_API_KEY", authHeader: true },
+		defaultAccount: { id: "scnet", envVar: "SCNET_API_KEY", authHeader: true },
 	},
 ];

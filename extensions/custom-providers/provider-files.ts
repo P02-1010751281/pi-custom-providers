@@ -329,33 +329,34 @@ export function loadDirectory(rootDir: string, id: string): DirectoryVendor {
  * Which account registers as the base id (design §3.3 ②, §8):
  *
  *   - accounts plus a `default` pointer that names one → that account is the base;
- *   - accounts but no usable pointer → the base id is *suppressed* for a directory
- *     vendor (the accounts were declared explicitly), while a built-in vendor keeps
- *     its built-in base account and only gains the extras;
+ *   - accounts but no usable pointer → the base id is *suppressed* (the accounts were
+ *     declared explicitly);
+ *   - a shipped default account (env var) → it becomes the base and the declared
+ *     accounts are added as extras;
  *   - no accounts at all → the base id is still registered, without credentials, so
  *     `/login`, `--api-key` and stored credentials can still rescue it.
  */
 export function resolveAccounts(
 	accounts: readonly Account[],
 	pointer: string | undefined,
-	options: { builtinAccount?: Account & { envVar: string }; id?: string } = {},
+	options: { defaultAccount?: Account & { envVar: string }; id?: string } = {},
 ): { accounts: Account[]; baseAccount?: Account; baseSuppressed: boolean; issues: LoadIssue[] } {
 	const issues: LoadIssue[] = [];
-	const builtin: Account | undefined = options.builtinAccount
+	const fallback: Account | undefined = options.defaultAccount
 		? {
-				id: options.builtinAccount.id,
-				apiKey: options.builtinAccount.apiKey ?? `$${options.builtinAccount.envVar}`,
-				...(options.builtinAccount.authHeader !== undefined ? { authHeader: options.builtinAccount.authHeader } : {}),
-				...(options.builtinAccount.headers ? { headers: options.builtinAccount.headers } : {}),
+				id: options.defaultAccount.id,
+				apiKey: options.defaultAccount.apiKey ?? `$${options.defaultAccount.envVar}`,
+				...(options.defaultAccount.authHeader !== undefined ? { authHeader: options.defaultAccount.authHeader } : {}),
+				...(options.defaultAccount.headers ? { headers: options.defaultAccount.headers } : {}),
 			}
 		: undefined;
-	if (accounts.length === 0) return { accounts: builtin ? [builtin] : [], ...(builtin ? { baseAccount: builtin } : {}), baseSuppressed: false, issues };
+	if (accounts.length === 0) return { accounts: fallback ? [fallback] : [], ...(fallback ? { baseAccount: fallback } : {}), baseSuppressed: false, issues };
 
 	const pointerAccount = pointer ? accounts.find((account) => account.id === pointer) : undefined;
 	if (pointer && !pointerAccount) issues.push({ level: "warning", message: `"default": "${pointer}" does not name an account` });
 	if (pointerAccount) return { accounts: [...accounts], baseAccount: pointerAccount, baseSuppressed: false, issues };
 	const id = options.id ?? "this provider";
-	if (!builtin) {
+	if (!fallback) {
 		// Accounts were declared but none of them is the base one: the user is managing the ids
 		// explicitly, so do not also register an id they did not ask for.
 		issues.push({
@@ -364,66 +365,68 @@ export function resolveAccounts(
 		});
 	}
 	return {
-		accounts: builtin ? [...accounts, builtin] : [...accounts],
-		...(builtin ? { baseAccount: builtin } : {}),
-		baseSuppressed: !builtin,
+		accounts: fallback ? [...accounts, fallback] : [...accounts],
+		...(fallback ? { baseAccount: fallback } : {}),
+		baseSuppressed: !fallback,
 		issues,
 	};
 }
 
 /** Turn one parsed directory into a `Vendor`, or into issues when it must not register. */
-function vendorFromDirectory(loaded: DirectoryVendor, builtin: Vendor | undefined, issues: LoadIssue[]): Vendor | undefined {
+function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefined, issues: LoadIssue[]): Vendor | undefined {
 	const resolved = resolveAccounts(loaded.accounts, loaded.defaultPointer, {
-		...(builtin?.builtinAccount ? { builtinAccount: builtin.builtinAccount } : {}),
+		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
 		id: loaded.id,
 	});
 	issues.push(...resolved.issues);
-	// A directory replaces the built-in definition of the same id, but only where it
-	// speaks: an endpoint-only directory keeps the built-in endpoints and model table.
-	const declaration: ProviderDeclaration = !builtin
+	// A directory only has to speak where it differs: the shipped default for the same id
+	// fills in the endpoints and the model table the directory leaves out.
+	const declaration: ProviderDeclaration = !shipped
 		? loaded.declaration
 		: {
-				api: loaded.declaration.api || builtin.declaration.api,
-				baseUrl: loaded.declaration.baseUrl || builtin.declaration.baseUrl,
-				...(loaded.declaration.modelsPath || builtin.declaration.modelsPath ? { modelsPath: loaded.declaration.modelsPath ?? builtin.declaration.modelsPath } : {}),
-				...(loaded.declaration.headers || builtin.declaration.headers ? { headers: loaded.declaration.headers ?? builtin.declaration.headers } : {}),
-				apis: { ...builtin.declaration.apis, ...loaded.declaration.apis },
+				api: loaded.declaration.api || shipped.declaration.api,
+				baseUrl: loaded.declaration.baseUrl || shipped.declaration.baseUrl,
+				...(loaded.declaration.modelsPath || shipped.declaration.modelsPath ? { modelsPath: loaded.declaration.modelsPath ?? shipped.declaration.modelsPath } : {}),
+				...(loaded.declaration.headers || shipped.declaration.headers ? { headers: loaded.declaration.headers ?? shipped.declaration.headers } : {}),
+				apis: { ...shipped.declaration.apis, ...loaded.declaration.apis },
 			};
 	return {
 		id: loaded.id,
 		name: loaded.name,
-		aliases: builtin?.aliases ?? [loaded.id],
+		aliases: shipped?.aliases ?? [loaded.id],
 		declaration,
-		// The built-in model table stands in when the directory declares none.
-		models: loaded.hasModelsFile ? loaded.models : (builtin?.models ?? []),
-		origin: builtin?.origin ?? "directory",
-		...(builtin?.builtinAccount ? { builtinAccount: builtin.builtinAccount } : {}),
+		// The shipped model table stands in when the directory declares none.
+		models: loaded.hasModelsFile ? loaded.models : (shipped?.models ?? []),
+		origin: "directory",
+		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
 		accounts: resolved.accounts,
 		...(resolved.baseAccount ? { baseAccount: resolved.baseAccount } : {}),
 		...(resolved.baseSuppressed ? { baseSuppressed: true } : {}),
-		override: loaded.override || (builtin?.override ?? false),
+		override: loaded.override || (shipped?.override ?? false),
 		directory: loaded.directory,
 		issues: loaded.issues,
 	};
 }
 
 /**
- * Every vendor this extension registers: the built-ins, with any same-named directory
- * layered on top, plus the directories that are new. `builtinIds` are pi's own provider
- * ids — a directory may only take one of those over with `"override": true` (§8).
+ * Every vendor this extension registers: one per `custom-providers/<id>/provider.json`.
+ * The shipped `defaults` in `sources.ts` are never registered on their own — they only seed
+ * the matching directory (endpoints, model table, env-var account). `piProviderIds` are pi's
+ * own provider ids: a directory may only take one of those over with `"override": true` (§8).
  */
 export function collectVendors(
 	rootDir: string,
-	builtins: readonly Vendor[],
+	defaults: readonly Vendor[],
 	piProviderIds: ReadonlySet<string>,
 ): { vendors: Vendor[]; ignored: string[]; issues: LoadIssue[] } {
 	const { dirs, ignored } = scanProviderRoot(rootDir);
 	const issues: LoadIssue[] = [];
-	const byId = new Map<string, Vendor>(builtins.map((vendor) => [vendor.id, vendor]));
-	const reserved = new Set([...builtins.map((vendor) => vendor.id), ...builtins.flatMap((vendor) => vendor.aliases)]);
+	const byId = new Map<string, Vendor>();
+	const defaultById = new Map(defaults.map((vendor) => [vendor.id, vendor]));
+	const reserved = new Set([...defaults.map((vendor) => vendor.id), ...defaults.flatMap((vendor) => vendor.aliases)]);
 
 	for (const dir of dirs) {
-		if (reserved.has(dir) && !builtins.some((vendor) => vendor.id === dir)) {
+		if (reserved.has(dir) && !defaultById.has(dir)) {
 			issues.push({ level: "warning", message: `directory "${dir}" collides with an alias of another vendor; skipping it` });
 			continue;
 		}
@@ -433,15 +436,12 @@ export function collectVendors(
 			issues.push({ level: "error", message: `custom-providers/${dir}: not registered (fix the file above)` });
 			continue;
 		}
-		const builtin = byId.get(dir);
-		if (!builtin && piProviderIds.has(dir)) {
-			if (!loaded.override) {
-				issues.push({ level: "warning", message: `provider ${dir} exists in pi; set "override": true to take it over` });
-				continue;
-			}
+		if (piProviderIds.has(dir) && !loaded.override) {
+			issues.push({ level: "warning", message: `provider ${dir} exists in pi; set "override": true to take it over` });
+			continue;
 		}
 		// Same array, not a copy: `resolveAccounts` reports into it too.
-		const vendor = vendorFromDirectory(loaded, builtin, issues);
+		const vendor = vendorFromDirectory(loaded, defaultById.get(dir), issues);
 		if (!vendor) continue;
 		byId.set(dir, vendor);
 	}

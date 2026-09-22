@@ -75,7 +75,7 @@ const jiti = createJiti(`${piPackage}/dist/core/extensions/loader.js`, {
 });
 const importTs = (file) => jiti.import(path.join(extDir, file));
 
-const { SOURCES } = await importTs("sources.ts");
+const { DEFAULTS } = await importTs("sources.ts");
 const { loadEnvFile } = await importTs("env.ts");
 // Reused rather than re-implemented: the script must resolve built-in ids and capability
 // votes exactly like the extension does, or `custom-providers drift` would report the
@@ -94,8 +94,8 @@ loadEnvFile(path.join(homedir(), ".omp", "agent", ".env"));
  * An endpoint without a `modelsPath` is listed with `path: undefined` — no discovery is far
  * better than guessing `/models`.
  */
-const ENDPOINTS = SOURCES.flatMap((vendor) => {
-	const env = vendor.builtinAccount.envVar;
+const ENDPOINTS = DEFAULTS.flatMap((vendor) => {
+	const env = vendor.defaultAccount.envVar;
 	const defaults = { vendor, env };
 	return [
 		{ ...defaults, api: vendor.declaration.api, baseUrl: vendor.declaration.baseUrl, path: vendor.declaration.modelsPath },
@@ -253,7 +253,7 @@ function serialize(catalog) {
 }
 
 const previous = (await importTs("catalog.ts")).CATALOG;
-const missing = SOURCES.filter((vendor) => !Array.isArray(previous[vendor.id]) && !vendor.aliases.some((alias) => Array.isArray(previous[alias])));
+const missing = DEFAULTS.filter((vendor) => !Array.isArray(previous[vendor.id]) && !vendor.aliases.some((alias) => Array.isArray(previous[alias])));
 if (missing.length > 0) throw new Error(`catalog.ts has no entry for: ${missing.map((vendor) => vendor.id).join(", ")} (sources.ts and catalog.ts are out of sync)`);
 
 const [probed, caps] = await Promise.all([
@@ -278,7 +278,7 @@ const capFor = (vendorId, modelId) => capsById[vendorId]?.embedded.get(capsKey(m
  * kept when discovery says nothing about the api.
  */
 const catalog = {};
-for (const vendor of SOURCES) {
+for (const vendor of DEFAULTS) {
 	const perEndpoint = probed.filter((entry) => entry.endpoint.vendor.id === vendor.id);
 	const previousOf = new Map(
 		[...(previous[vendor.id] ?? []), ...vendor.aliases.flatMap((alias) => previous[alias] ?? [])].map((model) => [model.id, model]),
@@ -323,7 +323,7 @@ const report = (name, before, after) => {
 	if (removed.length) console.log(`  removed: ${removed.join(", ")}`);
 	for (const model of changed) console.log(`  changed: ${model.id}`);
 };
-for (const vendor of SOURCES) {
+for (const vendor of DEFAULTS) {
 	const before = previous[vendor.id] ?? vendor.aliases.flatMap((alias) => previous[alias] ?? []);
 	report(vendor.id, before, catalog[vendor.id]);
 }
@@ -349,7 +349,7 @@ const builtinDecided = [];
 const pageAgainstBuiltin = [];
 const levelMapApplied = [];
 const levelMapKept = [];
-for (const vendor of SOURCES) {
+for (const vendor of DEFAULTS) {
 	for (const model of catalog[vendor.id] ?? []) {
 		const authority = builtinCapability(model.id);
 		if (authority) {

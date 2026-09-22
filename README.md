@@ -46,14 +46,14 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 ## 配置：`~/.pi/agent/custom-providers/<id>/`
 
-可选的目录层。没有这个目录时，内置的两个 vendor 行为与「只用 `models.json` 覆盖」完全一致。
+目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` + `catalog.ts` 只在**同名目录存在**时作为它的基底（端点表、模型表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。新装机器先跑一次 `/custom-providers init commandcode scnet` 把默认端点写出来。
 
 ```
 ~/.pi/agent/custom-providers/
 ├── scnet/
 │   ├── provider.json     # 端点表：api / baseUrl / modelsPath / headers / apis（无秘密、无 compat）
-│   ├── models.json       # 模型基底表（可省；省了就用内置目录）
-│   └── accounts.json     # 凭据（唯一秘密文件；可省，省了提示 /login）
+│   ├── models.json       # 模型基底表（可省；省了就用该 id 的出厂默认表）
+│   └── accounts.json     # 凭据（唯一秘密文件；可省，省了用出厂密钥变量或提示 /login）
 └── my-relay/
     └── provider.json     # 新 vendor 只要这一个文件
 ```
@@ -111,7 +111,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 - 没有 `apiKey` 的账号被跳过并报告；非法账号名同理。
 - `accounts.json` 不存在 / 为空 / 全无凭据 → `<id>` **照常注册**（不带凭据、模型不进可用快照），`/login <id>`、`--api-key` 或 stored 凭据随时能把它救回来。
-- 有账号但 `default` 指针缺失或指向不存在的账号 → 目录 vendor **不注册** `<id>`（其余账号照常）；内置 vendor 回落到内置密钥变量。
+- 有账号但 `default` 指针缺失或指向不存在的账号 → 目录 vendor **不注册** `<id>`（其余账号照常）；同 id 有出厂默认账号时回落该密钥变量。
 - 账号级模型覆盖写 pi 全局 `models.json` 的 `providers.<accountId>`，本扩展不另造一层。
 - 同一产品多把 key = 一个目录多个账号；**不同产品/计费 = 不同目录、不同 provider id**（pi 的 `auth.json` 是一 id 一凭据）。
 
@@ -137,6 +137,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `/custom-providers <id>` | 单 provider 详情：协议分布、账号、校验问题 | 否 |
 | `/custom-providers drift` | 与 pi 内置目录的差异（只报不改） | 否 |
 | `/custom-providers files` | 扫描结果：目录、三文件、被忽略的目录、校验问题 | 否 |
+| `/custom-providers init [<id>...] [--force]` | 为出厂默认 vendor 写 `<id>/provider.json`（已存在则不动，`--force` 覆盖）；不写任何密钥 | `provider.json` |
 | `/custom-providers sync <id> [--write]` | 打印「基底 ⊕ 发现 vs `<id>/models.json`」差异；`--write` 才落盘（先留 `.bak`） | 仅 `--write` |
 
 `sync --write` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 会保留并在摘要里标为「kept」。
@@ -173,4 +174,4 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 node tests/run-all.mjs
 ```
 
-10 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`sync-test`（差异、`.bak`、round-trip）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`catalog-test`、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+11 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘）、`sync-test`（差异、`.bak`、round-trip）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`catalog-test`、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。

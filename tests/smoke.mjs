@@ -1,4 +1,4 @@
-import { loadTs, loader, assert } from "./harness.mjs";
+import { loadTs, loader, assert, seedDefaultProviders } from "./harness.mjs";
 
 /**
  * Loader parity guard: pi aliases `@earendil-works/pi-ai` to the compat entry, which
@@ -27,6 +27,7 @@ const pi = {
 	registerTool: () => {},
 	getFlag: () => undefined,
 };
+await seedDefaultProviders("commandcode", "scnet");
 await factory(pi);
 
 for (const id of ["commandcode", "scnet"]) {

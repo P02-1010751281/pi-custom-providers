@@ -1,4 +1,4 @@
-import { loadTs, assert } from "./harness.mjs";
+import { loadTs, assert, seedDefaultProviders } from "./harness.mjs";
 
 const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift } = await loadTs("extensions/custom-providers/builtin.ts");
 
@@ -30,6 +30,7 @@ const pi = {
 	registerTool: () => {},
 	getFlag: () => undefined,
 };
+await seedDefaultProviders("commandcode", "scnet");
 await factory(pi);
 
 for (const id of ["commandcode", "scnet"]) {

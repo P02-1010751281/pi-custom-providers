@@ -97,4 +97,4 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - 写盘只有两条且都在明面上：`sync --write`（先留 `.bak`，写基底 ⊕ 发现）与 pi 自己的 `models-store.json` 缓存。扩展永不写 `models.json`。
 - 报告一律走 `ctx.ui.notify` 并裁剪（8 行 + `(+N more)`）；扩展**不写 stderr**。
 - 目录名撞内置 vendor 的 `aliases`（如同时有 `commandcode/` 与 `codecommand/`）会跳过后者并报告：两个目录会争同一个 provider 的配置。
-- 同名目录覆盖**本扩展自己的**内置 vendor（`sources.ts` 的 `commandcode`/`scnet`，不是 pi 自带 provider）是预期用法的叠加层，**不再报告**（旧版会报 `replaces the built-in definition`，已被用户判定为噪音）。命中 **pi 自带** provider id 仍需 `"override": true`，那是另一条分支。
+- **没有内置 provider（2026-09-22 改）**：`sources.ts` 的 `DEFAULTS` 只在**同名目录存在**时作基底（端点 / `catalog.ts` 模型表 / 密钥变量），`collectVendors` 不再预置它 —— 没目录就没 provider。因此旧警示 `replaces the built-in definition` 整段删除（连同测试）。命中 **pi 自带** provider id 仍需 `"override": true`（另一分支，不变）。`/custom-providers init [<id>] [--force]` 把默认端点写成 `<id>/provider.json`（已存在不动）。

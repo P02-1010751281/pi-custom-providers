@@ -293,13 +293,13 @@
 
 ## 8. 接管边界
 
-**白名单**：① 内置 vendor（`scnet`、`commandcode`）；② `custom-providers/` 下有合法 `provider.json` 的目录；③ 命中 **pi 内置目录**（`pi-ai` 自带的约 39 provider / 961 模型 id）**必须** `"override": true`，否则跳过 + 报告。其余一律不碰。
+**白名单**：① `custom-providers/` 下有合法 `provider.json` 的目录（同 id 有出厂默认时，默认作该目录的基底，见下）；② 命中 **pi 内置目录**（`pi-ai` 自带的约 39 provider / 961 模型 id）**必须** `"override": true`，否则跳过 + 报告。其余一律不碰。
 
 > ③ **不算 pi 全局 `models.json` 里已声明的 provider id**：那是用户自己的配置层（也是本扩展的主用层），不构成「接管一个已有 provider」。例如用户写 `providers.scnet` 是正常覆盖，不需要 `override`（§13 零迁移）。
 >
 > 实测补充：**`models.json` 里只写 `providers.<id>` 的 provider 会被 pi 自己注册**（`providerIds()` 含 `config.getProviderIds()`；`recomposeProvider` 在 `base === undefined` 时仍调 `composeModelProvider`；`applyModelsJson(…, [])` + `applyExtension(…, undefined)` 直接用 `config.models[]`，每条经 `modelFromJson` 取 `definition.api ?? config.api ?? defaults.api` / 同名 `baseUrl`）。所以「config-only provider」是真实存在的第二类接管对象 —— 我们注册同名 id 时它的模型表被我们的整表替换（其 `models[]` 由我们复刻），且它的 `models[]` 若缺 `api`/`baseUrl`，pi 在 `registerProvider` 的 `validateExtensionProvider` 里**直接抛**。
 
-**内置 vendor 的定义 = 「内置 provider + 内置基底账号」**：`sources.ts` 用同一 schema（`api`/`baseUrl`/`modelsPath`/`apis` + 一个内置账号的 `envVar`+`authHeader`，内部表示，不落文件）。用户建同名目录时：目录的 `provider.json` 叠加在内置定义上（静默，不再报告 —— 用户判定为噪音；旧版文案 `replaces the built-in definition` 已删），`accounts.json` 里被 `default` 指针指中的账号接管 base id、其余账号追加；**若用户只写了附加账号、没写 `default` 指针，内置基底账号继续用**（不注销内置 base id —— §10 #11 只适用于目录 vendor）。⇒ `siblingId` 与 `anthropicBaseUrl` 两个特例字段删除（Anthropic 端点就是 `apis."anthropic-messages".baseUrl`）。
+**没有内置 provider**：`sources.ts` 的 `DEFAULTS` 只是「同名目录存在时」的基底 —— 端点表（`api`/`baseUrl`/`modelsPath`/`apis`）、模型表（`catalog.ts`）与一个密钥变量账号（`envVar`+`authHeader`，不落文件）；扩展**永不单独注册它**，没有目录就没有 provider。目录的 `provider.json` 说哪里不同就覆盖哪里（静默），未声明处继承默认；`accounts.json` 里被 `default` 指针指中的账号接管 base id、其余账号追加；**有账号但无 `default` 指针 → 目录 vendor 不注册 base id（§10 #11），同 id 有默认账号时回落该密钥变量**。`/custom-providers init [<id>]` 把默认端点写成 `<id>/provider.json`。⇒ `siblingId` 与 `anthropicBaseUrl` 两个特例字段删除（Anthropic 端点就是 `apis."anthropic-messages".baseUrl`）。
 
 **接管后谁来做什么（逐项实测，非推测）**：
 

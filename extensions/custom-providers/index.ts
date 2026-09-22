@@ -41,6 +41,7 @@
  */
 import { homedir } from "node:os";
 import path from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { getAgentDir, readStoredCredential, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { absorbCompat, loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog, type CatalogCompat, type DriftSummary } from "./builtin.ts";
@@ -48,7 +49,7 @@ import { CATALOG } from "./catalog.ts";
 import { applyModelPatch, normalizeApi, providerLayerFor, readModelsConfig, resolveModelEndpoint, type JsonObject } from "./config.ts";
 import { loadEnvFile } from "./env.ts";
 import { collectVendors } from "./provider-files.ts";
-import { SOURCES } from "./sources.ts";
+import { DEFAULTS } from "./sources.ts";
 import { diffBaseTable, readBaseTable, summarizeDiff, writeBaseTable } from "./sync-models.ts";
 import type { Account, CatalogModel, LiveModelRow, LoadIssue, ModelCompat, Vendor } from "./types.ts";
 
@@ -293,7 +294,7 @@ function endpointCredential(entry: ProviderEntry, layer: JsonObject, contextKey:
 		contextKey ??
 		resolveConfigValue(entry.account?.apiKey) ??
 		resolveConfigValue(stringOr(layer.apiKey)) ??
-		(entry.vendor.builtinAccount ? resolveConfigValue(`$${entry.vendor.builtinAccount.envVar}`) : undefined)
+		(entry.vendor.defaultAccount ? resolveConfigValue(`$${entry.vendor.defaultAccount.envVar}`) : undefined)
 	);
 }
 
@@ -308,7 +309,7 @@ async function refreshEntry(
 	const apiKey = endpointCredential(entry, layer, options.contextKey);
 	// Report the missing credential before any request, naming the file and the built-in
 	// variable so the fix is obvious (and never send the variable *name* as the token).
-	const keyHint = `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json, providers.${entry.id}.apiKey${entry.vendor.builtinAccount ? `, $${entry.vendor.builtinAccount.envVar}` : ""} or run /login ${entry.id}`;
+	const keyHint = `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json, providers.${entry.id}.apiKey${entry.vendor.defaultAccount ? `, $${entry.vendor.defaultAccount.envVar}` : ""} or run /login ${entry.id}`;
 	const storedRows = (options.stored ?? []).filter((row) => isObject(row) && typeof row.id === "string");
 	let result = models;
 	let live = false;
@@ -396,8 +397,8 @@ function registerEntry(
 	}
 	const resolved = synthesizeModels(entry, layer, builtin, issues);
 	const accountKey = configValueForPi(entry.account?.apiKey);
-	const envKey = entry.vendor.builtinAccount ? `$${entry.vendor.builtinAccount.envVar}` : undefined;
-	const authHeader = entry.account?.authHeader ?? entry.vendor.builtinAccount?.authHeader;
+	const envKey = entry.vendor.defaultAccount ? `$${entry.vendor.defaultAccount.envVar}` : undefined;
+	const authHeader = entry.account?.authHeader ?? entry.vendor.defaultAccount?.authHeader;
 	const name = entry.name;
 
 	// The startup status: what this provider looks like before any network I/O, so the status
@@ -479,20 +480,20 @@ export default async function customProviders(pi: ExtensionAPI) {
 	// A provider declared only in the user's `models.json` is their own layer, not something
 	// to take over: pi registers it itself, and the takeover rule does not apply (design §8).
 	const piProviderIds = new Set([...builtin.providers].filter((id) => !userProviderIds.has(id)));
-	const builtins: Vendor[] = SOURCES.map((vendor) => ({
+	const defaults: Vendor[] = DEFAULTS.map((vendor) => ({
 		id: vendor.id,
 		name: vendor.name,
 		aliases: vendor.aliases,
 		declaration: vendor.declaration,
 		models: CATALOG[vendor.id] ?? [],
-		origin: "builtin" as const,
-		builtinAccount: vendor.builtinAccount,
+		origin: "directory" as const,
+		defaultAccount: vendor.defaultAccount,
 		accounts: [],
 		issues: [],
 	}));
 
 	const root = PROVIDER_ROOT();
-	const scanned = collectVendors(root, builtins, piProviderIds);
+	const scanned = collectVendors(root, defaults, piProviderIds);
 	const globalIssues: LoadIssue[] = [
 		...(configIssue ? [{ level: "warning" as const, message: configIssue }] : []),
 		...scanned.issues,
@@ -556,11 +557,30 @@ export default async function customProviders(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("custom-providers", {
-		description: "Provider status; add `drift`, `files`, `sync <id> [--write]` or a provider id",
+		description: "Provider status; add `init [<id>...]`, `drift`, `files`, `sync <id> [--write]` or a provider id",
 		handler: async (args, ctx) => {
 			const [head, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 			const notify = (message: string, level: "info" | "warning" = "info") => ctx.ui.notify(message, level);
 
+			if (head === "init") {
+				const force = rest.includes("--force");
+				const ids = rest.filter((arg) => !arg.startsWith("--"));
+				const results = (ids.length > 0 ? ids : DEFAULTS.map((vendor) => vendor.id)).map((id) => {
+					const shipped = DEFAULTS.find((vendor) => vendor.id === id);
+					if (!shipped) return `${id}: unknown (known: ${DEFAULTS.map((vendor) => vendor.id).join(", ")})`;
+					const file = path.join(root, id, "provider.json");
+					if (existsSync(file) && !force) return `${id}: provider.json exists (pass --force to overwrite)`;
+					try {
+						mkdirSync(path.dirname(file), { recursive: true });
+						writeFileSync(file, `${JSON.stringify({ name: shipped.name, ...shipped.declaration }, null, "\t")}\n`);
+						return `${id}: wrote provider.json`;
+					} catch (error) {
+						return `${id}: ${String(error)}`;
+					}
+				});
+				notify(`init: ${toastLines(results)}`);
+				return;
+			}
 			if (head === "drift") {
 				const lines = sortedStatuses().flatMap((status) => {
 					const drift = status.drift;

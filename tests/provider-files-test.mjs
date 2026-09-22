@@ -116,18 +116,18 @@ reset();
 write(vendorDir("codecommand"), "provider.json", provider());
 const collided = await startExtension();
 await collided.sessionStart();
-assert(!collided.providers.has("codecommand"), "a directory colliding with an alias of a built-in vendor is skipped");
+assert(!collided.providers.has("codecommand"), "a directory colliding with an alias of a shipped vendor is skipped");
 assert(collided.notifications.map((entry) => entry.message).join(" | ").includes("collides with an alias"), "and the collision is reported");
 
-// A built-in vendor's directory overrides its definition, keeping the built-in endpoints.
+// A directory for a shipped id overrides what it speaks, keeping the shipped endpoints.
 reset();
 write(vendorDir("scnet"), "provider.json", provider({ baseUrl: "https://mirror.example/v1", modelsPath: "/models" }));
 const mirrored = await startExtension();
 await mirrored.sessionStart();
-assert(mirrored.providers.get("scnet").baseUrl === "https://mirror.example/v1", "a directory replaces the built-in default endpoint");
-assert(mirrored.providers.get("scnet").models.length === 19, "and keeps the built-in model table when it declares none");
-assert(mirrored.providers.get("scnet").models.some((model) => model.api === "anthropic-messages") === false, "the built-in endpoints still serve the models");
-assert(!mirrored.notifications.map((entry) => entry.message).join(" | ").includes("replaces the built-in"), "layering a directory over a built-in vendor is expected and not reported");
+assert(mirrored.providers.get("scnet").baseUrl === "https://mirror.example/v1", "a directory replaces the shipped default endpoint");
+assert(mirrored.providers.get("scnet").models.length === 19, "and keeps the shipped model table when it declares none");
+assert(mirrored.providers.get("scnet").models.some((model) => model.api === "anthropic-messages") === false, "the shipped endpoints still serve the models");
+assert(!mirrored.notifications.map((entry) => entry.message).join(" | ").includes("replaces the built-in"), "no built-in provider is ever announced");
 
 
 // --- the commands that read this layer -------------------------------------------

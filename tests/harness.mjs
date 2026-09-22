@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -99,6 +99,21 @@ export const AGENT_DIR = process.env.PI_CODING_AGENT_DIR;
 
 /** Absolute path of a file under the temp agent dir. */
 export const agentPath = (...parts) => path.join(AGENT_DIR, ...parts);
+
+/**
+ * Write `<id>/provider.json` for the shipped defaults into the temp agent dir. A provider
+ * only exists when its directory does; this is what `custom-providers init` does for a user.
+ */
+export async function seedDefaultProviders(...ids) {
+	const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
+	for (const id of ids.length > 0 ? ids : DEFAULTS.map((vendor) => vendor.id)) {
+		const shipped = DEFAULTS.find((vendor) => vendor.id === id);
+		if (!shipped) continue;
+		const dir = agentPath("custom-providers", id);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(path.join(dir, "provider.json"), `${JSON.stringify({ name: shipped.name, ...shipped.declaration }, null, "\t")}\n`);
+	}
+}
 
 /**
  * Load the extension with a stub pi and hand back what it registered. Tests write their

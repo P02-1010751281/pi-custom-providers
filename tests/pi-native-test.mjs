@@ -1,4 +1,4 @@
-import { loadTs, PI, assert } from "./harness.mjs";
+import { loadTs, PI, assert, seedDefaultProviders } from "./harness.mjs";
 
 /**
  * End-to-end checks of the pi-native path, using pi's own ModelRuntime (not a stub):
@@ -16,6 +16,7 @@ const { InMemoryCodingAgentModelsStore } = await import(`${PI}/dist/core/models-
 
 const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
 const providers = new Map();
+await seedDefaultProviders("commandcode", "scnet");
 await factory({
 	on: () => {},
 	registerCommand: () => {},

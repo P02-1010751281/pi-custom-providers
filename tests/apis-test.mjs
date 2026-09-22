@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { agentPath, assert, loadTs, loader, startExtension } from "./harness.mjs";
+import { agentPath, assert, loadTs, loader, seedDefaultProviders, startExtension } from "./harness.mjs";
 
 /**
  * Protocol (api) selection — design §5.
@@ -11,12 +11,12 @@ import { agentPath, assert, loadTs, loader, startExtension } from "./harness.mjs
  * and rejecting an api pi cannot stream.
  */
 const cfg = await loadTs("extensions/custom-providers/config.ts");
-const { SOURCES } = await loadTs("extensions/custom-providers/sources.ts");
+const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
 const compat = await (await loader()).import("@earendil-works/pi-ai");
 
-const SCNet = SOURCES.find((vendor) => vendor.id === "scnet");
+const SCNet = DEFAULTS.find((vendor) => vendor.id === "scnet");
 const SCNetAnthropic = SCNet.declaration.apis["anthropic-messages"].baseUrl;
-const anthropicMessagesBaseUrl = SOURCES.find((vendor) => vendor.id === "commandcode").declaration.apis["anthropic-messages"].baseUrl;
+const anthropicMessagesBaseUrl = DEFAULTS.find((vendor) => vendor.id === "commandcode").declaration.apis["anthropic-messages"].baseUrl;
 
 // --- the built-in api vocabulary ----------------------------------------------
 // `BUILTIN_APIS` is a private const in pi, so our copy is asserted against the registry pi
@@ -48,6 +48,7 @@ assert(flipped.endpoint.api === "anthropic-messages" && flipped.stampApi === fal
 
 // --- registration: the SCNet vendor keeps both endpoints reachable --------------
 writeFileSync(agentPath("models.json"), "{}");
+await seedDefaultProviders();
 const plain = await startExtension();
 assert([...plain.providers.keys()].join(",") === "commandcode,scnet", `one provider per vendor (got ${[...plain.providers.keys()].join(",")})`);
 const scnet = plain.providers.get("scnet");

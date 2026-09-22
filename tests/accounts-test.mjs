@@ -95,14 +95,14 @@ assert(ext.providers.get("demo").models[0].maxTokens === 100, "the base provider
 assert(ext.providers.get("demo-work").models[0].maxTokens === 4096 && ext.providers.get("demo-work").models[0].contextWindow === 2048, "an account layers its own block over the base one");
 assert(ext.providers.get("demo-work").models[0].name.includes("(work)"), `an account's models are labelled with the account (got ${ext.providers.get("demo-work").models[0].name})`);
 
-// A built-in vendor keeps its built-in base account when the directory only adds accounts.
+// A directory for a shipped id keeps the shipped base account when the directory only adds accounts.
 reset();
 mkdirSync(vendorDir("scnet"), { recursive: true });
 writeFileSync(`${vendorDir("scnet")}/provider.json`, JSON.stringify({ api: "openai-completions", baseUrl: "https://api.scnet.cn/api/llm/v1", modelsPath: "/models" }));
 writeFileSync(`${vendorDir("scnet")}/accounts.json`, JSON.stringify({ work: { apiKey: "$WORK_KEY" } }));
 ext = await startExtension();
-assert(ext.providers.has("scnet"), "a built-in vendor keeps registering its base id");
-assert(ext.providers.get("scnet").apiKey === "$SCNET_API_KEY", "and falls back to its built-in credential");
+assert(ext.providers.has("scnet"), "the shipped default account keeps the base id registered");
+assert(ext.providers.get("scnet").apiKey === "$SCNET_API_KEY", "and supplies its credential");
 assert(ext.providers.has("scnet-work"), "while the extra account is added");
 
 console.log(`accounts: ${[...ext.providers.keys()].join(", ")}`);
