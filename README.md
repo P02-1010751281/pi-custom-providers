@@ -2,7 +2,7 @@
 
 pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型目录随仓库维护，配置词汇全部用 pi 自己的字段。
 
-安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.3`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
+安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.4`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.2.4 = providers 只来自目录（无内置 id；旧装用 `/custom-providers init` 补目录），v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
 
 ## 为什么独立成包
 
@@ -21,7 +21,7 @@ rm -f ~/.pi/agent/extensions/subscription-providers.ts
 **两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。本地开发用方式 B：
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.3   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.4   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B，随后 /reload
 ```
 
@@ -46,7 +46,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 ## 配置：`~/.pi/agent/custom-providers/<id>/`
 
-目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` + `catalog.ts` 只在**同名目录存在**时作为它的基底（端点表、模型表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。新装机器先跑一次 `/custom-providers init commandcode scnet` 把默认端点写出来。
+目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` + `catalog.ts` 只在**同名目录存在**时作为它的基底（端点表、模型表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。新装机器先跑一次 `/custom-providers init`（无参数 = 全部出厂 vendor，也可只写名字）把默认端点写出来。
 
 ```
 ~/.pi/agent/custom-providers/
