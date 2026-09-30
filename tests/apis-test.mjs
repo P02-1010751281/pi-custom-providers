@@ -82,10 +82,15 @@ assert(wholeVendor.providers.get("scnet").models.every((model) => model.api === 
 // --- a flipped default with only a baseUrl is honoured (no apis.<api> needed) ---
 writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "openai-responses", baseUrl: "https://mirror.example/responses" } } }));
 const flippedWithUrl = await startExtension();
+await flippedWithUrl.sessionStart();
 assert(flippedWithUrl.providers.has("scnet"), "a flipped default is not refused when the layer supplies its baseUrl");
 assert(
 	flippedWithUrl.providers.get("scnet").api === "openai-responses" && flippedWithUrl.providers.get("scnet").baseUrl === "https://mirror.example/responses",
 	"the flipped protocol uses the layer's endpoint",
+);
+assert(
+	!flippedWithUrl.notifications.map((entry) => entry.message).join(" | ").includes("no endpoint"),
+	"a layer baseUrl that satisfies the flip is not reported as a missing endpoint",
 );
 
 // --- a flip with no endpoint at all is refused AND reported ---------------------

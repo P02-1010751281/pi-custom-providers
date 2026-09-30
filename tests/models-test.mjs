@@ -86,6 +86,9 @@ assert(moved.api === undefined && moved.baseUrl === undefined, "a restored id th
 const repaired = api.mergeStoredSnapshot([], [{ id: "bare" }]);
 assert(repaired[0].cost && typeof repaired[0].cost.input === "number" && repaired[0].contextWindow === 128000 && repaired[0].maxTokens === 16384, "a restored row missing required fields still gets safe defaults");
 
+const hardened = api.applyLiveModels([{ id: "no-input", name: "n", reasoning: false, contextWindow: 1000, maxTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }], []);
+assert(Array.isArray(hardened.models[0].input), "a base entry without an input array still yields one (the raw sync re-read can produce such a row)");
+
 // --- models.json: absent vs broken ---------------------------------------------
 assert(cfg.readModelsConfig().issue === undefined, "a missing models.json is not an issue (settings can come from the environment)");
 writeFileSync(modelsJson, "{ not json");

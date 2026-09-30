@@ -127,6 +127,16 @@ export function resolveModelEndpoint(
 	// The default endpoint: the declared one, unless the user's layer moved the default
 	// protocol (a flipped default keeps its own `apis.<api>` endpoint) or redirected it.
 	let defaultEndpoint = declared(defaultApi);
+	if (!defaultEndpoint && layerBaseUrl) {
+		// A layer `baseUrl` *is* the endpoint for the flipped protocol (§4): keep the declared
+		// discovery path/headers, and do not warn about a missing `apis.<api>`.
+		defaultEndpoint = {
+			api: defaultApi,
+			baseUrl: layerBaseUrl,
+			...(decl.modelsPath ? { modelsPath: decl.modelsPath } : {}),
+			...(decl.headers ? { headers: decl.headers } : {}),
+		};
+	}
 	if (!defaultEndpoint) {
 		const moved = declared(decl.api);
 		issues.push(`no endpoint for the default api "${defaultApi}"; using "${decl.api}"`);
