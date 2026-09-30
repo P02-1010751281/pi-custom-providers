@@ -49,8 +49,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 ### 路径与目录约定
 
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` models.json 层 + 兄弟线继承、`env.ts` .env 解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。`tests/fixtures/models.json` 是测试用的模型表。
-- `models.json` 只读：本扩展把它当覆盖层，从不写回。
-- 一个 provider = 一个（端点 × 协议）：SCNet 两条线是两个 id，用 `siblingId` 共享凭据（不共享 models/baseUrl/api/compat）。
+- pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
+- 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
 
 ### 环境变量与凭证
 
@@ -61,7 +61,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 其他
 
-- **Anthropic 线的 baseUrl 不能带 `/v1`**：pi 把 `model.baseUrl` 原样交给 Anthropic SDK，SDK 自己拼 `/v1/messages`（`anthropic-messages.js` 里 `new Anthropic({ baseURL: model.baseUrl })`，无任何归一化）。Command Code 的 OpenAI 线是 `/provider/v1`、Anthropic 线是 `/provider`，差异写在 `sources.ts` 的 `anthropicBaseUrl`，注册时按模型 `api` 贴 `baseUrl`。实测：`/provider/v1/messages` → 403 `MODEL_NOT_IN_PLAN`（路由存在），`/provider/v1/v1/messages` → 404。pi 自带目录同规律（`opencode`: `/zen/v1` vs `/zen`）。
+- **Anthropic 线的 baseUrl 不能带 `/v1`**：pi 把 `model.baseUrl` 原样交给 Anthropic SDK，SDK 自己拼 `/v1/messages`（`anthropic-messages.js` 里 `new Anthropic({ baseURL: model.baseUrl })`，无任何归一化）。Command Code 的 OpenAI 线是 `/provider/v1`、Anthropic 线是 `/provider`，差异写在各 vendor 的 `apis."anthropic-messages".baseUrl`（`sources.ts` 或目录 `provider.json`），注册时按模型 `api` 贴 `baseUrl`。实测：`/provider/v1/messages` → 403 `MODEL_NOT_IN_PLAN`（路由存在），`/provider/v1/v1/messages` → 404。pi 自带目录同规律（`opencode`: `/zen/v1` vs `/zen`）。
 - `models-store.json` 里可能残留旧的（错误的）`baseUrl`：实测扩展注册的模型优先，脏快照不影响请求路径，下一次 `pi update --models` 会写回正确值（`session_start` 的刷新不写盘，因为走的是 `allowNetwork:false` 的 `registerProvider` 离线轮）。
 - 验证请求路径的手段：把部署副本的 baseUrl 临时改成本地 mock（`/tmp/mock-gateway.mjs` 模式），`pi -p --no-tools --provider X --model Y` 跑一次，mock 会打出手里的真实路径（实测会看到 `POST /provider/v1/messages?beta=true`——`client.beta.messages` 会再加 `?beta=true`）。比读源码猜可靠。
 - 用真请求验证网关时的坑：**403/40x 与 404 要分开读**——403 `MODEL_NOT_IN_PLAN` 说明路由存在、是账号计划问题；404 + `cause` 里写着具体 URL 才是路径错。选 URL 的代码不要把“非 200”当成“路径不对”，否则后续探针全打在错路径上（本次就踩过）。
@@ -80,18 +80,18 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
   - 因此能力页只能当**弱证据**：以实时注册表/实测为准。
 - `claude-sonnet-5` 的 vision 三源冲突：能力页 flight `false`、能力页表格 `true`、上游 Anthropic 目录 `true`。仓库不再固化该值（v0.4.0）；要用就在自己的 `models.json` 里定并实测。
 - `commandcode` 的实时注册表在部分网络下首次请求 TLS/http2 失败（实测报 `http2ErrorCode: 2`）：手写探测脚本要退避重试；运行期发现失败只保留上一次快照并报告。
-- **SCNet 两条线服务的是同一批 id**（实测重叠 18/19，仅 `MiniMax-M2.5` 是 OpenAI 线独有）。它注册成两个 pi provider id 不是因为“模型表不同”，而是 pi 的硬约束：一个 provider id 内同 id 只能存在一份（`getModels(provider).find((m) => m.id === id)`，`pi-ai/dist/models.js`；我们的 `mergeCatalogModels` 也按 id 去重），而 `model.id` **就是**发给网关的 `model` 字段（`anthropic-messages.js:339`、`openai-completions.js:176` 均为 `model: model.id`），pi 没有独立的 wire-id/slug 字段。所以合并两条线必须给每个重叠 id 二选一，**按请求切协议做不到**。
+- **SCNet 两条线服务的是同一批 id**（实测重叠 18/19，仅 `MiniMax-M2.5` 是 OpenAI 线独有）。它们注册成**一个** `scnet`（v4.0 起）不是因为“模型表不同”，而是 pi 的硬约束：一个 provider id 内同 id 只能存在一份（`getModels(provider).find((m) => m.id === id)`，`pi-ai/dist/models.js`），而 `model.id` **就是**发给网关的 `model` 字段（`anthropic-messages.js:339`、`openai-completions.js:176` 均为 `model: model.id`），pi 没有独立的 wire-id/slug 字段。所以同一 id 只能挂在一条线上，**按请求切协议做不到**。
 - pi **没有 provider 别名机制**：`model-resolver.js` 里的 alias 只是“无日期模型 id 优先”，与 provider 无关；provider 身份就是 id。provider 级设置只有 `models.json` 的 `name`/`baseUrl`/`api`/`apiKey`/`headers`/`authHeader`/`compat`/`models[]`/`modelOverrides`/`oauth`，加上扩展侧的 `streamSimple`/`refreshModels`。
 - `modelOverrides` 是**最高层且作用在扩展注册的模型之上**（`composeModelProvider` 的 `getModels()` = `applyExtension(...)` 之后再 `applyModelOverride`，源码注释自称 “topmost user-config layer … after … extension model replacement”），但 `ModelOverrideSchema` **没有 `api`/`baseUrl`**，`applyModelOverride` 也不处理这两个字段 → pi 原生**不能**按模型换 wire。它能改的是 `name`/`reasoning`/`thinkingLevelMap`/`input`/`cost`/`contextWindow`/`maxTokens`/`samplingParams`/`headers`/`compat`——这些字段用户可以直接在 `models.json` 覆盖我们的模型，扩展不必自己实现。
 - `models.json` 的 schema 校验（`model-config.js` 的 `validateModelsConfig`）：类型错（`apiKey: 123`、`providers: "nope"`）会**整份丢弃**整个文件并报 `Invalid models.json schema`（所有 provider 一起消失），但**放行未知键**（塞 `providers.scnet.wire: "anthropic"` 能过校验）→ 扩展自定义的 provider 级开关不需要改 pi 就能读。
-- **设计：同一 vendor 的两条线注册成一个 provider**（`Source.providerId` 分组，SCNet 的 `scnet-anthropic` → `providerId: "scnet"`）。理由：两条线服务同一批 id，一个 provider id 内同名 id 只能有一份；协议按**模型**选（`models.json` 的 `providers.<id>.wire`，支持 `"anthropic"` 简写与 `{ default, models }` 形式）。代价：凭据变成 provider 级（一条 key）、**不可能按请求换线**。想保留“一条线一个 provider + 随时切换”就得把 `providerId` 去掉，两种形态只能选一个。
-- **坑（实现时先被测试拦住）**：把模型移到非默认线时，必须给它打上该线的 `api`。基底表里的模型本身不带 `api`，只贴 `baseUrl` 会导致 pi 用 provider 级 `api`——**对正确的主机说错协议**（打到 Anthropic 端点发 chat/completions）。规则：`wire !== primary` 时同时贴 `api` 与 `baseUrl`。
-- **坑**：provider 级 `models[]` 里声明的模型必须并入该 provider 的**每一条** wire，否则用户为它选了另一条线也挪不过去（那条线的列表里根本没这个 id）。实现：非默认线的 config 里 `models = 去重(默认线声明 + 该线自己的声明)`，该线自己的条目胜出。
-- **compat 的归属按线**：`providers.scnet.compat` 只贴默认线的模型，`providers["scnet-anthropic"].compat` 只贴 Anthropic 线的模型。被移线的模型不会带走默认线的 provider 级 compat。
-- **合并后的验证手段（已实测）**：把**部署副本**的 `sources.ts` 两条 baseUrl 临时指向本地 mock（`/tmp/mock-gateway.mjs`），一次运行里就能看到同一个 provider 内不同模型走不同路径——`GLM-5.2`（wire=anthropic）→ `POST /anthropic/v1/messages?beta=true`，`DeepSeek-V4-Flash`（默认线）→ `POST /openai/chat/completions`，且两条线的 `/models` 都被探测。改完重新拷贝部署副本即还原。
+- **设计：同一 vendor 的两条线注册成一个 provider**（`sources.ts` 的 `apis` 声明额外端点，键就是 pi 的 `api` 值）。理由：两条线服务同一批 id，一个 provider id 内同名 id 只能有一份；协议按**模型**选（`provider.json` 或 pi 全局 `models.json` 的 `providers.<id>.models[].api`）。代价：凭据变成 provider 级（一条 key）、**不可能按请求换线**。想保留“一条线一个 provider + 随时切换”就得给第二条线单开一个目录，两种形态只能选一个。
+- **坑（实现时先被测试拦住）**：把模型移到非默认协议时，必须给它打上该线的 `api`。基底表里的模型本身不带 `api`，只贴 `baseUrl` 会导致 pi 用 provider 级 `api`——**对正确的主机说错协议**（打到 Anthropic 端点发 chat/completions）。规则：非默认协议时同时贴 `api` 与 `baseUrl`。
+- **坑**：provider 级 `models[]` 里声明的模型必须并入该 provider 的**每一条**协议线，否则用户为它选了另一条线也挪不过去（那条线的列表里根本没这个 id）。实现：非默认线的 config 里 `models = 去重(默认线声明 + 该线自己的声明)`，该线自己的条目胜出。
+- **compat 的归属按模型**：provider 级 `compat` 由我们折到该 provider 的模型上；只想给某一条线，就写在 `models.json` 的模型条目里（v4.0 起不再有“按线分 provider”这回事）。
+- **合并后的验证手段（已实测）**：把**部署副本**的 `sources.ts` 两条 baseUrl 临时指向本地 mock（`/tmp/mock-gateway.mjs`），一次运行里就能看到同一个 provider 内不同模型走不同路径——`GLM-5.2`（协议=anthropic）→ `POST /anthropic/v1/messages?beta=true`，`DeepSeek-V4-Flash`（默认线）→ `POST /openai/chat/completions`，且两条线的 `/models` 都被探测。改完重新拷贝部署副本即还原。
 - `models-store.json` 里会残留旧的 `scnet-anthropic` 条目：合并后没有任何读取方（新持久化只写 `scnet`），无害；它不会被自动清掉。
 - **缺凭据不会在注册时抛错**（本机实测，修正早先推断）：`composeModelProvider` 里那句 `no authentication method configured` 实际几乎不可达（`composeApiKeyAuth` 在「无 key 且无 oauth」时仍返回对象而非 `undefined`）。真实后果：该 provider 的模型**不进可用快照**（`configuredProviders` 不含它 → picker 里看不到，实测 `getAvailableSnapshot()` = 0）；请求时 `authHeader: true` 报 `No API key found for "<id>"`，`authHeader: false` 则**不带 `Authorization` 静默发出**（网关 401）。所以「无凭据的账号不注册 + 启动时报告」是扩展主动选择，不是 pi 逼的。
-- **实测（`ModelRuntime` 真运行时）**：模型条目自带 `api`+`baseUrl`、provider 级什么都不给，注册与 `getModels()` 都正常（provider 级只是 fallback）；模型条目上的未知键 `wire` 会被 pi **原样保留**（`{...definition, api, provider, baseUrl, headers: undefined}` 是展开拷贝）；`ModelRuntime.create(...)` 返回 **Promise**，忘了 `await` 会得到 `registerProvider is not a function`。
+- **实测（`ModelRuntime` 真运行时）**：模型条目自带 `api`+`baseUrl`、provider 级什么都不给，注册与 `getModels()` 都正常（provider 级只是 fallback）；模型条目上的未知键（例如早先版本用的 `wire`）会被 pi **原样保留**（`{...definition, api, provider, baseUrl, headers: undefined}` 是展开拷贝）；`ModelRuntime.create(...)` 返回 **Promise**，忘了 `await` 会得到 `registerProvider is not a function`。
 
 ### 引擎行为（v4.0）
 

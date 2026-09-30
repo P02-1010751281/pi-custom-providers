@@ -44,6 +44,7 @@ for (const [source, models] of Object.entries(FIXTURE_MODELS)) {
 
 // The engines' patch semantics and api selection live in tests/apis-test.mjs; this file
 // guards the only repo-side model data and the pure helpers pi's own model list depends on.
+assert(total > 0, "the fixture table must not be empty (an emptied fixture would pass vacuously)");
 const cfg = await loadTs("extensions/custom-providers/config.ts");
 const { getAgentDir } = await import(`${PI}/dist/index.js`);
 const modelsJson = path.join(getAgentDir(), "models.json");
@@ -58,13 +59,29 @@ const applied = api.applyLiveModels(base, [
 ]);
 const liveKimi = applied.models.find((model) => model.id === "Kimi-K3");
 assert(liveKimi.contextWindow === 777777 && liveKimi.name === "Kimi K3 (live)", "live refresh updates a known model's context window and display name");
-assert(liveKimi.api === undefined, "discovery never infers a protocol (supported_endpoints is reported, not applied)");
+assert(liveKimi.api === undefined, "discovery never infers a protocol");
 const fresh = applied.models.find((model) => model.id === "brand-new-model");
 assert(fresh && fresh.cost && typeof fresh.cost.input === "number" && fresh.contextWindow === 500000, "an unknown live id is added with cost");
 assert(fresh.maxTokens === 16384, "an unknown live id gets a conservative maxTokens, never a guess from the registry");
 assert(applied.unknown.join(",") === "brand-new-model", "an unknown live id is reported");
 base[0].input.push("image");
 assert(!applied.models.find((model) => model.id === "Kimi-K3").input.includes("image"), "applyLiveModels returns copies, not the caller's objects");
+
+// --- the persisted snapshot restores full definitions, not convention defaults ---------
+// The store holds what we registered last time, so an id the base table has never seen must
+// come back whole; a known id still takes only the snapshot's live name and context window.
+const curated = () => ({ id: "GLM-5.2", name: "GLM-5.2", reasoning: true, input: ["text"], contextWindow: 1000, maxTokens: 131072, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, thinkingLevelMap: { max: "max" } });
+const restored = api.mergeStoredSnapshot([curated()], [
+	{ id: "GLM-5.2", name: "GLM-5.2", api: "openai-completions", contextWindow: 999999 },
+	{ id: "MiniMax-M2.5", name: "MiniMax-M2.5", api: "openai-completions", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+]);
+assert(restored.length === 2, "a stored row the base table lacks is restored");
+const restoredKnown = restored.find((model) => model.id === "GLM-5.2");
+assert(restoredKnown.contextWindow === 999999 && restoredKnown.maxTokens === 131072 && restoredKnown.thinkingLevelMap?.max === "max", "a restored known id takes the live context window and keeps its curated parameters");
+const restoredNew = restored.find((model) => model.id === "MiniMax-M2.5");
+assert(restoredNew.reasoning === true && restoredNew.maxTokens === 131072 && restoredNew.input.includes("text"), "a restored unseen id keeps the definition we registered, not convention defaults");
+const repaired = api.mergeStoredSnapshot([], [{ id: "bare" }]);
+assert(repaired[0].cost && typeof repaired[0].cost.input === "number" && repaired[0].contextWindow === 128000 && repaired[0].maxTokens === 16384, "a restored row missing required fields still gets safe defaults");
 
 // --- models.json: absent vs broken ---------------------------------------------
 assert(cfg.readModelsConfig().issue === undefined, "a missing models.json is not an issue (settings can come from the environment)");

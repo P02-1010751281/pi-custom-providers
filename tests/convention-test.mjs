@@ -1,4 +1,4 @@
-import { assert, loadTs } from "./harness.mjs";
+import { assert, FIXTURE_MODELS, loadTs } from "./harness.mjs";
 
 /**
  * The last-resort capability convention (A same-family inheritance, B known-family list).
@@ -33,8 +33,27 @@ assert(known?.reasoning === true && known.thinkingLevelMap?.xhigh === "xhigh" &&
 const knownOpen = conventionCapability([], "gemini-4-flash", "openai-completions");
 assert(knownOpen?.reasoning === true && knownOpen.thinkingLevelMap === undefined, "and only off..high (no map) elsewhere");
 
-// The list is hand-maintained now that the package ships no model table: it covers the
-// families the relays serve plus the common vendor families, and is exact-match only.
+// The list is hand-maintained now that the package ships no model table, so check it against
+// the only model data in the repo: a family whose curated entries all reason must be listed,
+// or a newly discovered id of that family would silently lose reasoning.
+const families = new Map();
+for (const models of Object.values(FIXTURE_MODELS)) {
+	for (const model of models) {
+		const key = familyKey(model.id);
+		const entry = families.get(key) ?? { yes: 0, no: 0 };
+		if (model.reasoning === true) entry.yes += 1;
+		else entry.no += 1;
+		families.set(key, entry);
+	}
+}
+let allReasoning = 0;
+for (const [key, entry] of families) {
+	if (entry.yes > 0 && entry.no === 0) {
+		assert(CONVENTION_FAMILIES.includes(key), `every curated "${key}" entry reasons, so "${key}" must be in CONVENTION_FAMILIES`);
+		allReasoning += 1;
+	}
+}
+assert(allReasoning > 0, "the fixture table must exercise the all-reasoning family invariant");
 
 // --- wiring: applyLiveModels actually consults the convention ---------------------
 const base = (id, extra = {}) => ({ id, name: id, reasoning: true, input: ["text"], contextWindow: 1000, maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...extra });
@@ -43,5 +62,5 @@ const fresh = applied.models.find((model) => model.id === "zai-org/GLM-5.4");
 assert(fresh.reasoning === true && fresh.thinkingLevelMap?.max === "max", "a newly discovered same-family id is registered with the inherited capability");
 assert(applied.unknown.join(",") === "zai-org/GLM-5.4", "and is still reported as new");
 
-console.log(`convention: A+B, ${CONVENTION_FAMILIES.length} families`);
+console.log(`convention: A+B, ${CONVENTION_FAMILIES.length} families, ${families.size} seen`);
 console.log("OK");

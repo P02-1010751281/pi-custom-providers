@@ -26,6 +26,27 @@ const bare = await startExtension();
 assert(bare.providers.has("commandcode"), "the directory still registers");
 assert(bare.providers.get("commandcode").models.length === 0, "with no models.json there is no model table to register (the extension ships none)");
 
+// --- an empty registry answer must not shadow the persisted snapshot -------------
+// Regression: memoizing an empty `/models` answer made the store-restore branch skip, so a
+// provider without `models.json` registered 0 models even when pi held a snapshot.
+const snapshotProvider = bare.providers.get("commandcode");
+const realFetch = globalThis.fetch;
+process.env.CMD_API_KEY ??= "test-key";
+try {
+	globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: [] }) });
+	await snapshotProvider.refreshModels({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
+	const restored = await snapshotProvider.refreshModels({
+		allowNetwork: false,
+		signal: new AbortController().signal,
+		publish: async () => true,
+		stored: { models: [{ id: "from-store", name: "From Store", reasoning: true, input: ["text"], contextWindow: 4321, maxTokens: 321, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] },
+	});
+	assert(restored.some((model) => model.id === "from-store"), `an empty /models answer must not shadow the persisted snapshot (got ${restored.length} models)`);
+	assert(restored.find((model) => model.id === "from-store").maxTokens === 321, "and the restored entry keeps the parameters pi persisted");
+} finally {
+	globalThis.fetch = realFetch;
+}
+
 // --- init writes provider.json for a shipped id --------------------------------
 const notify = [];
 const ui = await startExtension();
@@ -40,6 +61,9 @@ assert(written.apis?.["anthropic-messages"]?.baseUrl, "including the second endp
 
 await run("init scnet");
 assert((notify.at(-1) ?? "").includes("exists"), "a second init refuses to overwrite without --force");
+// Regression: `sync` re-scans, so it sees a directory `init` wrote in this same session.
+await run("sync scnet");
+assert(!(notify.at(-1) ?? "").includes("No provider directory named"), `sync sees the directory init just wrote (got: ${notify.at(-1)})`);
 await run("init scnet --force");
 assert((notify.at(-1) ?? "").includes("wrote"), "--force overwrites");
 await run("init nope");

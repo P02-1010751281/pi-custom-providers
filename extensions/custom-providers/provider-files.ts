@@ -10,7 +10,8 @@
  * otherwise silently shrink a provider's model list. Entry-level problems (a model
  * without an `id`, an account without a key, an unknown key) only skip that entry.
  *
- * Nothing here writes. The only writer in this package is `sync-models.ts`.
+ * Nothing here writes. `sync-models.ts` (`sync --write`) and the `init` command are the only
+ * writers in this package.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -58,7 +59,6 @@ export interface DirectoryVendor {
 	declaration: ProviderDeclaration;
 	/** The base model table from `models.json`; empty when the file is absent. */
 	models: CatalogModel[];
-	hasModelsFile: boolean;
 	/** Parseable `provider.json` — a directory without one is not a vendor at all. */
 	loadable: boolean;
 	accounts: Account[];
@@ -107,17 +107,17 @@ function readModelEntry(raw: JsonObject, index: number, issues: LoadIssue[]): Ca
 }
 
 /** `models.json`: either a bare array (accepted shorthand) or the canonical `{models: []}`. */
-function readModelsFile(file: string, issues: LoadIssue[]): { models: CatalogModel[]; present: boolean; broken: boolean } {
+function readModelsFile(file: string, issues: LoadIssue[]): { models: CatalogModel[]; broken: boolean } {
 	const { value, missing, issue } = readJson(file);
-	if (missing) return { models: [], present: false, broken: false };
+	if (missing) return { models: [], broken: false };
 	if (issue) {
 		issues.push({ level: "error", message: issue });
-		return { models: [], present: true, broken: true };
+		return { models: [], broken: true };
 	}
 	const rows = Array.isArray(value) ? value : isObject(value) && Array.isArray(value.models) ? value.models : undefined;
 	if (!rows) {
 		issues.push({ level: "error", message: `${file} must be an array or {"models": [...]}` });
-		return { models: [], present: true, broken: true };
+		return { models: [], broken: true };
 	}
 	const models: CatalogModel[] = [];
 	rows.forEach((row, index) => {
@@ -128,7 +128,7 @@ function readModelsFile(file: string, issues: LoadIssue[]): { models: CatalogMod
 		const model = readModelEntry(row, index, issues);
 		if (model) models.push(model);
 	});
-	return { models, present: true, broken: false };
+	return { models, broken: false };
 }
 
 /** `accounts.json`: credentials only — a model or endpoint key here is a misplacement. */
@@ -305,7 +305,7 @@ export function loadDirectory(rootDir: string, id: string): DirectoryVendor {
 	const issues: LoadIssue[] = [];
 	const provider = readProviderFile(path.join(directory, "provider.json"), issues);
 	if (!provider) {
-		return { id, directory, name: id, declaration: { api: "", baseUrl: "", apis: {} }, models: [], hasModelsFile: false, loadable: false, accounts: [], override: false, fatal: true, issues };
+		return { id, directory, name: id, declaration: { api: "", baseUrl: "", apis: {} }, models: [], loadable: false, accounts: [], override: false, fatal: true, issues };
 	}
 	const models = readModelsFile(path.join(directory, "models.json"), issues);
 	const accounts = readAccountsFile(path.join(directory, "accounts.json"), issues);
@@ -315,7 +315,6 @@ export function loadDirectory(rootDir: string, id: string): DirectoryVendor {
 		name: provider.name ?? id,
 		declaration: provider.declaration,
 		models: models.models,
-		hasModelsFile: models.present,
 		loadable: true,
 		accounts: accounts.accounts,
 		...(accounts.defaultPointer ? { defaultPointer: accounts.defaultPointer } : {}),
@@ -372,15 +371,15 @@ export function resolveAccounts(
 	};
 }
 
-/** Turn one parsed directory into a `Vendor`, or into issues when it must not register. */
-function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefined, issues: LoadIssue[]): Vendor | undefined {
+/** Turn one parsed directory into a `Vendor`, reporting whatever it had to fall back on. */
+function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefined, issues: LoadIssue[]): Vendor {
 	const resolved = resolveAccounts(loaded.accounts, loaded.defaultPointer, {
 		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
 		id: loaded.id,
 	});
 	issues.push(...resolved.issues);
 	// A directory only has to speak where it differs: the shipped default for the same id
-	// fills in the endpoints and the model table the directory leaves out.
+	// fills in the endpoints the directory leaves out.
 	const declaration: ProviderDeclaration = !shipped
 		? loaded.declaration
 		: {
@@ -395,9 +394,9 @@ function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefine
 		name: loaded.name,
 		aliases: shipped?.aliases ?? [loaded.id],
 		declaration,
-		// The extension ships no model table: without a directory `models.json` the base is
-		// empty, and live discovery (or a later `sync --write`) fills it.
-		models: loaded.hasModelsFile ? loaded.models : [],
+		// The extension ships no model table: empty until a directory `models.json` or discovery
+		// fills it (and a later `sync --write` can persist that).
+		models: loaded.models,
 		origin: "directory",
 		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
 		accounts: resolved.accounts,
@@ -443,7 +442,6 @@ export function collectVendors(
 		}
 		// Same array, not a copy: `resolveAccounts` reports into it too.
 		const vendor = vendorFromDirectory(loaded, defaultById.get(dir), issues);
-		if (!vendor) continue;
 		byId.set(dir, vendor);
 	}
 	return { vendors: [...byId.values()].sort((a, b) => a.id.localeCompare(b.id)), ignored, issues };

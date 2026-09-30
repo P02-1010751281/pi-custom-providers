@@ -33,8 +33,9 @@
  *
  * Live refresh runs from pi's `refreshModels` hook, so `pi update --models` and credential
  * changes refresh these providers too, and results are persisted to
- * `~/.pi/agent/models-store.json` for offline restore. `models.json` is never written; the
- * only writer in this package is `custom-providers sync --write`.
+ * `~/.pi/agent/models-store.json` for offline restore. pi's global `models.json` is never
+ * written; the only writers in this package are `init` (a vendor's `provider.json`) and
+ * `sync --write` (a vendor's `models.json`).
  *
  * Files: `sources.ts` built-in vendor endpoints, `config.ts` pi's
  * api vocabulary + the `models.json` layer, `provider-files.ts` the directory layer,
@@ -229,9 +230,9 @@ async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: s
 /**
  * Apply discovery to a model list: the id set, display name and context window only. Every
  * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
- * a curated model to pi's defaults, and capability flags are decided at generation time
- * (decision 18) or, for an id the base table has never seen, by the naming convention in
- * `convention.ts` (same-family inheritance, then a known-family list).
+ * a curated model to pi's defaults. An id the base table has never seen takes its capability
+ * from the naming convention in `convention.ts` (same-family inheritance, then a known-family
+ * list); curated parameters only ever come from the base table.
  */
 export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string): { models: ModelEntry[]; unknown: string[] } {
 	const byId = new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
@@ -258,6 +259,38 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 		});
 	}
 	return { models: [...byId.values()], unknown };
+}
+
+/**
+ * Merge pi's persisted snapshot into a model list. Unlike a `/models` answer, the store holds
+ * what we registered last time (full definitions), so an id the base table has never seen is
+ * restored *whole* instead of being rebuilt from the naming convention; an id the base table
+ * knows still only takes the snapshot's live display name and context window.
+ */
+export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonly JsonObject[]): ModelEntry[] {
+	const byId = new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
+	for (const row of rows) {
+		const id = String(row.id);
+		const name = stringOr(row.name);
+		const ctx = numberOr(row.context_length ?? row.contextWindow, 0);
+		const known = byId.get(id);
+		if (known) {
+			if (name) known.name = name;
+			if (ctx > 0) known.contextWindow = ctx;
+			continue;
+		}
+		byId.set(id, {
+			...(row as unknown as ModelEntry),
+			id,
+			name: name ?? id,
+			contextWindow: ctx > 0 ? ctx : 128000,
+			maxTokens: numberOr(row.maxTokens, 16384),
+			input: Array.isArray(row.input) ? (row.input as string[]) : ["text"],
+			// A registered model must always carry `cost` (pi's `calculateCost()` dereferences it).
+			cost: isObject(row.cost) ? (row.cost as CatalogModel["cost"]) : { ...ZERO_COST },
+		});
+	}
+	return [...byId.values()];
 }
 
 /**
@@ -341,8 +374,8 @@ async function refreshEntry(
 		if (!memo && storedRows.length > 0) {
 			// Restored from pi's own store: only rows that name this protocol (pi stamps `api`
 			// on persisted models), plus rows that name none at all (older snapshots).
-			const own = storedRows.filter((row) => row.api === undefined || row.api === endpoint.api) as unknown as LiveModelRow[];
-			list = applyLiveModels(list, own, endpoint.api).models;
+			const own = storedRows.filter((row) => row.api === undefined || row.api === endpoint.api);
+			list = mergeStoredSnapshot(list, own);
 		}
 		if (!options.allowFetch) {
 			result = list;
@@ -355,7 +388,9 @@ async function refreshEntry(
 			// keeps the result for the cache-only round pi runs right after registration.
 			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, apiKey, options.signal);
 			const applied = applyLiveModels(list, rows, endpoint.api);
-			liveSnapshots.set(key, applied.models);
+			// Memoize only a non-empty answer: an empty one (a quota-exhausted wire answers
+			// 200 + `[]`) must not shadow the persisted snapshot on the next round.
+			if (applied.models.length > 0) liveSnapshots.set(key, applied.models);
 			lastErrors.delete(key);
 			result = applied.models;
 			live = true;
@@ -625,28 +660,34 @@ export default async function customProviders(pi: ExtensionAPI) {
 					const drift = status.drift;
 					return drift ? [...drift.reasoning, ...drift.input, ...drift.maxTokens, ...drift.contextWindow] : [];
 				});
-				notify(lines.length > 0 ? `Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}` : "No differences from pi's built-in catalog");
+				if (lines.length > 0) notify(`Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}`);
+				else if ([...statuses.values()].some((status) => status.drift)) notify("No differences from pi's built-in catalog");
+				else notify("No registered models to compare with pi's built-in catalog");
 				return;
 			}
 			if (head === "files") {
-				const files = scanned.vendors.map((vendor) => {
+				// Re-scan: `init` may have written a provider.json after startup.
+				const vendorFiles = collectVendors(root, defaults, piProviderIds);
+				const files = vendorFiles.vendors.map((vendor) => {
 					const dir = vendor.directory ? path.relative(root, vendor.directory) : "-";
 					const accounts = vendor.accounts.length > 0 ? vendor.accounts.map((account) => account.id).join(",") : "none";
 					return `${vendor.id} [${vendor.origin}] dir=${dir} models=${vendor.models.length} accounts=${accounts}`;
 				});
-				const ignored = scanned.ignored.length > 0 ? `ignored dirs: ${scanned.ignored.join(", ")}` : "no ignored dirs";
-				notify(`Provider files: ${toastLines(files)}; ${ignored}`);
+				const ignored = vendorFiles.ignored.length > 0 ? `ignored dirs: ${vendorFiles.ignored.join(", ")}` : "no ignored dirs";
+				const problems = vendorFiles.vendors.flatMap((vendor) => vendor.issues.map((issue) => `${vendor.id}: ${issue.message}`));
+				notify(`Provider files: ${toastLines(files)}; ${ignored}${problems.length > 0 ? `; problems: ${toastLines(problems)}` : ""}`);
 				return;
 			}
 			if (head === "sync") {
 				const id = rest[0];
-				const vendor = scanned.vendors.find((candidate) => candidate.id === id);
+				// Re-scan: `init` may have written the directory after startup.
+				const vendor = collectVendors(root, defaults, piProviderIds).vendors.find((candidate) => candidate.id === id);
 				if (!vendor || !vendor.directory) {
 					notify(id ? `No provider directory named "${id}" under custom-providers/` : "Usage: custom-providers sync <id> [--write]", "warning");
 					return;
 				}
 				const file = path.join(vendor.directory, "models.json");
-				const current = readBaseTable(file).models;
+				const current = readBaseTable(file);
 				// The base ⊕ discovery, without the user's `models.json` layer: syncing must not
 				// bake a user override into the base table. Discovery is this process's memo —
 				// what `refresh-custom-models` last fetched — never a fresh network call.

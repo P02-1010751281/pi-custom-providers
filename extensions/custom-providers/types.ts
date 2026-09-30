@@ -45,8 +45,6 @@ export type VendorId = string;
 /** One credential set. It only ever carries authentication — never endpoints or models. */
 export interface Account {
 	id: string;
-	/** Suffix in the display name; the account registered as the base id has none. */
-	name?: string;
 	/** pi value syntax (`$VAR` / `${VAR}` / `!command` / `$$` / `$!` / literal). */
 	apiKey?: string;
 	authHeader?: boolean;
@@ -68,7 +66,7 @@ export interface Vendor {
 	/** Other `models.json` provider keys this vendor answers to (its own id first). */
 	aliases: readonly string[];
 	declaration: ProviderDeclaration;
-	/** The base model table: from `<id>/models.json`, or the shipped default for this id. */
+	/** The base model table: `<id>/models.json`, empty until that file or discovery fills it. */
 	models: readonly CatalogModel[];
 	origin: VendorOrigin;
 	/** The shipped default account (`envVar` + `authHeader`) for this vendor id, used when the directory declares no accounts. */
@@ -96,7 +94,6 @@ export interface LiveModelRow {
 	name?: string;
 	context_length?: number;
 	contextWindow?: number;
-	supported_endpoints?: string[];
 }
 
 export type { JsonObject, ProviderDeclaration };

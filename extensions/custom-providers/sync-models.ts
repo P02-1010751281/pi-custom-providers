@@ -15,7 +15,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFil
 import path from "node:path";
 import type { CatalogModel } from "./types.ts";
 
-/** Field order of the written file — readable diffs, and the same order the generator emits. */
+/** Field order of the written file — readable diffs, id first, then pi's own model fields. */
 const FIELD_ORDER: (keyof CatalogModel)[] = ["id", "name", "api", "baseUrl", "reasoning", "input", "contextWindow", "maxTokens", "cost", "thinkingLevelMap", "headers", "compat"];
 
 export function serializeBaseTable(models: readonly CatalogModel[]): string {
@@ -83,13 +83,16 @@ export function writeBaseTable(file: string, models: readonly CatalogModel[]): {
 	return backup ? { backup } : {};
 }
 
-/** Read the base table of a vendor directory; absent and broken are both non-fatal here. */
-export function readBaseTable(file: string): { models: CatalogModel[]; present: boolean } {
+/**
+ * The vendor's on-disk base table. Re-read instead of reusing the startup scan: the user may
+ * have edited `models.json` since, and `sync` must diff against the current file.
+ */
+export function readBaseTable(file: string): CatalogModel[] {
 	try {
 		const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
 		const rows = Array.isArray(parsed) ? parsed : typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { models?: unknown }).models) ? (parsed as { models: unknown[] }).models : [];
-		return { models: rows as CatalogModel[], present: true };
+		return rows as CatalogModel[];
 	} catch {
-		return { models: [], present: false };
+		return [];
 	}
 }

@@ -25,10 +25,16 @@ pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B，随后 /reload
 ```
 
+### 从 v0.3.0 升级（v0.4.0：不再带模型表）
+
+- 仓库不再带模型表。**已经写了 `<id>/models.json` 的机器不受影响**；只有 `provider.json`、没写过模型表的机器升级后该 provider 会**暂时 0 模型**，直到联网发现成功（发现会自动补 id/名字/上下文）或你补一份 `models.json`。
+- `/custom-providers sync <id> --write` 可用发现结果生成一份，但它写的是**发现的原始事实**：发现不发能力字段、也**不推断 `api`**，所以 Command Code 的 Claude 类 id 要自己补 `api: "anthropic-messages"`（见 Providers 一节），否则会被打到默认的 OpenAI 端点。
+- 出厂 vendor 的模型参数（`cost` / `maxTokens` / `reasoning` 等）不再由仓库提供；要固定下来就写进自己的 `models.json`。
+
 ### 从旧版升级（v0.1.0 → v4.0 引擎）
 
 - provider id 由 `codecommand` 改为 **`commandcode`**（域名拼写）。旧键 `providers.codecommand` 仍然被读取（`aliases`），但 pi 会把只在 `models.json` 里声明的 id 也注册成一个 provider，于是选择器里会**多出一个 `codecommand` 条目**。把 `models.json` 里的键改成 `providers.commandcode` 即可消掉。
-- `providers.<id>.wire` / `wire.models` 不再被读取（pi 原生 `api` 就是协议）：一个模型要换协议，写模型条目的 `api`。
+- 一个模型要换协议，写模型条目的 `api`。
 - `siblingId` / `anthropicBaseUrl` 这两个旧字段已删除；SCNet 的 Anthropic 端点现在是 `apis."anthropic-messages"`。
 
 ## Providers
@@ -46,7 +52,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 ## 配置：`~/.pi/agent/custom-providers/<id>/`
 
-目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` 只在**同名目录存在**时作为它的基底（端点表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑一次 `/custom-providers init`（无参数 = 全部出厂 vendor，也可只写名字）写出默认端点，再自己放 `models.json`，或跑 `/custom-providers sync <id> --write` 用实时发现生成一份。
+目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` 只在**同名目录存在**时作为它的基底（端点表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑一次 `/custom-providers init`（无参数 = 全部出厂 vendor，也可只写名字）写出默认端点，再自己放 `models.json`，或跑 `/custom-providers sync <id> --write` 用实时发现生成一份（发现不推断协议：走非默认协议的 id 要自己补 `api`）。
 
 ```
 ~/.pi/agent/custom-providers/
@@ -136,7 +142,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `/custom-providers` | 状态总览（模型数、live/基底、协议分布、新 id、上次错误） | 否 |
 | `/custom-providers <id>` | 单 provider 详情：协议分布、账号、校验问题 | 否 |
 | `/custom-providers drift` | 与 pi 内置目录的差异（只报不改） | 否 |
-| `/custom-providers files` | 扫描结果：目录、三文件、被忽略的目录、校验问题 | 否 |
+| `/custom-providers files` | 扫描结果：每个目录的 id、模型数、账号数，被忽略的目录，文件校验问题 | 否 |
 | `/custom-providers init [<id>...] [--force]` | 为出厂默认 vendor 写 `<id>/provider.json`（已存在则不动，`--force` 覆盖）；不写任何密钥 | `provider.json` |
 | `/custom-providers sync <id> [--write] [--prune]` | 打印「基底 ⊕ 发现 vs `<id>/models.json`」差异；`--write` 才落盘（先留 `.bak`）；`--prune` 才删掉发现不再返回的 id | 仅 `--write` |
 
