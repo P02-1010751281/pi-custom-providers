@@ -125,8 +125,7 @@ write(vendorDir("scnet"), "provider.json", provider({ baseUrl: "https://mirror.e
 const mirrored = await startExtension();
 await mirrored.sessionStart();
 assert(mirrored.providers.get("scnet").baseUrl === "https://mirror.example/v1", "a directory replaces the shipped default endpoint");
-assert(mirrored.providers.get("scnet").models.length === 19, "and keeps the shipped model table when it declares none");
-assert(mirrored.providers.get("scnet").models.some((model) => model.api === "anthropic-messages") === false, "the shipped endpoints still serve the models");
+assert(mirrored.providers.get("scnet").models.length === 0, "a directory with only provider.json has no models (the extension ships no table)");
 assert(!mirrored.notifications.map((entry) => entry.message).join(" | ").includes("replaces the built-in"), "no built-in provider is ever announced");
 
 

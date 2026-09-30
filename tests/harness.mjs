@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -101,8 +101,17 @@ export const AGENT_DIR = process.env.PI_CODING_AGENT_DIR;
 export const agentPath = (...parts) => path.join(AGENT_DIR, ...parts);
 
 /**
- * Write `<id>/provider.json` for the shipped defaults into the temp agent dir. A provider
- * only exists when its directory does; this is what `custom-providers init` does for a user.
+ * The repo-side model table tests seed their vendor directories from. The extension itself
+ * ships no model data: a directory gets its base table from its own `models.json` (or live
+ * discovery), so tests supply one as the "curated user table" would. Only ids the tests
+ * reference are listed; `tests/models-test.mjs` guards their shape.
+ */
+export const FIXTURE_MODELS = JSON.parse(readFileSync(path.join(REPO_ROOT, "tests/fixtures/models.json"), "utf8"));
+
+/**
+ * Write `<id>/provider.json` for the shipped defaults into the temp agent dir, plus the
+ * fixture `models.json` when one exists for that vendor. A provider only exists when its
+ * directory does; this is what `custom-providers init` + a user's table produce.
  */
 export async function seedDefaultProviders(...ids) {
 	const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
@@ -112,6 +121,8 @@ export async function seedDefaultProviders(...ids) {
 		const dir = agentPath("custom-providers", id);
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(path.join(dir, "provider.json"), `${JSON.stringify({ name: shipped.name, ...shipped.declaration }, null, "\t")}\n`);
+		const models = FIXTURE_MODELS[id];
+		if (models) writeFileSync(path.join(dir, "models.json"), `${JSON.stringify({ models }, null, "\t")}\n`);
 	}
 }
 

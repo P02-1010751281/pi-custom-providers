@@ -101,6 +101,8 @@ cd /tmp && pi -p --no-tools --no-session --session-dir /tmp/pi-review-ctx \
 
 ## 第三轮：code → design 对表（codegraph，2026-09-18）
 
+> v0.4.0 注：本文中的 `catalog.ts` / `scripts/refresh-catalog.mjs` / `capabilityAuthority` / `builtinLevelMap` 已删除，见设计文档「v0.4.0 增补」。以下为当时的评审记录。
+
 没有 `codegraph` 可执行文件（本机无此命令），改为手工建图：对 `extensions/custom-providers/{index,config,builtin,env,sources,catalog,types}.ts` + `scripts/refresh-catalog.mjs` + `tests/*` 做 import/符号/调用点表，再与设计逐点对表。共找到 13 个没写死或没注意的点，**其中 1 个是设计的判断题错**：
 
 | # | 发现 | 实据 | 处置 |

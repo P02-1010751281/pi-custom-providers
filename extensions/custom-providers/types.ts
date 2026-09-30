@@ -1,8 +1,8 @@
 /**
  * Shared domain types.
  *
- * Hand-written on purpose: `catalog.ts` is generated and holds data only, so the
- * schema lives here and the generator emits no declarations at all.
+ * Hand-written on purpose: this is the only place the model/vendor schema is declared —
+ * the extension ships no generated data file.
  *
  * The vocabulary is pi's own wherever pi has one (`api`, `baseUrl`, `headers`,
  * `compat`, `models[]`). Four things are ours because pi has no word for them:

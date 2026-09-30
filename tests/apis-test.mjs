@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { agentPath, assert, loadTs, loader, seedDefaultProviders, startExtension } from "./harness.mjs";
+import { agentPath, assert, FIXTURE_MODELS, loadTs, loader, seedDefaultProviders, startExtension } from "./harness.mjs";
 
 /**
  * Protocol (api) selection — design §5.
@@ -53,7 +53,7 @@ const plain = await startExtension();
 assert([...plain.providers.keys()].join(",") === "commandcode,scnet", `one provider per vendor (got ${[...plain.providers.keys()].join(",")})`);
 const scnet = plain.providers.get("scnet");
 assert(scnet.api === "openai-completions" && scnet.baseUrl === SCNet.declaration.baseUrl, "the provider keeps its default protocol + endpoint");
-assert(scnet.models.length === 19, `the vendor's model list is the union of both endpoints (got ${scnet.models.length})`);
+assert(scnet.models.length === FIXTURE_MODELS.scnet.length, `the vendor's model list is the union of both endpoints (got ${scnet.models.length})`);
 assert(scnet.models.every((model) => model.api === undefined), "without configuration no SCNet model carries an api (they are all on the default endpoint)");
 assert(scnet.models.every((model) => model.baseUrl === undefined), "and none carries a baseUrl");
 assert(scnet.models.every((model) => model.cost && typeof model.cost.input === "number"), "every model carries cost");

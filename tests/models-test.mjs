@@ -1,22 +1,22 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { loadTs, PI, assert } from "./harness.mjs";
+import { FIXTURE_MODELS, loadTs, PI, assert } from "./harness.mjs";
 
 /**
- * Catalog invariants.
+ * The one repo-side model table — `tests/fixtures/models.json`, seeded into vendor
+ * directories by the harness — plus the pure helpers pi's own model list depends on.
  *
  * Regression guard: pi's `calculateCost()` dereferences `model.cost.tiers`
  * unconditionally, so any registered model without `cost` crashes the turn with
  * `Cannot read properties of undefined (reading 'tiers')`.
  */
-const { CATALOG } = await loadTs("extensions/custom-providers/catalog.ts");
 const api = await loadTs("extensions/custom-providers/index.ts");
 const { calculateCost } = await import(`${PI}/node_modules/@earendil-works/pi-ai/dist/index.js`);
 
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"];
 let total = 0;
 
-for (const [source, models] of Object.entries(CATALOG)) {
+for (const [source, models] of Object.entries(FIXTURE_MODELS)) {
 	const ids = new Set();
 	for (const model of models) {
 		assert(typeof model.id === "string" && model.id.length > 0, `${source}: id`);
@@ -39,11 +39,11 @@ for (const [source, models] of Object.entries(CATALOG)) {
 		assert(typeof priced.total === "number" && !Number.isNaN(priced.total), `${source}/${model.id}: calculateCost total`);
 		total += 1;
 	}
-	console.log(`${source}: ${models.length} models`);
+	console.log(`${source}: ${models.length} fixture models`);
 }
 
 // The engines' patch semantics and api selection live in tests/apis-test.mjs; this file
-// guards the raw catalog data and the two pure helpers pi's own model list depends on.
+// guards the only repo-side model data and the pure helpers pi's own model list depends on.
 const cfg = await loadTs("extensions/custom-providers/config.ts");
 const { getAgentDir } = await import(`${PI}/dist/index.js`);
 const modelsJson = path.join(getAgentDir(), "models.json");
@@ -77,5 +77,5 @@ assert(cfg.providerLayerFor("scnet", [], parsed.config).apiKey === "$SCNET_API_K
 assert(cfg.providerLayerFor("commandcode", ["codecommand"], { providers: { codecommand: { authHeader: true } } }).authHeader === true, "providerLayerFor falls back to an alias key");
 assert(JSON.stringify(cfg.applyModelPatch({ id: "m", contextWindow: 1000, cost: { input: 1 } }, { maxTokens: 5 }).contextWindow) === "1000", "a models.json entry patches fields instead of replacing the entry");
 
-console.log(`validated ${total} catalog models`);
+console.log(`validated ${total} fixture models`);
 console.log("OK");

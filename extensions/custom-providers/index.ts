@@ -1,12 +1,13 @@
 /**
  * custom-providers — register reseller/gateway LLM endpoints (Command Code / GOAT and
- * SCNet, OpenAI-shaped and Anthropic-shaped) using a versioned, in-repo model catalog plus
- * an optional per-vendor directory of configuration files.
+ * SCNet, OpenAI-shaped and Anthropic-shaped) from an optional per-vendor directory of
+ * configuration files.
  *
  * Why this lives in a package instead of `~/.pi/agent/models.json`:
  *   - The resellers' `/models` endpoints carry little or no metadata (SCNet returns ids
- *     only), so model parameters have to be curated. Keeping them in a gitignored
- *     `models.json` made them drift and silently fall back to pi's defaults.
+ *     only), so model parameters have to be curated somewhere. They live in the vendor's own
+ *     `models.json`; this package ships no table, and live discovery only fills id / name /
+ *     contextWindow.
  *   - pi requires `cost` on every registered model; omitting it makes `calculateCost()`
  *     throw on the first turn that reports usage.
  *   - A vendor often has two protocol endpoints serving the same ids, which pi's file layer
@@ -19,7 +20,7 @@
  *
  * The layer chain is four deep and every step is a per-field patch (design §4):
  *
- *   1. base model table — `catalog.ts` for a built-in vendor, `<id>/models.json` otherwise
+ *   1. base model table — `<id>/models.json`; empty until it exists or discovery fills it
  *   2. `provider.json` — the default protocol + endpoint (`api` / `baseUrl`) and `apis`
  *   3. pi's global `models.json` — `providers.<id>` (provider fields) and `models[]` entries
  *   4. `modelOverrides` — pi applies this one itself, last; we neither read nor fight it
@@ -35,9 +36,9 @@
  * `~/.pi/agent/models-store.json` for offline restore. `models.json` is never written; the
  * only writer in this package is `custom-providers sync --write`.
  *
- * Files: `sources.ts` built-in vendors (shared with the catalog generator), `config.ts` pi's
+ * Files: `sources.ts` built-in vendor endpoints, `config.ts` pi's
  * api vocabulary + the `models.json` layer, `provider-files.ts` the directory layer,
- * `sync-models.ts` the one writer, `catalog.ts` generated data, `builtin.ts` pi cross-check.
+ * `sync-models.ts` the one writer, `builtin.ts` pi cross-check.
  */
 import { homedir } from "node:os";
 import path from "node:path";
@@ -45,7 +46,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { getAgentDir, readStoredCredential, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { absorbCompat, loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog, type CatalogCompat, type DriftSummary } from "./builtin.ts";
-import { CATALOG } from "./catalog.ts";
 import { applyModelPatch, normalizeApi, providerLayerFor, readModelsConfig, resolveModelEndpoint, type JsonObject } from "./config.ts";
 import { conventionCapability } from "./convention.ts";
 import { loadEnvFile } from "./env.ts";
@@ -192,7 +192,8 @@ function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builtin: Buil
 }
 
 /**
- * The *base* view of a model list: what `sync --write` stores and what `catalog.ts` holds.
+ * The *base* view of a model list: what `sync --write` stores and what a vendor's
+ * `models.json` holds.
  * Derived products stay out of it — the protocol suffix on the display name and the
  * endpoint's base URL are computed at registration time (design §4/§5.2), so writing them
  * back would freeze a layer-2 computation into the layer-1 table.
@@ -520,7 +521,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 		name: vendor.name,
 		aliases: vendor.aliases,
 		declaration: vendor.declaration,
-		models: CATALOG[vendor.id] ?? [],
+		models: [],
 		origin: "directory" as const,
 		defaultAccount: vendor.defaultAccount,
 		accounts: [],
@@ -572,13 +573,13 @@ export default async function customProviders(pi: ExtensionAPI) {
 			.map((status) => `${status.id}: refresh failed, using ${status.models} model(s)${status.live ? " from the last successful fetch" : " from the base table"} (${status.error})`),
 		...sortedStatuses()
 			.filter((status) => status.unknown.length > 0)
-			.map((status) => `${status.id}: new model(s) not in catalog: ${status.unknown.join(", ")}`),
+			.map((status) => `${status.id}: new model(s) not in models.json: ${status.unknown.join(", ")}`),
 		...sortedStatuses()
 			.filter((status) => status.vanished.length > 0)
 			.map((status) => `${status.id}: model(s) no longer returned by discovery (kept, sync --prune drops): ${status.vanished.join(", ")}`),
 		...sortedStatuses()
 			.filter((status) => !status.error && !status.live)
-			.map((status) => `${status.id}: live catalog unavailable (${status.models} model(s) from base)`),
+			.map((status) => `${status.id}: live models unavailable (${status.models} model(s) from base)`),
 	];
 
 	pi.registerCommand("refresh-custom-models", {

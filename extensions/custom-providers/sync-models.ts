@@ -2,8 +2,8 @@
  * `custom-providers sync <id> [--write] [--prune]` — the only code in this package that
  * writes a user file, and only with `--write`.
  *
- * What it writes is the *base table*: the vendor's model base (catalog or existing
- * `<id>/models.json`) merged with what discovery returned. The user layers (`providers.<id>`
+ * What it writes is the *base table*: the vendor's model base (an existing
+ * `<id>/models.json`, or empty) merged with what discovery returned. The user layers (`providers.<id>`
  * and `modelOverrides` in pi's global `models.json`) are deliberately not baked in — a
  * single `sync --write` must not fossilize a user override into the base table.
  *

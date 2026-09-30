@@ -1,8 +1,8 @@
 # custom-providers
 
-pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型目录随仓库维护，配置词汇全部用 pi 自己的字段。
+pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型表由你的目录（`models.json`）或实时发现提供，配置词汇全部用 pi 自己的字段。
 
-安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.4`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.2.4 = providers 只来自目录（无内置 id；旧装用 `/custom-providers init` 补目录），v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
+安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.4.0`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.4.0 = 移除出厂模型表（纯目录驱动：`init` 只写端点，模型靠 `models.json` 或发现），v0.3.0 = 未知新 id 的 A+B 惯例兜底 + 消失 id 报告，v0.2.4 = providers 只来自目录（无内置 id；旧装用 `/custom-providers init` 补目录），v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
 
 ## 为什么独立成包
 
@@ -21,7 +21,7 @@ rm -f ~/.pi/agent/extensions/subscription-providers.ts
 **两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。本地开发用方式 B：
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.2.4   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.4.0   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B，随后 /reload
 ```
 
@@ -38,7 +38,7 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 | `commandcode` | `openai-completions` | `https://api.commandcode.ai/provider/v1` | `anthropic-messages`: `https://api.commandcode.ai/provider` | `CMD_API_KEY` |
 | `scnet` | `openai-completions` | `https://api.scnet.cn/api/llm/v1` | `anthropic-messages`: `https://api.scnet.cn/api/llm/anthropic` | `SCNET_API_KEY` |
 
-SCNet 两条线服务同一批 id（19 个里重叠 18 个），注册成**一个** `scnet`：选择器里只有一条，每个模型带自己的协议。Command Code 的 8 个 Claude id 只走 Anthropic 端点，因此它们的条目自带 `api: "anthropic-messages"`。
+SCNet 两条线服务同一批 id（19 个里重叠 18 个），注册成**一个** `scnet`：选择器里只有一条，每个模型带自己的协议。Command Code 的 Claude id 只走 Anthropic 端点，因此它们在 `models.json` 里的条目要自带 `api: "anthropic-messages"`。
 
 ### 为什么 Anthropic 线的 baseUrl 要短一截
 
@@ -46,13 +46,13 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 ## 配置：`~/.pi/agent/custom-providers/<id>/`
 
-目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` + `catalog.ts` 只在**同名目录存在**时作为它的基底（端点表、模型表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。新装机器先跑一次 `/custom-providers init`（无参数 = 全部出厂 vendor，也可只写名字）把默认端点写出来。
+目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` 只在**同名目录存在**时作为它的基底（端点表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑一次 `/custom-providers init`（无参数 = 全部出厂 vendor，也可只写名字）写出默认端点，再自己放 `models.json`，或跑 `/custom-providers sync <id> --write` 用实时发现生成一份。
 
 ```
 ~/.pi/agent/custom-providers/
 ├── scnet/
 │   ├── provider.json     # 端点表：api / baseUrl / modelsPath / headers / apis（无秘密、无 compat）
-│   ├── models.json       # 模型基底表（可省；省了就用该 id 的出厂默认表）
+│   ├── models.json       # 模型基底表（可省；省了就没有模型，直到发现填上）
 │   └── accounts.json     # 凭据（唯一秘密文件；可省，省了用出厂密钥变量或提示 /login）
 └── my-relay/
     └── provider.json     # 新 vendor 只要这一个文件
@@ -119,7 +119,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 | # | 层 | 粒度 |
 |---|---|---|
-| 1 | 基底模型表（`catalog.ts` 或 `<id>/models.json`） | 模型 |
+| 1 | 基底模型表（`<id>/models.json`） | 模型 |
 | 2 | `provider.json`（默认协议 + 端点 + `apis` + headers） | provider |
 | 3 | pi 全局 `models.json` 的 `providers.<id>`（provider 字段 + `models[]` 逐条补丁） | provider + 模型 |
 | 4 | pi 全局 `models.json` 的 `modelOverrides[M]` | 模型（pi 自己最后应用） |
@@ -160,14 +160,13 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 **凭据永远不进仓库**（私有仓库、镜像仓库同理）：`accounts.json` 与 `.env` 属用户层，仓库里只该出现 `provider.json` / `models.json`。别人装本插件用的是自己的 `~/.pi/agent/custom-providers/<id>/accounts.json`，与本项目互不相干。
 
-## 模型能力与目录生成
+## 模型能力与模型表
 
-`extensions/custom-providers/catalog.ts` 是生成物（`node scripts/refresh-catalog.mjs`，先 `--dry-run`）。其中：
+仓库**不带模型表**（v0.4.0 起）：基底 = 你的 `<id>/models.json`，没有它则该 provider 暂时没有模型，等发现或你补表。因此：
 
-- `reasoning` / `input` 的权威是**官方 / pi 内置目录**（同一 id 在 pi 内置各 provider 间多数票 → 厂商能力页 → 旧值）；中转线自己的 `/models` 根本不发能力字段。
-- `thinkingLevelMap` 只在 anthropic 协议线上取 pi 内置值（那是 Anthropic 自己的 adaptive-effort 档位，属模型事实）；OpenAI 形线的 effort 词表是网关自定义的，不照搬。
-- `maxTokens` / `contextWindow` / `cost` 以代理为准（只报不改：中转线会截断，高报会 400）。
-- 实时 `/models` 从不生成能力字段。只有它**新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning`（anthropic 线连 `thinkingLevelMap` 也继承）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in catalog`），不静默写盘。
+- `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
+- 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning`（anthropic 线连 `thinkingLevelMap` 也继承）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
+- `/custom-providers drift` 仍把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
 ## 测试
 
@@ -175,4 +174,4 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 node tests/run-all.mjs
 ```
 
-13 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单 + 与 catalog 一致）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`catalog-test`、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+13 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。

@@ -32,7 +32,7 @@ const config = providers.get("commandcode");
 // apiKey (`$CMD_API_KEY` in the provider config) something to resolve.
 process.env.CMD_API_KEY ??= "test-key";
 
-const CATALOG_OPUS5_CONTEXT = config.models.find((model) => model.id === "claude-opus-5").contextWindow;
+const BASE_OPUS5_CONTEXT = config.models.find((model) => model.id === "claude-opus-5").contextWindow;
 const create = (modelsStore) => ModelRuntime.create({ modelsPath: null, modelsStore, allowModelNetwork: false, refreshOnCreate: false });
 
 // --- a previous session's snapshot is restored before any network access -------
@@ -59,14 +59,14 @@ seeded.registerProvider("commandcode", config);
 await seeded.refresh({ allowNetwork: false, providers: ["commandcode"] });
 const seededOpus = seeded.getModels("commandcode").find((model) => model.id === "claude-opus-5");
 assert(seededOpus?.contextWindow === 424_242, `offline phase restores the persisted snapshot (got ${seededOpus?.contextWindow})`);
-assert(seeded.getModels("commandcode").length === config.models.length, "the restored snapshot is merged over the full catalog, not used alone");
+assert(seeded.getModels("commandcode").length === config.models.length, "the restored snapshot is merged over the full base table, not used alone");
 
-// --- pi's refresh phase persists the refreshed catalog -------------------------
+// --- pi's refresh phase persists the refreshed table -------------------------
 const store = new InMemoryCodingAgentModelsStore();
 const runtime = await create(store);
 runtime.registerProvider("commandcode", config);
 const before = runtime.getModels("commandcode");
-assert(before.length === config.models.length, `runtime exposes the registered catalog (got ${before.length})`);
+assert(before.length === config.models.length, `runtime exposes the registered table (got ${before.length})`);
 assert(before.find((model) => model.id === "claude-opus-5")?.compat?.supportsTemperature === false, "absorbed compat reaches the composed model");
 assert(!(await store.read("commandcode")), "nothing persisted before a network refresh");
 
@@ -98,31 +98,31 @@ try {
 	globalThis.fetch = realFetch;
 }
 
-// --- a cache-only phase must not downgrade live values to the catalog ----------
+// --- a cache-only phase must not downgrade live values to the base table ------
 // pi ends every `registerProvider` with `void this.refresh({allowNetwork:false})`, and the
 // extension re-registers from its own `session_start` refresh — a live result that was not
 // (yet) persisted exists only in this process. A second runtime with an empty store
 // reproduces exactly that cache-only phase: the in-process live snapshot must win over the
-// committed catalog, otherwise the refresh would be undone a moment after it ran.
+// committed base table, otherwise the refresh would be undone a moment after it ran.
 const coldStore = new InMemoryCodingAgentModelsStore();
 const cold = await create(coldStore);
 cold.registerProvider("commandcode", config);
 await cold.refresh({ allowNetwork: false, providers: ["commandcode"] });
 const coldOpus = cold.getModels("commandcode").find((model) => model.id === "claude-opus-5");
-assert(CATALOG_OPUS5_CONTEXT !== 777_777, "test premise: the live value differs from the catalog value");
+assert(BASE_OPUS5_CONTEXT !== 777_777, "test premise: the live value differs from the base table value");
 assert(
 	coldOpus?.contextWindow === 777_777,
-	`a cache-only phase keeps this process's live value (got ${coldOpus?.contextWindow}, catalog is ${CATALOG_OPUS5_CONTEXT})`,
+	`a cache-only phase keeps this process's live value (got ${coldOpus?.contextWindow}, base is ${BASE_OPUS5_CONTEXT})`,
 );
 assert(!(await coldStore.read("commandcode")), "the cache-only phase does not persist anything");
 
-// The persisted snapshot also survives a re-registration, so the catalog value never leaks back.
+// The persisted snapshot also survives a re-registration, so the base table value never leaks back.
 runtime.registerProvider("commandcode", config);
 await new Promise((resolve) => setTimeout(resolve, 50));
 const afterReregister = runtime.getModels("commandcode").find((model) => model.id === "claude-opus-5");
 assert(afterReregister?.contextWindow === 777_777, `live values survive a re-registration (got ${afterReregister?.contextWindow})`);
-assert((await store.read("commandcode")).models.find((model) => model.id === "claude-opus-5")?.contextWindow === 777_777, "the cache-only phase does not persist the catalog over the snapshot");
+assert((await store.read("commandcode")).models.find((model) => model.id === "claude-opus-5")?.contextWindow === 777_777, "the cache-only phase does not persist the base table over the snapshot");
 
-console.log(`runtime models: ${before.length}; catalog claude-opus-5 contextWindow=${CATALOG_OPUS5_CONTEXT}`);
+console.log(`runtime models: ${before.length}; base claude-opus-5 contextWindow=${BASE_OPUS5_CONTEXT}`);
 console.log(`persisted models: ${(await store.read("commandcode")).models.length}`);
 console.log("OK");

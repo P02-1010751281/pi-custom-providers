@@ -360,7 +360,7 @@
 | 17 | 命中 **pi 内置目录**的 id 且无 `override`（pi 全局 `models.json` 里声明的 id 不算） | 跳过 + 报告 | `provider <id> exists in pi; set "override": true to take it over` |
 | 18 | 别名下的 `modelOverrides` | 不改写 + 报告 | `modelOverrides under "<alias>" is inert (registers as "<id>")` |
 | 19 | `/models` 失败 | 保留上一份 + 报错 | `<endpoint>: HTTP <n> (GET <url>)` / `timeout after 10s` / `no data/models array (GET <url>)` |
-| 20 | 新 id | 追加 + 报告 | `<id>: <n> new model(s) not in catalog: …` |
+| 20 | 新 id | 追加 + 报告 | `<id>: <n> new model(s) not in models.json: …` |
 | 21 | pi 全局 `models.json` 非法 | pi 自己丢弃并报错；我们附提醒 | — |
 | 22 | 用户 `providers.<id>` 块为空对象（无 `baseUrl`/`headers`/`compat`/`modelOverrides`/`models`/`apiKey`/`oauth`/`authHeader`） | **预先报告**（否则 pi 在 `applyModelsJson` 里抛） | `providers.<id>: must specify "baseUrl", "headers", "compat", "modelOverrides", or "models"` |
 | 23 | 用户 `providers.<id>.models[]` 条目缺 `api`/`baseUrl`（或 `contextWindow`/`maxTokens` ≤ 0） | **预先报告**（pi 在 `applyModelsJson`/`validateExtensionProvider` 抛，会连带注册失败） | `providers.<id>.models[i]: "api" is required` / `"baseUrl" is required` |
@@ -533,6 +533,15 @@
 | 6 | 无凭据不进快照是否分协议 | **不分**，provider 级判定 | `model-runtime.js:171,187,229-252` |
 | 7 | compat 族键数 | 26 / 9 / 11 / **1** | `types.d.ts:468-622,736` |
 
+## v0.4.0 增补：移除出厂模型表
+
+本书记录的是 v4.0 引擎。v0.4.0 在其上删掉了唯一一处出厂数据：`extensions/custom-providers/catalog.ts`（生成物）与 `scripts/refresh-catalog.mjs`（生成器）。由此：
+
+- 覆盖链第 1 层只剩 `<id>/models.json`；目录只有 `provider.json` 时基底为空，注册 0 个模型，等发现或用户补表。`sync --write` 可把发现写回基底。
+- **决策 18 的生成期部分随之失效**（没有生成期）：`builtin.ts` 的 `capabilityAuthority()` / `builtinLevelMap()` 删除；「内置多数票」只剩 `summarizeDrift` 内联用于 `drift` 报告，运行期从不写回能力。
+- 测试的模型表移到 `tests/fixtures/models.json`（`harness.mjs` 的 `seedDefaultProviders()` 写入目录），`tests/catalog-test.mjs` 改为 `tests/models-test.mjs`。
+- 上文中 `catalog.ts`/脚本的行按下述口径读：§4 覆盖链表第 1 行、§6.3 吸收白名单的「生成期」注记、§9 命令表的「live/catalog」、§11/§12/§15/§17 的对应行。
+
 ## 版本沿革（压缩）
 
-v1 → v2：去掉单文件形态、`vendors.json` 索引、顶层 `baseUrl`/`api` 简写；凭据归账号；默认线只在 provider 文件。v2 → v3：目录内容定为 `provider.json` + `models.json` + `accounts.json`；`sync` 回归（默认只打印）。v3 → v3.1：凭据彻底移出 `provider.json`；补 L0–L8 层级表；条目级 `models[]` 定为增量覆盖。v3.1 → v3.2：私有目录名用项目名。v3.2 → v3.3：项目改名 `pi-custom-providers` / `custom-providers`（命令、远端、会话 header 的 `cwd` 同步）。v3.3 → v4.0：见文首变化表。
+v1 → v2：去掉单文件形态、`vendors.json` 索引、顶层 `baseUrl`/`api` 简写；凭据归账号；默认线只在 provider 文件。v2 → v3：目录内容定为 `provider.json` + `models.json` + `accounts.json`；`sync` 回归（默认只打印）。v3 → v3.1：凭据彻底移出 `provider.json`；补 L0–L8 层级表；条目级 `models[]` 定为增量覆盖。v3.1 → v3.2：私有目录名用项目名。v3.2 → v3.3：项目改名 `pi-custom-providers` / `custom-providers`（命令、远端、会话 header 的 `cwd` 同步）。v3.3 → v4.0：见文首变化表。v4.0 → v0.4.0：移除出厂模型表（`catalog.ts` + `scripts/refresh-catalog.mjs`），纯目录驱动；决策 18 的生成期部分失效，测试模型表移入 `tests/fixtures/models.json`。

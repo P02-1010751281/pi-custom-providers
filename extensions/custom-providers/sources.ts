@@ -2,8 +2,9 @@
  * The shipped vendor defaults — base URLs, protocols and API key variables for the two known
  * vendors. These are *not* registered as providers: a provider only exists when
  * `~/.pi/agent/custom-providers/<id>/provider.json` does, and the matching default here is
- * then used as its base (endpoints, model table, env-var account). `custom-providers init`
- * writes one out; `scripts/refresh-catalog.mjs` imports this file, so a URL cannot drift.
+ * then used as its base (endpoints, env-var account). `custom-providers init` writes one out.
+ * The extension ships no model table: a directory's models come from its own `models.json`
+ * or from live discovery.
  *
  * One entry = one *vendor*: one pi provider id, one default endpoint (`api` + `baseUrl`)
  * and any additional protocol endpoints under `apis` (key = pi's api id). The vocabulary is

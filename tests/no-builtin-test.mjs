@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { agentPath, assert, loadTs, seedDefaultProviders, startExtension } from "./harness.mjs";
 
 /**
@@ -12,13 +12,19 @@ const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
 const empty = await startExtension();
 assert(empty.providers.size === 0, `no custom-providers directory registers nothing (got ${[...empty.providers.keys()].join(", ")})`);
 
-// --- a directory for a shipped id gets the default model table + account --------
+// --- a directory for a shipped id gets the seeded model table + default account --
 await seedDefaultProviders("commandcode");
 const seeded = await startExtension();
 assert(seeded.providers.has("commandcode"), "a directory registers the provider");
-assert(seeded.providers.get("commandcode").models.length > 50, "and gets the shipped model table");
+assert(seeded.providers.get("commandcode").models.length > 0, "and gets the model table from its own models.json");
 assert(seeded.providers.get("commandcode").apiKey === "$CMD_API_KEY", "and the shipped default account");
 assert(seeded.providers.get("commandcode").api === DEFAULTS.find((vendor) => vendor.id === "commandcode").declaration.api, "and the shipped endpoint");
+
+// --- the extension ships no model table: provider.json alone registers no models --
+rmSync(agentPath("custom-providers", "commandcode", "models.json"));
+const bare = await startExtension();
+assert(bare.providers.has("commandcode"), "the directory still registers");
+assert(bare.providers.get("commandcode").models.length === 0, "with no models.json there is no model table to register (the extension ships none)");
 
 // --- init writes provider.json for a shipped id --------------------------------
 const notify = [];

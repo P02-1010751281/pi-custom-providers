@@ -395,8 +395,9 @@ function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefine
 		name: loaded.name,
 		aliases: shipped?.aliases ?? [loaded.id],
 		declaration,
-		// The shipped model table stands in when the directory declares none.
-		models: loaded.hasModelsFile ? loaded.models : (shipped?.models ?? []),
+		// The extension ships no model table: without a directory `models.json` the base is
+		// empty, and live discovery (or a later `sync --write`) fills it.
+		models: loaded.hasModelsFile ? loaded.models : [],
 		origin: "directory",
 		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
 		accounts: resolved.accounts,
@@ -411,7 +412,7 @@ function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefine
 /**
  * Every vendor this extension registers: one per `custom-providers/<id>/provider.json`.
  * The shipped `defaults` in `sources.ts` are never registered on their own — they only seed
- * the matching directory (endpoints, model table, env-var account). `piProviderIds` are pi's
+ * the matching directory (endpoints, env-var account). `piProviderIds` are pi's
  * own provider ids: a directory may only take one of those over with `"override": true` (§8).
  */
 export function collectVendors(

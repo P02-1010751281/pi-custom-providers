@@ -57,7 +57,7 @@ for (const [id, config] of providers) {
 }
 
 const drift = summarizeDrift(commandcode.models, builtin);
-assert(drift.matched > 0, `catalog models match built-in ids (got ${drift.matched})`);
+assert(drift.matched > 0, `base table models match built-in ids (got ${drift.matched})`);
 
 // --- refreshModels: cached snapshot (no network) ------------------------------
 let offlinePublished = false;
@@ -71,7 +71,7 @@ const offline = await commandcode.refreshModels({
 	},
 });
 const restored = offline.find((model) => model.id === "brand-new-model");
-assert(restored, "a persisted snapshot restores an id the catalog does not have");
+assert(restored, "a persisted snapshot restores an id the base table does not have");
 assert(restored.cost && typeof restored.cost.input === "number", "restored models still carry cost (tiers-crash guard)");
 assert(restored.contextWindow === 123_456, "restored context window is applied");
 assert(offlinePublished === false, "no persistence when no network fetch happened");
@@ -97,7 +97,7 @@ try {
 	assert(live.contextWindow === 999_999, "live context window is applied");
 	assert(live.name === "Opus 5 (live)", "live display name is applied");
 	assert(live.compat?.supportsTemperature === false, "absorbed compat survives the live layer");
-	assert(live.maxTokens === opus5.maxTokens, "maxTokens stays catalog-owned (never invented by the wire)");
+	assert(live.maxTokens === opus5.maxTokens, "maxTokens stays a base-table fact (never invented by the wire)");
 	const persisted = publication?.persist?.models ?? [];
 	const entry = persisted.find((model) => model.id === "claude-opus-5");
 	assert(entry, "persist publication carries the refreshed models");
@@ -108,7 +108,7 @@ try {
 	globalThis.fetch = realFetch;
 }
 
-// --- refreshModels: a failing wire keeps the catalog --------------------------
+// --- refreshModels: a failing wire keeps the base table ------------------------
 globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
 try {
 	const failed = await commandcode.refreshModels({
@@ -116,8 +116,8 @@ try {
 		signal: new AbortController().signal,
 		publish: async () => true,
 	});
-	assert(failed.length === commandcode.models.length || failed.length > 0, "a failed fetch still returns the catalog models");
-	assert(failed.some((model) => model.id === "claude-opus-5"), "catalog models survive a failed fetch");
+	assert(failed.length === commandcode.models.length || failed.length > 0, "a failed fetch still returns the base table's models");
+	assert(failed.some((model) => model.id === "claude-opus-5"), "base table models survive a failed fetch");
 	assert(failed.every((model) => model.cost), "models survive a failed fetch with cost intact");
 } finally {
 	globalThis.fetch = realFetch;
@@ -136,7 +136,7 @@ globalThis.fetch = async () => {
 try {
 	const keyless = await commandcode.refreshModels({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
 	assert(fetchCalls === 0, "no request is sent without a credential");
-	assert(keyless.some((model) => model.id === "claude-opus-5"), "the catalog is kept when no key resolves");
+	assert(keyless.some((model) => model.id === "claude-opus-5"), "the base table is kept when no key resolves");
 } finally {
 	globalThis.fetch = realFetch;
 	if (savedKey !== undefined) process.env.CMD_API_KEY = savedKey;

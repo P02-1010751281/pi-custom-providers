@@ -5,8 +5,7 @@ import { readFileSync } from "node:fs";
  * variable that is already set. A missing or unreadable file is not an error: pi's
  * agent dir may not exist yet on first run, and the keys may come from the shell.
  *
- * Shared by the extension and `scripts/refresh-catalog.mjs` so both parse `.env`
- * identically (quotes stripped, `export ` prefix tolerated, `#` comments skipped).
+ * Quotes are stripped, `export ` is tolerated and `#` starts a comment.
  */
 export function loadEnvFile(file: string): void {
 	try {

@@ -1,4 +1,4 @@
-import { loadTs, loader, assert, seedDefaultProviders } from "./harness.mjs";
+import { loadTs, loader, assert, FIXTURE_MODELS, seedDefaultProviders } from "./harness.mjs";
 
 /**
  * Loader parity guard: pi aliases `@earendil-works/pi-ai` to the compat entry, which
@@ -49,10 +49,10 @@ for (const id of ["commandcode", "scnet"]) {
 	}
 }
 // SCNet's two wires register as ONE provider: same vendor, one picker entry, and the wire is
-// selected per model in models.json (the selection itself is covered by tests/wire-test.mjs).
+// selected per model in models.json (the selection itself is covered by tests/apis-test.mjs).
 assert(providers.size === 2, `one provider per vendor (got ${[...providers.keys()].join(", ")})`);
 assert(!providers.has("scnet-anthropic"), "the Anthropic wire is not a provider of its own");
-assert(providers.get("scnet").models.length === 19, `the merged provider holds the union of both wires (got ${providers.get("scnet").models.length})`);
+assert(providers.get("scnet").models.length === FIXTURE_MODELS.scnet.length, `the merged provider holds the union of both wires (got ${providers.get("scnet").models.length})`);
 assert(providers.get("scnet").models.every((model) => model.api !== "anthropic-messages"), "without configuration every SCNet model keeps the OpenAI wire");
 assert(
 	providers.get("commandcode").models.find((model) => model.id === "claude-sonnet-5").baseUrl === "https://api.commandcode.ai/provider",
