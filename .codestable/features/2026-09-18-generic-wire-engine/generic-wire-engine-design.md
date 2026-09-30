@@ -266,7 +266,7 @@
 | 项 | 规则 |
 |---|---|
 | 解析 | 顶层 `data` 或 `models` 数组；行必须 `id: string` |
-| **吸收白名单** | **只补** id 集合（未知 id 追加 + 报告）、`name`、`contextWindow`。**永不生成** `cost` / `maxTokens` / `reasoning` / `input` / `thinkingLevelMap`，也**不推断 `api`**（`supported_endpoints` 只在 `custom-providers <id>` 里报告）；消失的 id 保留 + 报告（`sync --prune` 才删）。⚠ 别与**生成期**的能力权威搞混：`reasoning`/`input` 是 `catalog.ts` 里的静态事实，由生成器按官方/pi 内置写（决策 18）；这里说的是**实时 `/models` 不能改能力**（它根本不发能力字段；未知 id 的 `reasoning`/`thinkingLevelMap` 也不从 pi 内置目录兜底——已否决，能力只信上游信息/探测结果；上游不给时由 `convention.ts` 惯例兜底（同族继承 → 已知家族名单，`thinkingLevelMap` 只 anthropic 线给），两步不命中才 `false`） |
+| **吸收白名单** | **只补** id 集合（未知 id 追加 + 报告）、`name`、`contextWindow`。**永不生成** `cost` / `maxTokens` / `reasoning` / `input` / `thinkingLevelMap`，也**不推断 `api`**（发现不发协议信息；协议只由基底表或用户层声明）；消失的 id 保留 + 报告（`sync --prune` 才删）。⚠ 别与**生成期**的能力权威搞混：`reasoning`/`input` 是 `catalog.ts` 里的静态事实，由生成器按官方/pi 内置写（决策 18）；这里说的是**实时 `/models` 不能改能力**（它根本不发能力字段；未知 id 的 `reasoning`/`thinkingLevelMap` 也不从 pi 内置目录兜底——已否决，能力只信上游信息/探测结果；上游不给时由 `convention.ts` 惯例兜底（同族继承 → 已知家族名单，`thinkingLevelMap` 只 anthropic 线给），两步不命中才 `false`） |
 | 与覆盖链的关系 | 吸收结果作为 §4 的第 3 层参与合成（每层按字段补丁），**不**直接替换注册表 —— 否则一次刷新就洗掉用户第 4 层 |
 
 ### 6.4 失败与持久化

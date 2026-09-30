@@ -227,14 +227,6 @@ async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: s
 	return rows.filter((row): row is LiveModelRow => isObject(row) && typeof row.id === "string");
 }
 
-/**
- * Apply discovery to a model list: the id set, display name and context window only. Every
- * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
- * a curated model to pi's defaults. An id the base table has never seen takes its capability
- * from the naming convention in `convention.ts` (same-family inheritance, then a known-family
- * list); curated parameters only ever come from the base table.
- */
-
 /** id → clone: nothing shares `input`/`cost` with the list it was built from. */
 function cloneById(models: readonly ModelEntry[]): Map<string, ModelEntry> {
 	return new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
@@ -248,6 +240,13 @@ function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_lengt
 	if (ctx > 0) known.contextWindow = ctx;
 }
 
+/**
+ * Apply discovery to a model list: the id set, display name and context window only. Every
+ * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
+ * a curated model to pi's defaults. An id the base table has never seen takes its capability
+ * from the naming convention in `convention.ts` (same-family inheritance, then a known-family
+ * list); curated parameters only ever come from the base table.
+ */
 export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string): { models: ModelEntry[]; unknown: string[] } {
 	const byId = cloneById(models);
 	const unknown: string[] = [];
