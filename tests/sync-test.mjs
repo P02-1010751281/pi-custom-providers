@@ -9,7 +9,8 @@ import { agentPath, assert, loadTs, runCommand, startExtension, testModel, withF
  * user's `providers.<id>` layer and `modelOverrides` are deliberately excluded: baking them
  * in would fossilize a user override into the file that is supposed to be its base.
  */
-const sync = await loadTs("extensions/custom-providers/sync-models.ts");
+// The base table's read/diff/write half lives with its reader, in the directory layer.
+const sync = await loadTs("extensions/custom-providers/provider-files.ts");
 const vendorDir = agentPath("custom-providers", "demo");
 const file = `${vendorDir}/models.json`;
 const reset = () => writeFileSync(agentPath("models.json"), "{}");

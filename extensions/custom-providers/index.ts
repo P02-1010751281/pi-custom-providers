@@ -38,10 +38,10 @@
  * `sync --write` (a vendor's `models.json`).
  *
  * Files: `sources.ts` built-in vendor endpoints, `config.ts` pi's api vocabulary + the
- * `models.json` layer, `provider-files.ts` the directory layer, `providers.ts` the
- * vendor → registered-provider composition (entries and the layer chain), `live.ts` discovery
- * and the merge rules for a wire's answer, `status.ts` per-provider status and problem text,
- * `sync-models.ts` the one writer, `builtin.ts` pi cross-check, `util.ts` the JSON guards.
+ * `models.json` layer, `provider-files.ts` the directory layer (reader and both writers),
+ * `providers.ts` the vendor → registered-provider composition (entries and the layer chain),
+ * `live.ts` discovery and the merge rules for a wire's answer, `status.ts` per-provider status
+ * and problem text, `builtin.ts` pi cross-check, `util.ts` the JSON guards.
  */
 import { homedir } from "node:os";
 import path from "node:path";
@@ -51,10 +51,9 @@ import { normalizeApi, providerLayerFor, readModelsConfig } from "./config.ts";
 import { configValueForPi, loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
 import { baseTableView, collectEntries, synthesizeModels, type ModelEntry, type ProviderEntry } from "./providers.ts";
-import { collectVendors, writeProviderFile } from "./provider-files.ts";
+import { collectVendors, diffBaseTable, summarizeDiff, writeBaseTable, writeProviderFile } from "./provider-files.ts";
 import { DEFAULTS } from "./sources.ts";
 import { apiSplit, problemLines, toastLines, type ProviderStatus } from "./status.ts";
-import { diffBaseTable, readBaseTable, summarizeDiff, writeBaseTable } from "./sync-models.ts";
 import type { CatalogModel, LoadIssue, Vendor } from "./types.ts";
 import { isObject, stringOr, type JsonObject } from "./util.ts";
 
@@ -292,12 +291,14 @@ export default async function customProviders(pi: ExtensionAPI) {
 			return;
 		}
 		const file = path.join(vendor.directory, "models.json");
-		const current = readBaseTable(file);
-		// The base + discovery, without the user's `models.json` layer: syncing must not
-		// bake a user override into the base table. Discovery is this process's memo —
-		// what `refresh-custom-models` last fetched — never a fresh network call. An absent
-		// or empty file falls back to the startup table.
-		let models = current.length > 0 ? current : vendor.models;
+		// `collectVendors` above re-read the directory inside this command, so this is the base
+		// table as it is on disk right now: one parse per command, not a second one with its own
+		// rules (an unparsable `models.json` already fails the vendor above).
+		const current = vendor.models;
+		// The base + discovery, without the user's `models.json` layer: syncing must not bake a
+		// user override into the base table. Discovery is this process's memo — what
+		// `refresh-custom-models` last fetched — never a fresh network call.
+		let models = current;
 		for (const endpoint of vendorEndpoints(vendor)) {
 			const memo = liveSnapshots.get(endpointKey(vendor.id, endpoint.api));
 			if (memo) models = applyLiveModels(models, memo, endpoint.api).models;
