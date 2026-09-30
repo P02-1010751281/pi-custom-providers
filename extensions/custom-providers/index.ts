@@ -119,7 +119,7 @@ function entriesFor(vendor: Vendor): ProviderEntry[] {
 /** One model, after the layer chain ran: the shape handed to `registerProvider`. */
 type ModelEntry = CatalogModel & { compat?: CatalogCompat & ModelCompat };
 
-/** Fields of the model entry, in the order the layer chain writes them. */
+/** Merge header layers left to right; a later layer wins per key. */
 function mergeHeaders(...layers: (JsonObject | undefined)[]): JsonObject | undefined {
 	const merged: JsonObject = {};
 	for (const layer of layers) {
@@ -227,9 +227,18 @@ async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: s
 	return rows.filter((row): row is LiveModelRow => isObject(row) && typeof row.id === "string");
 }
 
-/** id → clone: nothing shares `input`/`cost` with the list it was built from. */
+/**
+ * id → clone. `input`/`cost` are copied so nothing shares a reference with the list they came
+ * from, and a row that skipped provider-file validation (the raw `models.json` re-read in `sync`)
+ * still ends up with the array `input` every consumer assumes.
+ */
 function cloneById(models: readonly ModelEntry[]): Map<string, ModelEntry> {
-	return new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
+	return new Map(
+		models.map((model) => [
+			model.id,
+			{ ...model, input: Array.isArray(model.input) ? [...model.input] : ["text"], cost: { ...model.cost } },
+		]),
+	);
 }
 
 /** A row from `/models` or pi's store patches only the fields a wire owns. */
@@ -479,7 +488,7 @@ function registerEntry(
 	// there is nothing to point the provider at: report and refuse (design §4).
 	const flipped = declaration.apis[defaultApi];
 	const providerBaseUrl = stringOr(layer.baseUrl) ?? flipped?.baseUrl ?? declaration.baseUrl;
-	if (defaultApi !== declaration.api && !flipped) {
+	if (defaultApi !== declaration.api && !flipped && !stringOr(layer.baseUrl)) {
 		issues.push({ level: "error", message: `${entry.id}: providers api "${defaultApi}" has no endpoint; declare apis.${defaultApi} or a baseUrl` });
 		return undefined;
 	}
@@ -603,7 +612,11 @@ export default async function customProviders(pi: ExtensionAPI) {
 			// Rebuilt per registration: model-level warnings are this provider's own, and
 			// re-registering must not pile them up in a shared list.
 			const vendorIssues: LoadIssue[] = [...(vendor.directory ? vendor.issues : [])];
+			const reported = vendorIssues.length;
 			const registered = registerEntry(pi, entry, layer, builtin, record, vendorIssues);
+			// A refused provider never reaches `record()`, so surface its error here instead of
+			// letting the provider disappear silently from every command.
+			if (!registered) globalIssues.push(...vendorIssues.slice(reported));
 			entries.push({ entry, layer, vendorIssues, ...(registered ? { refresh: registered.refresh } : {}) });
 		}
 	}
@@ -766,7 +779,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 					`accounts: ${status.accounts.length > 0 ? status.accounts.join(", ") : "none"}`,
 					...(status.error ? [`error: ${status.error}`] : []),
 					...status.unknown.map((id) => `new: ${id}`),
-					...status.issues.map((issue) => `${issue.level}: ${issue.message}`),
+					...[...new Set(status.issues.map((issue) => `${issue.level}: ${issue.message}`))],
 				];
 				notify(`${status.id}: ${toastLines(detail)}`, status.error ? "warning" : "info");
 				return;

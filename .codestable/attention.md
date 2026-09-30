@@ -22,7 +22,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 - `index.ts` 仍是单文件编排器：`customProviders` ~220 行（启动/注册/状态/`refresh-custom-models`/内联命令分发），`refreshEntry` 与 `registerEntry` 各 ~90 行。拆分要把 `scanned`/`statuses`/`entries`/`liveSnapshots` 的闭包状态外提，改动面大于收益，留到后续 `cs-refactor`。
 - 测试脚手架有重复：pi 替身在 `harness.mjs`/`smoke.mjs`/`builtin-test.mjs`/`pi-native-test.mjs` 各一份（各自需要不同的桩面），`base()` 模型工厂在 4 个测试里重复。可合并，但不是缺陷。
-- `sync` 会解析同一份 `<id>/models.json` 两次（`collectVendors` 校验一次，`readBaseTable` 为了拿当前磁盘状态再读一次）；第二次是刻意的（用户可能刚改过文件）。
+- `sync` 会解析同一份 `<id>/models.json` 两次（`collectVendors` 校验一次，`readBaseTable` 为了拿当前磁盘状态再读一次）；第二次是刻意的（用户可能刚改过文件），`cloneById` 会把未校验行缺的 `input` 补齐。
+- 账号 id 拼成的 provider id（`<vendor>-<account>`）**没有撞 id 检查**（设计 §7/§10 #13 承诺过「跳过该账号 + 报告」）。后果：目录 `demo-work` 与 vendor `demo` 的 `work` 账号会静默合并成同一个 pi provider。补这个检查需要一张全体 id 表，留到后续。
 
 ## 项目碎片知识
 

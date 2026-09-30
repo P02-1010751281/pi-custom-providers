@@ -79,6 +79,22 @@ assert(wholeVendor.providers.get("scnet").api === "anthropic-messages", "provide
 assert(wholeVendor.providers.get("scnet").baseUrl === SCNetAnthropic, "and the provider is pointed at that protocol's declared endpoint");
 assert(wholeVendor.providers.get("scnet").models.every((model) => model.api === undefined), "models on the (new) default protocol carry no api of their own");
 
+// --- a flipped default with only a baseUrl is honoured (no apis.<api> needed) ---
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "openai-responses", baseUrl: "https://mirror.example/responses" } } }));
+const flippedWithUrl = await startExtension();
+assert(flippedWithUrl.providers.has("scnet"), "a flipped default is not refused when the layer supplies its baseUrl");
+assert(
+	flippedWithUrl.providers.get("scnet").api === "openai-responses" && flippedWithUrl.providers.get("scnet").baseUrl === "https://mirror.example/responses",
+	"the flipped protocol uses the layer's endpoint",
+);
+
+// --- a flip with no endpoint at all is refused AND reported ---------------------
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "openai-responses" } } }));
+const refused = await startExtension();
+await refused.sessionStart();
+assert(!refused.providers.has("scnet"), "a flipped default with no endpoint is refused");
+assert(refused.notifications.map((entry) => entry.message).join(" | ").includes("no endpoint"), "and the refusal is reported instead of dropping the provider silently");
+
 // --- an unknown protocol is reported, never handed to pi -----------------------
 writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "anthropick" } } }));
 const typo = await startExtension();
