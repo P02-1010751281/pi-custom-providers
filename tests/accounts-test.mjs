@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { agentPath, assert, startExtension, testModel } from "./harness.mjs";
+import { agentPath, assert, startExtension, testModel, vendorDir } from "./harness.mjs";
 
 /**
  * Accounts (design §3.3, §7): credentials only, and one provider id per credential set.
@@ -11,7 +11,6 @@ import { agentPath, assert, startExtension, testModel } from "./harness.mjs";
  * vendor, and with no accounts at all it is still registered (without credentials) so
  * `/login`, `--api-key` and stored credentials remain reachable.
  */
-const vendorDir = (id) => agentPath("custom-providers", id);
 const write = (id, name, contents) => {
 	mkdirSync(vendorDir(id), { recursive: true });
 	writeFileSync(`${vendorDir(id)}/${name}`, JSON.stringify(contents, null, "\t"));

@@ -1,4 +1,4 @@
-import { loadTs, assert, seedDefaultProviders, stubPi } from "./harness.mjs";
+import { loadTs, assert, runCommand, seedDefaultProviders, stubPi, withFetch } from "./harness.mjs";
 
 const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift } = await loadTs("extensions/custom-providers/builtin.ts");
 
@@ -66,13 +66,11 @@ assert(restored.contextWindow === 123_456, "restored context window is applied")
 assert(offlinePublished === false, "no persistence when no network fetch happened");
 
 // --- refreshModels: network path (stubbed fetch) ------------------------------
-const realFetch = globalThis.fetch;
 let publication;
-globalThis.fetch = async () => ({
+await withFetch(async () => ({
 	ok: true,
 	json: async () => ({ data: [{ id: "claude-opus-5", name: "Opus 5 (live)", context_length: 999_999 }] }),
-});
-try {
+}), async () => {
 	const online = await commandcode.refreshModels({
 		allowNetwork: true,
 		credential: { type: "api_key", key: "test-key" },
@@ -93,13 +91,10 @@ try {
 	assert(entry.provider === "commandcode" && entry.api === "anthropic-messages" && entry.baseUrl.startsWith("https://api.commandcode.ai"), "persisted entries are Model-shaped (provider/api/baseUrl)");
 	assert(typeof publication.persist.checkedAt === "number", "persisted entry carries checkedAt");
 	assert(persisted.every((model) => model.cost), "every persisted model carries cost");
-} finally {
-	globalThis.fetch = realFetch;
-}
+});
 
 // --- refreshModels: a failing wire keeps the base table ------------------------
-globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
-try {
+await withFetch(async () => ({ ok: false, status: 503, json: async () => ({}) }), async () => {
 	const failed = await commandcode.refreshModels({
 		allowNetwork: true,
 		signal: new AbortController().signal,
@@ -108,9 +103,7 @@ try {
 	assert(failed.length === commandcode.models.length || failed.length > 0, "a failed fetch still returns the base table's models");
 	assert(failed.some((model) => model.id === "claude-opus-5"), "base table models survive a failed fetch");
 	assert(failed.every((model) => model.cost), "models survive a failed fetch with cost intact");
-} finally {
-	globalThis.fetch = realFetch;
-}
+});
 
 // --- a missing credential fails by name, and the failure is still reported -------
 // The extension memoizes live data, so a later failure must not be mistaken for a
@@ -118,20 +111,20 @@ try {
 const savedKey = process.env.CMD_API_KEY;
 delete process.env.CMD_API_KEY;
 let fetchCalls = 0;
-globalThis.fetch = async () => {
-	fetchCalls += 1;
-	return { ok: false, status: 401, json: async () => ({}) };
-};
 try {
-	const keyless = await commandcode.refreshModels({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
-	assert(fetchCalls === 0, "no request is sent without a credential");
-	assert(keyless.some((model) => model.id === "claude-opus-5"), "the base table is kept when no key resolves");
+	await withFetch(async () => {
+		fetchCalls += 1;
+		return { ok: false, status: 401, json: async () => ({}) };
+	}, async () => {
+		const keyless = await commandcode.refreshModels({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
+		assert(fetchCalls === 0, "no request is sent without a credential");
+		assert(keyless.some((model) => model.id === "claude-opus-5"), "the base table is kept when no key resolves");
+	});
 } finally {
-	globalThis.fetch = realFetch;
 	if (savedKey !== undefined) process.env.CMD_API_KEY = savedKey;
 }
 const notices = [];
-await commands.get("custom-providers").handler("", { hasUI: true, ui: { notify: (message) => notices.push(message) } });
+await runCommand(commands, "", notices);
 const status = notices.at(-1) ?? "";
 const statusSegment = status.match(/commandcode[^;]*/)?.[0] ?? "";
 assert(status.includes("CMD_API_KEY"), `the status output names the missing variable (got: ${status})`);
@@ -140,12 +133,9 @@ assert(statusSegment.includes("refresh failed"), `the status output reports the 
 // The session_start warning must also report it — a memoized live list must not hide a
 // failing refresh behind "70 models (live)". Fetch is stubbed so this stays offline.
 const warnings = [];
-globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({}) });
-try {
-	await events.get("session_start")({}, { hasUI: true, ui: { notify: (message) => warnings.push(message) } });
-} finally {
-	globalThis.fetch = realFetch;
-}
+await withFetch(async () => ({ ok: false, status: 503, json: async () => ({}) }), () =>
+	events.get("session_start")({}, { hasUI: true, ui: { notify: (message) => warnings.push(message) } }),
+);
 const warning = warnings.at(-1) ?? "";
 assert(warning.includes("refresh failed"), `session_start reports failed refreshes (got: ${warning})`);
 assert(warning.includes("from the last successful fetch"), `a memoized list is reported as such (got: ${warning})`);
@@ -154,7 +144,7 @@ assert(warning.includes("from the last successful fetch"), `a memoized list is r
 // outcome of its own and must not erase the failure we just recorded.
 await commandcode.refreshModels({ allowNetwork: false, signal: new AbortController().signal, publish: async () => true });
 const afterCacheOnly = [];
-await commands.get("custom-providers").handler("", { hasUI: true, ui: { notify: (message) => afterCacheOnly.push(message) } });
+await runCommand(commands, "", afterCacheOnly);
 // Scoped to this provider's own segment: the other providers were not refreshed here,
 // so a whole-message match would pass on their text alone.
 const cacheOnlySegment = (afterCacheOnly.at(-1) ?? "").match(/commandcode[^;]*/)?.[0] ?? "";

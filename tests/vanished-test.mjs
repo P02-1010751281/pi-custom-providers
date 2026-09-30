@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { agentPath, assert, startExtension, testModel } from "./harness.mjs";
+import { agentPath, assert, runCommand, startExtension, testModel, withFetch } from "./harness.mjs";
 
 /**
  * Ids a complete discovery round no longer returns are *reported* (never silently dropped),
@@ -28,27 +28,16 @@ writeFileSync(`${dir}/accounts.json`, JSON.stringify({ default: "main", main: { 
 
 const ext = await startExtension();
 const provider = ext.providers.get("demo");
-const command = ext.commands.get("custom-providers");
 const refresh = () => provider.refreshModels({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
 const run = async (args) => {
 	const out = [];
-	await command.handler(args, { ui: { notify: (message) => out.push(message) } });
+	await runCommand(ext.commands, args, out);
 	return out.join(" ");
 };
 const ids = () => JSON.parse(readFileSync(file, "utf8")).models.map((model) => model.id);
 
-const realFetch = globalThis.fetch;
-const withFetch = async (impl) => {
-	globalThis.fetch = impl;
-	try {
-		await refresh();
-	} finally {
-		globalThis.fetch = realFetch;
-	}
-};
-
 // --- an empty registry answer (SCNet quota) is not evidence of deletion --------
-await withFetch(async () => ({ ok: true, json: async () => ({ data: [] }) }));
+await withFetch(async () => ({ ok: true, json: async () => ({ data: [] }) }), refresh);
 assert(!(await run("")).includes("gone"), "an empty /models answer does not report every id as vanished");
 assert(ids().join(",") === "keep,gone", "and nothing is dropped");
 
@@ -58,12 +47,12 @@ await withFetch(async () => {
 	calls += 1;
 	if (calls === 1) return { ok: true, json: async () => ({ data: [{ id: "keep" }] }) };
 	throw new Error("endpoint down");
-});
+}, refresh);
 assert(!(await run("")).includes("gone"), "a failed sibling endpoint suppresses the vanished report");
 assert(ids().join(",") === "keep,gone", "and nothing is dropped from the file");
 
 // --- a complete round reports the id, keeps it until --prune -------------------
-await withFetch(async () => ({ ok: true, json: async () => ({ data: [{ id: "keep" }, { id: "live" }] }) }));
+await withFetch(async () => ({ ok: true, json: async () => ({ data: [{ id: "keep" }, { id: "live" }] }) }), refresh);
 const status = await run("");
 assert(status.includes("gone") && status.includes("no longer returned by discovery"), `vanished id is reported (got ${status})`);
 const dry = await run("sync demo");

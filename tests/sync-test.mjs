@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { agentPath, assert, loadTs, startExtension, testModel } from "./harness.mjs";
+import { agentPath, assert, loadTs, runCommand, startExtension, testModel, withFetch } from "./harness.mjs";
 
 /**
  * `sync` — the only code path in this package that writes a user file, and only with
@@ -40,7 +40,6 @@ reset();
 process.env.DEMO_KEY = "test-key";
 writeFileSync(`${vendorDir}/accounts.json`, JSON.stringify({ default: "main", main: { apiKey: "$DEMO_KEY" } }));
 const ext = await startExtension();
-const command = ext.commands.get("custom-providers");
 /** Fill the in-process discovery memo that `sync` merges — in this extension instance. */
 const refreshAll = async () => {
 	for (const provider of ext.providers.values()) {
@@ -50,21 +49,15 @@ const refreshAll = async () => {
 
 const before = readFileSync(file, "utf8");
 const dry = [];
-await command.handler("sync demo", { ui: { notify: (message) => dry.push(message) } });
+await runCommand(ext.commands, "sync demo", dry);
 assert(readFileSync(file, "utf8") === before, "without --write nothing is written");
 assert(dry.join(" ").includes("already current"), `an unchanged table says so (got ${dry.join(" ")})`);
 
 // What makes a directory vendor's table dirty is discovery, not the user: the base table
 // *is* the file. Run one online refresh with a stubbed registry, then look at the diff.
-const realFetch = globalThis.fetch;
-globalThis.fetch = async () => ({ ok: true, json: async () => ({ data: [{ id: "a", name: "A (live)", context_length: 5000 }, { id: "discovered" }] }) });
-try {
-	await refreshAll();
-} finally {
-	globalThis.fetch = realFetch;
-}
+await withFetch(async () => ({ ok: true, json: async () => ({ data: [{ id: "a", name: "A (live)", context_length: 5000 }, { id: "discovered" }] }) }), refreshAll);
 const dirty = [];
-await command.handler("sync demo", { ui: { notify: (message) => dirty.push(message) } });
+await runCommand(ext.commands, "sync demo", dirty);
 assert(JSON.parse(readFileSync(file, "utf8")).models.length === 2, `a dry run does not touch the file (got ${JSON.parse(readFileSync(file, "utf8")).models.length})`);
 assert(dirty.join(" ").includes("--write"), `the dry run says how to apply (got ${dirty.join(" ")})`);
 assert(dirty.join(" ").includes("+ discovered"), `and names the discovered id (got ${dirty.join(" ")})`);
@@ -73,7 +66,7 @@ assert(dirty.join(" ").includes("~ a (name, contextWindow)"), `and the fields di
 // A `sync --write` applies the merge, normalizes the shape and keeps a `.bak`.
 writeFileSync(file, JSON.stringify([{ ...base("a"), maxTokens: 999 }, base("b")]));
 const written = [];
-await command.handler("sync demo --write", { ui: { notify: (message) => written.push(message) } });
+await runCommand(ext.commands, "sync demo --write", written);
 const after = JSON.parse(readFileSync(file, "utf8"));
 assert(Array.isArray(after.models), "sync --write rewrites the file in the canonical shape");
 assert(after.models.length === 3, `the discovered id is now part of the base table (got ${after.models.length})`);
@@ -93,13 +86,13 @@ assert(reloaded.providers.get("demo").models.find((model) => model.id === "a").m
 // The user layer is not baked into the file: it stays in pi's models.json.
 writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { demo: { models: [{ id: "a", maxTokens: 7 }] } } }));
 const layered = [];
-await command.handler("sync demo --write", { ui: { notify: (message) => layered.push(message) } });
+await runCommand(ext.commands, "sync demo --write", layered);
 assert(JSON.parse(readFileSync(file, "utf8")).models.find((model) => model.id === "a").maxTokens === 999, "a user override in models.json is not written into the base table");
 assert(layered.join(" ").includes("current"), `and the base table is still reported as current (got ${layered.join(" ")})`);
 
 // A directory that does not exist is reported, not guessed at.
 const missing = [];
-await command.handler("sync nope --write", { ui: { notify: (message) => missing.push(message) } });
+await runCommand(ext.commands, "sync nope --write", missing);
 assert(missing.join(" ").includes("No provider directory"), `an unknown id is reported (got ${missing.join(" ")})`);
 
 console.log(`sync diff: +${diff.added.length} ~${diff.changed.length} -${diff.removed.length}`);

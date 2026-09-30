@@ -1,4 +1,4 @@
-import { loadTs, PI, assert, seedDefaultProviders, stubPi } from "./harness.mjs";
+import { loadTs, PI, assert, seedDefaultProviders, stubPi, withFetch } from "./harness.mjs";
 
 /**
  * End-to-end checks of the pi-native path, using pi's own ModelRuntime (not a stub):
@@ -62,12 +62,10 @@ assert(before.length === config.models.length, `runtime exposes the registered t
 assert(before.find((model) => model.id === "claude-opus-5")?.compat?.supportsTemperature === false, "absorbed compat reaches the composed model");
 assert(!(await store.read("commandcode")), "nothing persisted before a network refresh");
 
-const realFetch = globalThis.fetch;
-globalThis.fetch = async () => ({
+await withFetch(async () => ({
 	ok: true,
 	json: async () => ({ data: [{ id: "claude-opus-5", name: "Opus 5 (pi native)", context_length: 777_777 }] }),
-});
-try {
+}), async () => {
 	const result = await runtime.refresh({ allowNetwork: true, force: true, providers: ["commandcode"] });
 	assert(result.errors.size === 0, `refresh reported no errors (${[...result.errors.keys()].join(", ")})`);
 
@@ -86,9 +84,7 @@ try {
 	assert(persistedAnthropic?.api === "anthropic-messages", "the persisted Anthropic model keeps its wire");
 	assert(!/\/v1$/.test(persistedAnthropic?.baseUrl ?? ""), `persisted Anthropic models must not carry a /v1 baseURL (got ${persistedAnthropic?.baseUrl})`);
 	assert(persisted.models.find((model) => model.id === "claude-opus-5")?.contextWindow === 777_777, "persisted models carry the refreshed values");
-} finally {
-	globalThis.fetch = realFetch;
-}
+});
 
 // --- a cache-only phase must not downgrade live values to the base table ------
 // pi ends every `registerProvider` with `void this.refresh({allowNetwork:false})`, and the

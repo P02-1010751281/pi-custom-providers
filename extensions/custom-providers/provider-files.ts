@@ -16,6 +16,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILTIN_APIS, normalizeApi, type JsonObject, type ProviderDeclaration } from "./config.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./providers.ts";
 import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";
 import { isObject, numberOr, stringOr } from "./util.ts";
 
@@ -90,8 +91,8 @@ function readModelEntry(raw: JsonObject, index: number, issues: LoadIssue[]): Ca
 		...(stringOr(raw.baseUrl) ? { baseUrl: raw.baseUrl as string } : {}),
 		reasoning: raw.reasoning === true,
 		input: input.length > 0 ? input : ["text"],
-		contextWindow: numberOr(raw.contextWindow) ?? 128000,
-		maxTokens: numberOr(raw.maxTokens) ?? 16384,
+		contextWindow: numberOr(raw.contextWindow) ?? FALLBACK_CONTEXT_WINDOW,
+		maxTokens: numberOr(raw.maxTokens) ?? FALLBACK_MAX_TOKENS,
 		cost: {
 			input: numberOr(cost?.input) ?? 0,
 			output: numberOr(cost?.output) ?? 0,
@@ -351,7 +352,7 @@ export function writeProviderFile(dir: string, vendor: { id: string; name: strin
  *   - no accounts at all → the base id is still registered, without credentials, so
  *     `/login`, `--api-key` and stored credentials can still rescue it.
  */
-export function resolveAccounts(
+function resolveAccounts(
 	accounts: readonly Account[],
 	pointer: string | undefined,
 	options: { defaultAccount?: Account & { envVar: string }; id?: string } = {},

@@ -12,7 +12,7 @@ import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { conventionCapability } from "./convention.ts";
 import type { JsonObject } from "./config.ts";
 import { resolveConfigValue } from "./env.ts";
-import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS, mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
 import type { LiveModelRow, LoadIssue, Vendor } from "./types.ts";
 import { isObject, numberOr, stringOr } from "./util.ts";
 
@@ -39,7 +39,7 @@ async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: s
  * from, and a row that skipped provider-file validation (the raw `models.json` re-read in `sync`)
  * still ends up with the array `input` every consumer assumes.
  */
-export function cloneById(models: readonly ModelEntry[]): Map<string, ModelEntry> {
+function cloneById(models: readonly ModelEntry[]): Map<string, ModelEntry> {
 	return new Map(
 		models.map((model) => [
 			model.id,
@@ -80,8 +80,8 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 			reasoning: convention?.reasoning ?? false,
 			...(convention?.thinkingLevelMap ? { thinkingLevelMap: convention.thinkingLevelMap } : {}),
 			input: ["text"],
-			contextWindow: numberOr(row.context_length ?? row.contextWindow) ?? 128000,
-			maxTokens: 16384,
+			contextWindow: numberOr(row.context_length ?? row.contextWindow) ?? FALLBACK_CONTEXT_WINDOW,
+			maxTokens: FALLBACK_MAX_TOKENS,
 			cost: { ...ZERO_COST },
 		});
 	}
@@ -117,8 +117,8 @@ export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonl
 			...rest,
 			id,
 			name: stringOr(row.name) ?? id,
-			contextWindow: numberOr(row.context_length ?? row.contextWindow) ?? 128000,
-			maxTokens: numberOr(row.maxTokens) ?? 16384,
+			contextWindow: numberOr(row.context_length ?? row.contextWindow) ?? FALLBACK_CONTEXT_WINDOW,
+			maxTokens: numberOr(row.maxTokens) ?? FALLBACK_MAX_TOKENS,
 			input: Array.isArray(row.input) ? (row.input as string[]) : ["text"],
 			// A registered model must always carry `cost` (pi's `calculateCost()` dereferences it).
 			cost: isObject(row.cost) ? (row.cost as CatalogModel["cost"]) : { ...ZERO_COST },

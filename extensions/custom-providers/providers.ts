@@ -14,6 +14,15 @@ import { isObject, stringOr } from "./util.ts";
 /** Cost of a model we know nothing about. pi dereferences `cost` on every request. */
 export const ZERO_COST: CatalogModel["cost"] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
+/**
+ * Size of a model nobody declared one for. Discovery never invents parameters, and an entry
+ * only the user declares still has to satisfy `registerProvider`, so both numbers are needed
+ * — kept in one place because the directory layer, the live layer and the synthesized row
+ * all fall back to them, and "we don't know" must mean the same number everywhere.
+ */
+export const FALLBACK_CONTEXT_WINDOW = 128_000;
+export const FALLBACK_MAX_TOKENS = 16_384;
+
 /** One registrable pi provider: a vendor, plus the account that supplies its credentials. */
 export interface ProviderEntry {
 	id: string;
@@ -99,7 +108,7 @@ export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builti
 		if (base.has(id)) continue;
 		// An id only the user declares still needs a complete entry for pi: `registerProvider`
 		// throws on a model without cost, and pi's request path dereferences it.
-		base.set(id, { id, name: id, reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384, cost: { ...ZERO_COST } });
+		base.set(id, { id, name: id, reasoning: false, input: ["text"], contextWindow: FALLBACK_CONTEXT_WINDOW, maxTokens: FALLBACK_MAX_TOKENS, cost: { ...ZERO_COST } });
 	}
 
 	const multiEndpoint = Object.keys(declaration.apis).length > 0;

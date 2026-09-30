@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { agentPath, assert, loader, startExtension } from "./harness.mjs";
+import { agentPath, assert, loader, startExtension, withFetch } from "./harness.mjs";
 
 /**
  * `openai-responses` is a first-class pi-ai protocol and one of the ten in the vocabulary, so
@@ -35,15 +35,13 @@ assert(provider.models.find((entry) => entry.id === "plain").baseUrl === undefin
 
 // Drive pi-ai's own implementation for that protocol and watch the request it makes.
 const calls = [];
-const realFetch = globalThis.fetch;
-globalThis.fetch = async (url, init) => {
+await withFetch(async (url, init) => {
 	calls.push({ url: String(url), method: init?.method, body: String(init?.body ?? "") });
 	return new Response("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"test stub\"}}\n\n", {
 		status: 200,
 		headers: { "content-type": "text/event-stream" },
 	});
-};
-try {
+}, async () => {
 	const api = compat.getApiProvider("openai-responses");
 	assert(api !== undefined, "pi registers an implementation for openai-responses");
 	// The stream itself is expected to fail against the stub — what matters is the request.
@@ -59,9 +57,7 @@ try {
 	} else if (typeof result?.then === "function") {
 		await result;
 	}
-} finally {
-	globalThis.fetch = realFetch;
-}
+});
 assert(calls.length === 1, `exactly one request is made (got ${calls.length})`);
 assert(calls[0].url === "https://demo.example/responses", `the request goes to <baseUrl>/responses (got ${calls[0].url})`);
 assert(calls[0].method === "POST", "as a POST");

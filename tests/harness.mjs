@@ -94,11 +94,37 @@ export function assert(condition, message) {
 	if (!condition) throw new Error(`FAIL: ${message}`);
 }
 
+/**
+ * Run `fn` with `globalThis.fetch` replaced by `stub`, restoring the real one afterwards.
+ * Every test that fakes a wire answer goes through this: a stub left installed would follow
+ * the rest of the file (and later `startExtension()` rounds) into the network.
+ */
+export async function withFetch(stub, fn) {
+	const real = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		return await fn();
+	} finally {
+		globalThis.fetch = real;
+	}
+}
+
+/**
+ * Invoke the `custom-providers` command, collecting its `notify` lines into `sink` (a plain
+ * array of message strings — tests assert on the text, never on the level).
+ */
+export function runCommand(commands, args, sink) {
+	return commands.get("custom-providers").handler(args, { hasUI: true, ui: { notify: (message) => sink.push(message) } });
+}
+
 /** The temp agent dir every test writes into (`PI_CODING_AGENT_DIR`). */
 export const AGENT_DIR = process.env.PI_CODING_AGENT_DIR;
 
 /** Absolute path of a file under the temp agent dir. */
 export const agentPath = (...parts) => path.join(AGENT_DIR, ...parts);
+
+/** `<agent dir>/custom-providers/<id>` — the directory that makes a provider exist. */
+export const vendorDir = (id) => agentPath("custom-providers", id);
 
 /**
  * The repo-side model table tests seed their vendor directories from. The extension itself
@@ -175,16 +201,12 @@ export async function startExtension() {
 	 * themselves: the suite must never depend on the network. Tests that want a fetch result
 	 * call `refreshModels` with their own stub instead.
 	 */
-	const sessionStart = async (ctx = {}) => {
-		const real = globalThis.fetch;
-		globalThis.fetch = async () => {
-			throw new Error("offline test");
-		};
-		try {
-			return await events.get("session_start")?.({}, { hasUI: true, ui: { notify }, ...ctx });
-		} finally {
-			globalThis.fetch = real;
-		}
-	};
+	const sessionStart = (ctx = {}) =>
+		withFetch(
+			async () => {
+				throw new Error("offline test");
+			},
+			() => events.get("session_start")?.({}, { hasUI: true, ui: { notify }, ...ctx }),
+		);
 	return { providers, events, commands, notifications, notify, sessionStart };
 }

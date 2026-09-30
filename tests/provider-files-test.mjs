@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { agentPath, assert, loadTs, startExtension } from "./harness.mjs";
+import { agentPath, assert, loadTs, runCommand, startExtension, vendorDir } from "./harness.mjs";
 
 /**
  * The directory layer (design §3, §8, §10): scanning, validation and fail-closed behavior.
@@ -11,7 +11,6 @@ import { agentPath, assert, loadTs, startExtension } from "./harness.mjs";
  */
 const files = await loadTs("extensions/custom-providers/provider-files.ts");
 const root = agentPath("custom-providers");
-const vendorDir = (id) => agentPath("custom-providers", id);
 const write = (dir, name, contents) => {
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(`${dir}/${name}`, typeof contents === "string" ? contents : JSON.stringify(contents, null, "\t"));
@@ -137,7 +136,7 @@ write(vendorDir("demo"), "accounts.json", { default: "main", main: { apiKey: "$D
 mkdirSync(agentPath("custom-providers", "junk-dir"), { recursive: true });
 const ui = await startExtension();
 const notify = [];
-const run = (args) => ui.commands.get("custom-providers").handler(args, { hasUI: true, ui: { notify: (message) => notify.push(message) } });
+const run = (args) => runCommand(ui.commands, args, notify);
 
 await run("files");
 const filesOut = notify.at(-1);
