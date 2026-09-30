@@ -58,7 +58,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`provider-files.ts` **目录层**（扫描 / 逐文件校验 / 接管白名单 / `resolveAccounts` 账号展开；**两个写盘口都在这**：`init` 的 `writeProviderFile` 与 `sync --write` 的 `writeBaseTable` + `FIELD_ORDER`/`serializeBaseTable`/`diffBaseTable`）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`util.ts` JSON 对象类型 + 三个 JSON 守卫（依赖图的叶子，不 import 任何本地模块）、`index.ts` 扩展接线（`registerEntry`、`statusOf`、五个命令分支 `runInit`/`runDrift`/`runFiles`/`runSync`/`runStatus`、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
 - pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
 - 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
-- `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（12 文件 / ~2200 行）：**目录是能力单位（一目录一功能），文件是数据单元/流水线一段**。13 个文件曾是 12 个单元 + 1 个编排者，但 `<id>/models.json` 一个单元被两个文件拥有（读在 `provider-files.ts`、写在 `sync-models.ts`）——按「一个数据单元只能有一个归宿」合并到目录层后为 12 个文件。判据由此可机械判定：① 某文件拥有第二个数据单元 ⇒ 拆；② 某数据单元有两个读者/写者 ⇒ 合；③ 出现第二个**独立能力** ⇒ 那是同级扩展 `extensions/<name>/index.ts`，不是本目录的子目录。**不用文件数/行数当触发线**（目录不会因为文件多而变成另一种东西）。
+- `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（12 文件 / ~2200 行）：**目录是能力单位（一目录一功能）；文件 = 一个数据单元（它的读/写/词汇）或一段变换**（阶段是顺序，一段可以消费多个单元）。13 个文件曾是 12 个单元 + 1 个编排者，但 `<id>/models.json` 一个单元被两个文件拥有（读在 `provider-files.ts`、写在 `sync-models.ts`）——按「一个数据单元只能有一个归宿」合并到目录层后为 12 个文件。判据由此可机械判定：① 某文件拥有第二个数据单元 ⇒ 拆；② 某数据单元有两个读者/写者 ⇒ 合；③ 出现第二个**独立能力** ⇒ 那是同级扩展 `extensions/<name>/index.ts`，不是本目录的子目录。**不用文件数/行数当触发线**（目录不会因为文件多而变成另一种东西）。
 - `tests/` **必须保持扁平**：`run-all.mjs` 是 `readdirSync` 单层扫描（不递归），放进子目录的测试会静默不被执行。`tests/fixtures/` 是数据不是测试（当前唯一的子目录）。
 - `.codestable/reference/`（12 份框架文档）与 `.codestable/gates/` 由 CodeStable 插件管理（`.codestable/runtime-manifest.json` 的 `managed_paths`，`updated_by: codestable-runtime-sync`）：**手改会被下次同步覆盖**，项目自己的文档是 `attention.md` 与 `features/<epic>/`。
 - 模块依赖图**无环**且每个模块都能从 `index.ts` 到达，由 `tests/graph-test.mjs` 守护（含 type-only 回边：`util.ts` 是叶子，`JsonObject` 这类共享类型放叶子模块才不会成环）。
@@ -68,15 +68,17 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 顺序只有一处可读：`index.ts`（唯一编排者）。模块之间不横向互调，只有同阶段复用（`live.refreshEntry` 调 `providers.synthesizeModels`——注册与刷新必须算出同一张基底表）。
 
-| # | 阶段 | 输入 | 变换 / 归宿 | 位置 |
+表里列的是每段的**数据/变换所有者**；`index.ts` 是唯一编排者，按顺序调用它们，所以每个阶段都有它的调用点（不重复列）。**一段可以消费多个单元**（阶段 2 = accounts.json 单元 + id 命名空间；阶段 3 = pi 全局层单元 + 装配变换）：判据约束的是**单元的归宿**（一个单元只能有一个文件），不是「一段只能有一个文件」。
+
+| # | 阶段 | 输入 | 变换 / 归宿 | 数据/变换所有者 |
 |---|---|---|---|---|
 | 0 | 环境 | `~/.pi/agent/.env`、`~/.omp/agent/.env` | 只补不覆盖；`$VAR`/`!cmd` 请求时才解析 | `env.ts loadEnvFile`/`resolveConfigValue` |
 | 1 | 目录层·读 | `<id>/provider.json`/`models.json`/`accounts.json` | 逐文件校验 → `DirectoryVendor`；接管白名单（builtin id 需 `override:true`） | `provider-files.ts scanProviderRoot`→`loadDirectory`(`readProviderFile`/`readModelsFile`/`readAccountsFile`)→`vendorFromDirectory`→`collectVendors`（`sources.ts DEFAULTS` 仅同名目录存在时作基底） |
 | 2 | 账号/id 分配 | `accounts` + `default` 指针 + pi 已有 id | `default` 占基 id、其余 `<id>-<name>`；撞车跳过并报告 | `provider-files.ts resolveAccounts` → `providers.ts collectEntries` |
-| 3 | 分层合成 | ①`<id>/models.json` ②`provider.json` ③pi 全局 `providers.<id>` ④`modelOverrides` | 逐字段 patch 叠链；`baseUrl = config.baseUrl ?? model.baseUrl`；每模型落端点（默认协议不带 `api`）；headers 逐层合并后贴到条目 | `index.ts` → `providers.ts synthesizeModels` ← `config.ts readModelsConfig`/`providerLayerFor`/`applyModelPatch`/`resolveModelEndpoint` |
-| 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 | `index.ts registerEntry` → `providers.ts baseTableView`；状态进 `statusOf` |
-| 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | 按协议选 auth；旧快照当**基底条目**恢复（保参数）；只增不删；失败只记 `lastErrors`、保旧快照 | `live.ts vendorEndpoints`/`discover`/`mergeStoredSnapshot`/`applyLiveModels`/`refreshEntry`（`builtin.ts absorbCompat` 只收紧白名单字段） |
-| 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 | `status.ts problemLines`/`toastLines`/`apiSplit` → `/custom-providers` 的 `runStatus`/`runDrift`/`runFiles` |
+| 3 | 分层合成 | ①`<id>/models.json` ②`provider.json` ③pi 全局 `providers.<id>` ④`modelOverrides` | 逐字段 patch 叠链；`baseUrl = config.baseUrl ?? model.baseUrl`；每模型落端点（默认协议不带 `api`）；headers 逐层合并后贴到条目；内置目录白名单吸收（`providers.ts:128`，注册与刷新两条路径都走） | `config.ts readModelsConfig`/`providerLayerFor`/`applyModelPatch`/`resolveModelEndpoint`（pi 全局层 + 端点落法）→ `providers.ts synthesizeModels`（装配）← `builtin.ts absorbCompat` |
+| 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 | `providers.ts baseTableView`（视图变换）+ `index.ts registerEntry`（注册 + `statusOf` 记账） |
+| 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | 按协议选 auth；旧快照当**基底条目**恢复（保参数）；只增不删；失败只记 `lastErrors`、保旧快照（能力字段走 `convention.ts`） | `live.ts vendorEndpoints`/`discover`/`mergeStoredSnapshot`/`applyLiveModels`/`refreshEntry` |
+| 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 | `status.ts problemLines`/`toastLines`/`apiSplit`（报告文本）；`index.ts` 的命令分支只负责路由与 `notify` |
 | 7 | 写回（唯二出口） | 阶段 5 的发现结果 / 工厂端点 | `sync --write`：基底 ⊕ 发现 → diff → 写盘（`.bak`）；`init`：写 `provider.json` | `provider-files.ts writeBaseTable`/`diffBaseTable`/`serializeBaseTable`、`writeProviderFile` |
 
 两条回路：**①自愈**：阶段 5 新 id → pi `publish({persist})` 落 `models-store.json` → 下次作 `context.stored` 回来；**②人**：阶段 6 报「新 id / 消失 id」→ 人跑 `sync --write [--prune]` → 阶段 1 的 `models.json` 变厚 → 阶段 3 认得。
@@ -87,7 +89,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 |---|---|---|
 | `util.ts` / `types.ts` / `convention.ts` | JSON 类型 + 守卫（图叶子）/ 内部类型词汇 / 未知 id 能力惯例 | — |
 | `sources.ts` | 工厂端点与密钥变量默认值 | seed 读 |
-| `config.ts` | pi 全局 `models.json`（层 3/4）+ pi api 词汇 + 端点落法 | 读 + 变换 |
+| `config.ts` | pi 全局 `models.json`（层 3/4）+ 它说的词汇与解释（pi api 名、端点落法）——本表最含糊的一行，成立的理由是读写/词汇同处；若它长出第二个数据单元（例如开始写盘）就该拆 | 读 + 变换 |
 | `env.ts` | `.env` + pi 值表达式 | 读 + 解析 |
 | `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较） | 读 |
 | `provider-files.ts` | **provider 目录**：三个文件的读/校验 + `provider.json` 写（`init`）+ `models.json` diff/写（`sync --write`） | 读 + 写 |
