@@ -128,16 +128,15 @@ export async function seedDefaultProviders(...ids) {
 }
 
 /**
- * Load the extension with a stub pi and hand back what it registered. Tests write their
- * `models.json` / `custom-providers/<id>/...` into the temp agent dir first, so this is the
- * one entry point for "what would pi see with this configuration".
+ * A stub `pi` plus the collections the extension fills in. Tests want different slices of this
+ * (events, commands, notifications, providers), so it is built once here instead of per test.
  */
-export async function startExtension() {
-	const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
+export function stubPi() {
 	const providers = new Map();
 	const events = new Map();
 	const commands = new Map();
 	const notifications = [];
+	const notify = (message, level) => notifications.push({ message, level });
 	const pi = {
 		on: (event, handler) => events.set(event, handler),
 		registerCommand: (name, options) => commands.set(name, options),
@@ -147,8 +146,30 @@ export async function startExtension() {
 		registerTool: () => {},
 		getFlag: () => undefined,
 	};
+	return { pi, providers, events, commands, notifications, notify };
+}
+
+/** A complete model row. `cost` is the field pi dereferences on every request. */
+export const testModel = (id, extra = {}) => ({
+	id,
+	name: id,
+	reasoning: false,
+	input: ["text"],
+	contextWindow: 1000,
+	maxTokens: 100,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	...extra,
+});
+
+/**
+ * Load the extension with a stub pi and hand back what it registered. Tests write their
+ * `models.json` / `custom-providers/<id>/...` into the temp agent dir first, so this is the
+ * one entry point for "what would pi see with this configuration".
+ */
+export async function startExtension() {
+	const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
+	const { pi, providers, events, commands, notifications, notify } = stubPi();
 	await factory(pi);
-	const notify = (message, level) => notifications.push({ message, level });
 	/**
 	 * `session_start` refreshes live, so tests run it with fetch offline unless they stub it
 	 * themselves: the suite must never depend on the network. Tests that want a fetch result

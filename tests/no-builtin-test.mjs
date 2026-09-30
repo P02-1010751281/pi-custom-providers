@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { agentPath, assert, loadTs, seedDefaultProviders, startExtension } from "./harness.mjs";
+import { agentPath, assert, loadTs, seedDefaultProviders, startExtension, testModel } from "./harness.mjs";
 
 /**
  * There are no built-in providers (design §8): the shipped `sources.ts` defaults seed a
@@ -39,7 +39,7 @@ try {
 		allowNetwork: false,
 		signal: new AbortController().signal,
 		publish: async () => true,
-		stored: { models: [{ id: "from-store", name: "From Store", reasoning: true, input: ["text"], contextWindow: 4321, maxTokens: 321, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] },
+		stored: { models: [testModel("from-store", { name: "From Store", reasoning: true, contextWindow: 4321, maxTokens: 321 })] },
 	});
 	assert(restored.some((model) => model.id === "from-store"), `an empty /models answer must not shadow the persisted snapshot (got ${restored.length} models)`);
 	assert(restored.find((model) => model.id === "from-store").maxTokens === 321, "and the restored entry keeps the parameters pi persisted");

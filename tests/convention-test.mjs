@@ -1,4 +1,4 @@
-import { assert, FIXTURE_MODELS, loadTs } from "./harness.mjs";
+import { assert, FIXTURE_MODELS, loadTs, testModel } from "./harness.mjs";
 
 /**
  * The last-resort capability convention (A same-family inheritance, B known-family list).
@@ -56,8 +56,7 @@ for (const [key, entry] of families) {
 assert(allReasoning > 0, "the fixture table must exercise the all-reasoning family invariant");
 
 // --- wiring: applyLiveModels actually consults the convention ---------------------
-const base = (id, extra = {}) => ({ id, name: id, reasoning: true, input: ["text"], contextWindow: 1000, maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, ...extra });
-const applied = applyLiveModels([base("zai-org/GLM-5.3", { thinkingLevelMap: { max: "max" } })], [{ id: "zai-org/GLM-5.4" }], "anthropic-messages");
+const applied = applyLiveModels([testModel("zai-org/GLM-5.3", { reasoning: true, thinkingLevelMap: { max: "max" } })], [{ id: "zai-org/GLM-5.4" }], "anthropic-messages");
 const fresh = applied.models.find((model) => model.id === "zai-org/GLM-5.4");
 assert(fresh.reasoning === true && fresh.thinkingLevelMap?.max === "max", "a newly discovered same-family id is registered with the inherited capability");
 assert(applied.unknown.join(",") === "zai-org/GLM-5.4", "and is still reported as new");

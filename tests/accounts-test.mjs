@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { agentPath, assert, startExtension } from "./harness.mjs";
+import { agentPath, assert, startExtension, testModel } from "./harness.mjs";
 
 /**
  * Accounts (design §3.3, §7): credentials only, and one provider id per credential set.
@@ -18,10 +18,9 @@ const write = (id, name, contents) => {
 };
 const reset = (modelsJson = {}) => writeFileSync(agentPath("models.json"), JSON.stringify(modelsJson));
 const provider = { api: "openai-completions", baseUrl: "https://demo.example/v1", modelsPath: "/models" };
-const model = (id) => ({ id, contextWindow: 1000, maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
 
 /** A fresh directory vendor with one model, so each scenario starts from the same base. */
-function vendor(accounts, models = [model("m")]) {
+function vendor(accounts, models = [testModel("m")]) {
 	mkdirSync(vendorDir("demo"), { recursive: true });
 	writeFileSync(`${vendorDir("demo")}/provider.json`, JSON.stringify(provider));
 	writeFileSync(`${vendorDir("demo")}/models.json`, JSON.stringify({ models }));

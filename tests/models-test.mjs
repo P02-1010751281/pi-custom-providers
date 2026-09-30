@@ -1,6 +1,6 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { FIXTURE_MODELS, loadTs, PI, assert } from "./harness.mjs";
+import { FIXTURE_MODELS, loadTs, PI, assert, testModel } from "./harness.mjs";
 
 /**
  * The one repo-side model table — `tests/fixtures/models.json`, seeded into vendor
@@ -50,9 +50,7 @@ const { getAgentDir } = await import(`${PI}/dist/index.js`);
 const modelsJson = path.join(getAgentDir(), "models.json");
 
 // --- applyLiveModels: discovery only ever adds ids/names/context windows --------
-const base = [
-	{ id: "Kimi-K3", name: "Kimi-K3", reasoning: true, input: ["text"], contextWindow: 1000, maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
-];
+const base = [testModel("Kimi-K3", { reasoning: true })];
 const applied = api.applyLiveModels(base, [
 	{ id: "Kimi-K3", name: "Kimi K3 (live)", context_length: 777777, supported_endpoints: ["/messages"] },
 	{ id: "brand-new-model", context_length: 500000 },
@@ -70,10 +68,10 @@ assert(!applied.models.find((model) => model.id === "Kimi-K3").input.includes("i
 // --- the persisted snapshot restores full definitions, not convention defaults ---------
 // The store holds what we registered last time, so an id the base table has never seen must
 // come back whole; a known id still takes only the snapshot's live name and context window.
-const curated = () => ({ id: "GLM-5.2", name: "GLM-5.2", reasoning: true, input: ["text"], contextWindow: 1000, maxTokens: 131072, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, thinkingLevelMap: { max: "max" } });
+const curated = () => testModel("GLM-5.2", { reasoning: true, maxTokens: 131072, thinkingLevelMap: { max: "max" } });
 const restored = api.mergeStoredSnapshot([curated()], [
 	{ id: "GLM-5.2", name: "GLM-5.2", api: "openai-completions", contextWindow: 999999 },
-	{ id: "MiniMax-M2.5", name: "MiniMax-M2.5", api: "openai-completions", provider: "scnet", baseUrl: "https://api.scnet.cn/api/llm/v1", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+	testModel("MiniMax-M2.5", { api: "openai-completions", provider: "scnet", baseUrl: "https://api.scnet.cn/api/llm/v1", reasoning: true, contextWindow: 200000, maxTokens: 131072 }),
 ]);
 assert(restored.length === 2, "a stored row the base table lacks is restored");
 const restoredKnown = restored.find((model) => model.id === "GLM-5.2");

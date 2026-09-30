@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { agentPath, assert, startExtension } from "./harness.mjs";
+import { agentPath, assert, startExtension, testModel } from "./harness.mjs";
 
 /**
  * Ids a complete discovery round no longer returns are *reported* (never silently dropped),
@@ -19,7 +19,7 @@ writeFileSync(
 		apis: { "anthropic-messages": { baseUrl: "https://demo.example/anthropic", modelsPath: "/models" } },
 	}),
 );
-const base = (id) => ({ id, name: id, reasoning: true, input: ["text"], contextWindow: 1000, maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+const base = (id) => testModel(id, { reasoning: true });
 const file = `${dir}/models.json`;
 writeFileSync(file, JSON.stringify({ models: [base("keep"), base("gone")] }));
 writeFileSync(agentPath("models.json"), "{}");

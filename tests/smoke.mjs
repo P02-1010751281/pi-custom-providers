@@ -1,4 +1,4 @@
-import { loadTs, loader, assert, FIXTURE_MODELS, seedDefaultProviders } from "./harness.mjs";
+import { loadTs, loader, assert, FIXTURE_MODELS, seedDefaultProviders, stubPi } from "./harness.mjs";
 
 /**
  * Loader parity guard: pi aliases `@earendil-works/pi-ai` to the compat entry, which
@@ -15,18 +15,7 @@ const mod = await loadTs("extensions/custom-providers/index.ts");
 const factory = mod.default;
 assert(typeof factory === "function", "default export is a factory function");
 
-const providers = new Map();
-const handlers = [];
-const commands = [];
-const pi = {
-	on: (event) => handlers.push(event),
-	registerCommand: (name) => commands.push(name),
-	registerProvider: (id, config) => providers.set(id, config),
-	registerFlag: () => {},
-	registerShortcut: () => {},
-	registerTool: () => {},
-	getFlag: () => undefined,
-};
+const { pi, providers, events, commands } = stubPi();
 await seedDefaultProviders("commandcode", "scnet");
 await factory(pi);
 
@@ -61,9 +50,9 @@ assert(
 
 console.log(`providers: ${[...providers.keys()].join(", ")}`);
 console.log(`model counts: ${[...providers].map(([id, c]) => `${id}=${c.models.length}`).join(", ")}`);
-console.log(`on: ${handlers.join(", ")}`);
-console.log(`cmd: ${commands.join(", ")}`);
-assert(handlers.includes("session_start"), "session_start handler registered");
-assert(commands.includes("refresh-custom-models"), "refresh command registered");
-assert(commands.includes("custom-providers"), "status command registered");
+console.log(`on: ${[...events.keys()].join(", ")}`);
+console.log(`cmd: ${[...commands.keys()].join(", ")}`);
+assert(events.has("session_start"), "session_start handler registered");
+assert(commands.has("refresh-custom-models"), "refresh command registered");
+assert(commands.has("custom-providers"), "status command registered");
 console.log("OK");

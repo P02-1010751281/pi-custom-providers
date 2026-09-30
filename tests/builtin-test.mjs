@@ -1,4 +1,4 @@
-import { loadTs, assert, seedDefaultProviders } from "./harness.mjs";
+import { loadTs, assert, seedDefaultProviders, stubPi } from "./harness.mjs";
 
 const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift } = await loadTs("extensions/custom-providers/builtin.ts");
 
@@ -18,18 +18,7 @@ assert(absorbCompat({ id: "claude-opus-4-5", api: "anthropic-messages" }, builti
 
 // --- the extension registers the absorbed flag, and only that flag -----------
 const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
-const providers = new Map();
-const handlers = new Map();
-const events = new Map();
-const pi = {
-	on: (event, handler) => events.set(event, handler),
-	registerCommand: (name, options) => handlers.set(name, options),
-	registerProvider: (id, config) => providers.set(id, config),
-	registerFlag: () => {},
-	registerShortcut: () => {},
-	registerTool: () => {},
-	getFlag: () => undefined,
-};
+const { pi, providers, events, commands } = stubPi();
 await seedDefaultProviders("commandcode", "scnet");
 await factory(pi);
 
@@ -142,7 +131,7 @@ try {
 	if (savedKey !== undefined) process.env.CMD_API_KEY = savedKey;
 }
 const notices = [];
-await handlers.get("custom-providers").handler("", { hasUI: true, ui: { notify: (message) => notices.push(message) } });
+await commands.get("custom-providers").handler("", { hasUI: true, ui: { notify: (message) => notices.push(message) } });
 const status = notices.at(-1) ?? "";
 const statusSegment = status.match(/commandcode[^;]*/)?.[0] ?? "";
 assert(status.includes("CMD_API_KEY"), `the status output names the missing variable (got: ${status})`);
@@ -165,7 +154,7 @@ assert(warning.includes("from the last successful fetch"), `a memoized list is r
 // outcome of its own and must not erase the failure we just recorded.
 await commandcode.refreshModels({ allowNetwork: false, signal: new AbortController().signal, publish: async () => true });
 const afterCacheOnly = [];
-await handlers.get("custom-providers").handler("", { hasUI: true, ui: { notify: (message) => afterCacheOnly.push(message) } });
+await commands.get("custom-providers").handler("", { hasUI: true, ui: { notify: (message) => afterCacheOnly.push(message) } });
 // Scoped to this provider's own segment: the other providers were not refreshed here,
 // so a whole-message match would pass on their text alone.
 const cacheOnlySegment = (afterCacheOnly.at(-1) ?? "").match(/commandcode[^;]*/)?.[0] ?? "";
@@ -173,5 +162,5 @@ assert(cacheOnlySegment.includes("refresh failed"), `a cache-only round keeps th
 
 console.log(`built-in catalog: ${builtin.byId.size} ids, ${builtin.rejectsTemperature.size} reject temperature`);
 console.log(`drift for codecommand: matched=${drift.matched} reasoning=${drift.reasoning.length} input=${drift.input.length} maxTokens=${drift.maxTokens.length} contextWindow=${drift.contextWindow.length}`);
-console.log(`commands: ${[...handlers.keys()].join(", ")}`);
+console.log(`commands: ${[...commands.keys()].join(", ")}`);
 console.log("OK");

@@ -1,4 +1,4 @@
-import { loadTs, PI, assert, seedDefaultProviders } from "./harness.mjs";
+import { loadTs, PI, assert, seedDefaultProviders, stubPi } from "./harness.mjs";
 
 /**
  * End-to-end checks of the pi-native path, using pi's own ModelRuntime (not a stub):
@@ -15,17 +15,9 @@ const { ModelRuntime } = await import(`${PI}/dist/core/model-runtime.js`);
 const { InMemoryCodingAgentModelsStore } = await import(`${PI}/dist/core/models-store.js`);
 
 const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
-const providers = new Map();
+const { pi, providers } = stubPi();
 await seedDefaultProviders("commandcode", "scnet");
-await factory({
-	on: () => {},
-	registerCommand: () => {},
-	registerProvider: (id, config) => providers.set(id, config),
-	registerFlag: () => {},
-	registerShortcut: () => {},
-	registerTool: () => {},
-	getFlag: () => undefined,
-});
+await factory(pi);
 const config = providers.get("commandcode");
 
 // The refresh phase only runs when a credential resolves, so give the env-based

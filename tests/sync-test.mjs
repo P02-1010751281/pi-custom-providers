@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { agentPath, assert, loadTs, startExtension } from "./harness.mjs";
+import { agentPath, assert, loadTs, startExtension, testModel } from "./harness.mjs";
 
 /**
  * `sync` — the only code path in this package that writes a user file, and only with
@@ -13,7 +13,7 @@ const sync = await loadTs("extensions/custom-providers/sync-models.ts");
 const vendorDir = agentPath("custom-providers", "demo");
 const file = `${vendorDir}/models.json`;
 const reset = () => writeFileSync(agentPath("models.json"), "{}");
-const base = (id, maxTokens = 100) => ({ id, name: id, reasoning: false, input: ["text"], contextWindow: 1000, maxTokens, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+const base = (id, maxTokens = 100) => testModel(id, { maxTokens });
 
 // --- diff semantics ---------------------------------------------------------------
 const diff = sync.diffBaseTable("demo", file, [base("a", 200), base("b")], [base("a"), base("gone")]);
