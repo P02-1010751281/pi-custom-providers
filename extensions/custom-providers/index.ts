@@ -47,7 +47,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./builtin.ts";
-import { normalizeApi, providerLayerFor, readModelsConfig, type JsonObject } from "./config.ts";
+import { normalizeApi, providerLayerFor, readModelsConfig } from "./config.ts";
 import { configValueForPi, loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
 import { baseTableView, collectEntries, synthesizeModels, type ModelEntry, type ProviderEntry } from "./providers.ts";
@@ -56,7 +56,7 @@ import { DEFAULTS } from "./sources.ts";
 import { apiSplit, problemLines, toastLines, type ProviderStatus } from "./status.ts";
 import { diffBaseTable, readBaseTable, summarizeDiff, writeBaseTable } from "./sync-models.ts";
 import type { CatalogModel, LoadIssue, Vendor } from "./types.ts";
-import { isObject, stringOr } from "./util.ts";
+import { isObject, stringOr, type JsonObject } from "./util.ts";
 
 const PROVIDER_ROOT = () => path.join(getAgentDir(), "custom-providers");
 

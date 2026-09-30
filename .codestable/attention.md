@@ -38,7 +38,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 测试
 
-- `node tests/run-all.mjs` 跑全部（13 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `provider-files-test.mjs` / `accounts-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `pi-native-test.mjs`。
+- `node tests/run-all.mjs` 跑全部（14 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `provider-files-test.mjs` / `accounts-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `pi-native-test.mjs`。
 - 测试通过 pi 自己的 jiti loader 加载 TS（见 `tests/harness.mjs`），不写 `~/.pi`；`PI_PKG` 可指定 pi 安装目录。
 - `tests/harness.mjs` 在导入被测代码前把 `PI_CODING_AGENT_DIR` 指向临时目录：不这样会被 `getAgentDir()` 带回你真实的 `~/.pi/agent/models.json`，断言会随本机配置变化（曾因此把 scnet 的 `compat` 覆盖进测试）。
 - `models-test.mjs` 校验 `tests/fixtures/models.json`（仓库里唯一的模型数据）并调用 pi-ai 的 `calculateCost()`，是「模型缺 `cost` 就崩」的回归防线。
@@ -55,12 +55,13 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 路径与目录约定
 
-- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`provider-files.ts` 目录层（扫描 / 逐文件校验 / 接管白名单 + `writeProviderFile` 写 `provider.json`）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`sync-models.ts` `models.json` 的 diff + 写盘（`sync --write` 的唯一路径）、`util.ts` 三个 JSON 守卫、`index.ts` 扩展接线（`registerEntry`、`statusOf`、五个命令分支 `runInit`/`runDrift`/`runFiles`/`runSync`/`runStatus`、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
+- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`provider-files.ts` 目录层（扫描 / 逐文件校验 / 接管白名单 + `writeProviderFile` 写 `provider.json`）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`sync-models.ts` `models.json` 的 diff + 写盘（`sync --write` 的唯一路径）、`util.ts` JSON 对象类型 + 三个 JSON 守卫（依赖图的叶子，不 import 任何本地模块）、`index.ts` 扩展接线（`registerEntry`、`statusOf`、五个命令分支 `runInit`/`runDrift`/`runFiles`/`runSync`/`runStatus`、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
 - pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
 - 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
 - `extensions/custom-providers/` 目前**扁平放置**（13 文件 / 2200 行）：pi 发现只需 `extensions/<name>/index.ts` 这一层，模块之间的相对 import 可以自由嵌套，所以扁平只是可读性选择。真需要分组时的触发条件：文件 >20 个或单文件 >600 行。
 - `tests/` **必须保持扁平**：`run-all.mjs` 是 `readdirSync` 单层扫描（不递归），放进子目录的测试会静默不被执行。`tests/fixtures/` 是数据不是测试（当前唯一的子目录）。
 - `.codestable/reference/`（12 份框架文档）与 `.codestable/gates/` 由 CodeStable 插件管理（`.codestable/runtime-manifest.json` 的 `managed_paths`，`updated_by: codestable-runtime-sync`）：**手改会被下次同步覆盖**，项目自己的文档是 `attention.md` 与 `features/<epic>/`。
+- 模块依赖图**无环**且每个模块都能从 `index.ts` 到达，由 `tests/graph-test.mjs` 守护（含 type-only 回边：`util.ts` 是叶子，`JsonObject` 这类共享类型放叶子模块才不会成环）。
 - `.agents/`（记忆、会话日志、技能）整体 gitignored，不进仓库、不进 tag。
 
 ### 环境变量与凭证

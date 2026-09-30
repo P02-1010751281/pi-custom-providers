@@ -10,11 +10,10 @@
  */
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { conventionCapability } from "./convention.ts";
-import type { JsonObject } from "./config.ts";
 import { resolveConfigValue } from "./env.ts";
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS, mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
 import type { LiveModelRow, LoadIssue, Vendor } from "./types.ts";
-import { isObject, numberOr, stringOr } from "./util.ts";
+import { isObject, numberOr, stringOr, type JsonObject } from "./util.ts";
 
 /** Fetch one endpoint's model list. The auth shape follows the protocol, not the account. */
 async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: string }, headers: JsonObject, apiKey: string | undefined, signal?: AbortSignal): Promise<LiveModelRow[]> {

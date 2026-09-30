@@ -15,10 +15,10 @@
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { BUILTIN_APIS, normalizeApi, type JsonObject, type ProviderDeclaration } from "./config.ts";
+import { BUILTIN_APIS, normalizeApi, type ProviderDeclaration } from "./config.ts";
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./providers.ts";
 import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";
-import { isObject, numberOr, stringOr } from "./util.ts";
+import { isObject, numberOr, stringOr, type JsonObject } from "./util.ts";
 
 
 /** `provider.json` keys this package reads. Everything else is reported, never guessed at. */

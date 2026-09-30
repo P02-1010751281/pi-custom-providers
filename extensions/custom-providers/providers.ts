@@ -7,9 +7,9 @@
  * `sync --write` stores (design §4/§5.2/§5.3).
  */
 import { absorbCompat, type BuiltinCatalog, type CatalogCompat } from "./builtin.ts";
-import { applyModelPatch, resolveModelEndpoint, type JsonObject, type ProviderDeclaration } from "./config.ts";
+import { applyModelPatch, resolveModelEndpoint, type ProviderDeclaration } from "./config.ts";
 import type { Account, CatalogModel, LoadIssue, ModelCompat, Vendor } from "./types.ts";
-import { isObject, stringOr } from "./util.ts";
+import { isObject, stringOr, type JsonObject } from "./util.ts";
 
 /** Cost of a model we know nothing about. pi dereferences `cost` on every request. */
 export const ZERO_COST: CatalogModel["cost"] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };

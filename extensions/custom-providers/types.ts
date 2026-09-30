@@ -9,7 +9,8 @@
  * `apis` (a second protocol endpoint), `modelsPath` (discovery path), `override`
  * (taking over a built-in provider id) and `accounts.json`.
  */
-import type { JsonObject, ProviderDeclaration } from "./config.ts";
+import type { ProviderDeclaration } from "./config.ts";
+import type { JsonObject } from "./util.ts";
 
 export type CatalogThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -96,4 +97,5 @@ export interface LiveModelRow {
 	contextWindow?: number;
 }
 
-export type { JsonObject, ProviderDeclaration };
+export type { JsonObject } from "./util.ts";
+export type { ProviderDeclaration } from "./config.ts";

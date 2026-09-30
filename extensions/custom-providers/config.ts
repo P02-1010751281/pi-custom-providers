@@ -17,9 +17,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { isObject } from "./util.ts";
-
-export type JsonObject = Record<string, any>;
+import { isObject, type JsonObject } from "./util.ts";
 
 
 /**
