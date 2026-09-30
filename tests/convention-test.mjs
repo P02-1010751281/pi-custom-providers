@@ -5,7 +5,7 @@ import { assert, FIXTURE_MODELS, loadTs } from "./harness.mjs";
  * It must never override the curated table or a probe — only fill an id discovery introduced.
  */
 const { familyKey, conventionCapability, CONVENTION_FAMILIES } = await loadTs("extensions/custom-providers/convention.ts");
-const { applyLiveModels } = await loadTs("extensions/custom-providers/index.ts");
+const { applyLiveModels } = await loadTs("extensions/custom-providers/live.ts");
 
 // --- familyKey: drop the vendor prefix, stop at the first version-bearing token ---
 assert(familyKey("zai-org/GLM-5.3") === "glm", `vendor prefix is dropped (got ${familyKey("zai-org/GLM-5.3")})`);

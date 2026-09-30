@@ -17,10 +17,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isObject } from "./util.ts";
 
 export type JsonObject = Record<string, any>;
 
-const isObject = (value: unknown): value is JsonObject => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * pi's built-in protocol ids — `BUILTIN_APIS` in `pi-ai/dist/compat.js:108`, which is a

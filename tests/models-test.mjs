@@ -10,7 +10,7 @@ import { FIXTURE_MODELS, loadTs, PI, assert } from "./harness.mjs";
  * unconditionally, so any registered model without `cost` crashes the turn with
  * `Cannot read properties of undefined (reading 'tiers')`.
  */
-const api = await loadTs("extensions/custom-providers/index.ts");
+const api = await loadTs("extensions/custom-providers/live.ts");
 const { calculateCost } = await import(`${PI}/node_modules/@earendil-works/pi-ai/dist/index.js`);
 
 const COST_FIELDS = ["input", "output", "cacheRead", "cacheWrite"];

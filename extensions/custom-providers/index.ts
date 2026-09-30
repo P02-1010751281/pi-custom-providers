@@ -37,441 +37,31 @@
  * written; the only writers in this package are `init` (a vendor's `provider.json`) and
  * `sync --write` (a vendor's `models.json`).
  *
- * Files: `sources.ts` built-in vendor endpoints, `config.ts` pi's
- * api vocabulary + the `models.json` layer, `provider-files.ts` the directory layer,
- * `sync-models.ts` the one writer, `builtin.ts` pi cross-check.
+ * Files: `sources.ts` built-in vendor endpoints, `config.ts` pi's api vocabulary + the
+ * `models.json` layer, `provider-files.ts` the directory layer, `providers.ts` the
+ * vendor → registered-provider composition (entries and the layer chain), `live.ts` discovery
+ * and the merge rules for a wire's answer, `status.ts` per-provider status and problem text,
+ * `sync-models.ts` the one writer, `builtin.ts` pi cross-check, `util.ts` the JSON guards.
  */
 import { homedir } from "node:os";
 import path from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
-import { getAgentDir, readStoredCredential, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { absorbCompat, loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog, type CatalogCompat, type DriftSummary } from "./builtin.ts";
-import { applyModelPatch, normalizeApi, providerLayerFor, readModelsConfig, resolveModelEndpoint, type JsonObject } from "./config.ts";
-import { conventionCapability } from "./convention.ts";
-import { loadEnvFile } from "./env.ts";
+import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./builtin.ts";
+import { normalizeApi, providerLayerFor, readModelsConfig, type JsonObject } from "./config.ts";
+import { configValueForPi, loadEnvFile } from "./env.ts";
+import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
+import { baseTableView, entriesFor, synthesizeModels, type ProviderEntry } from "./providers.ts";
 import { collectVendors } from "./provider-files.ts";
 import { DEFAULTS } from "./sources.ts";
+import { apiSplit, problemLines, toastLines, type ProviderStatus } from "./status.ts";
 import { diffBaseTable, readBaseTable, summarizeDiff, writeBaseTable } from "./sync-models.ts";
-import type { Account, CatalogModel, LiveModelRow, LoadIssue, ModelCompat, Vendor } from "./types.ts";
+import type { CatalogModel, LoadIssue, Vendor } from "./types.ts";
+import { isObject, stringOr } from "./util.ts";
 
-const ZERO_COST: CatalogModel["cost"] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 const PROVIDER_ROOT = () => path.join(getAgentDir(), "custom-providers");
 
-const isObject = (value: unknown): value is JsonObject => typeof value === "object" && value !== null && !Array.isArray(value);
-const stringOr = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
-const numberOr = (value: unknown, fallback: number): number => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback);
-
-/** Resolve one pi value expression (`$VAR` / `${VAR}` / `$$` / `$!` / `!command` / literal). */
-export function resolveConfigValue(value: string | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
-	if (value === undefined) return undefined;
-	if (value.startsWith("$$")) return value.slice(1);
-	if (value.startsWith("$!")) return value.slice(1);
-	const braced = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(value);
-	if (braced) return env[braced[1]] || undefined;
-	const plain = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(value);
-	if (plain) return env[plain[1]] || undefined;
-	if (value.startsWith("!")) {
-		try {
-			return execSync(value.slice(1), { encoding: "utf8", timeout: 10_000, stdio: ["ignore", "pipe", "ignore"] }).trim() || undefined;
-		} catch {
-			return undefined;
-		}
-	}
-	// A bare UPPER_SNAKE value is an environment variable *name*: pi would send the name
-	// itself as the token (`resolve-config-value.js` treats a bare string as a literal).
-	if (/^[A-Z][A-Z0-9_]*$/.test(value)) return env[value] || undefined;
-	return value;
-}
-
-/** The value we hand pi: bare `UPPER_SNAKE` becomes `$VAR`, since pi only interpolates `$…`. */
-const configValueForPi = (value: string | undefined): string | undefined =>
-	value === undefined ? undefined : /^[A-Z][A-Z0-9_]*$/.test(value) ? `$${value}` : value;
-
-/** One registrable pi provider: a vendor, plus the account that supplies its credentials. */
-interface ProviderEntry {
-	id: string;
-	name: string;
-	vendor: Vendor;
-	account?: Account;
-	/** True for the entry that registers as `<vendor id>`. */
-	base: boolean;
-}
-
-function entriesFor(vendor: Vendor): ProviderEntry[] {
-	const entries: ProviderEntry[] = [];
-	if (!vendor.baseSuppressed) {
-		entries.push({
-			id: vendor.id,
-			name: vendor.name,
-			vendor,
-			...(vendor.baseAccount ? { account: vendor.baseAccount } : {}),
-			base: true,
-		});
-	}
-	for (const account of vendor.accounts) {
-		if (vendor.baseAccount && account.id === vendor.baseAccount.id) continue;
-		entries.push({ id: `${vendor.id}-${account.id}`, name: `${vendor.name} (${account.id})`, vendor, account, base: false });
-	}
-	return entries;
-}
-
-/** One model, after the layer chain ran: the shape handed to `registerProvider`. */
-type ModelEntry = CatalogModel & { compat?: CatalogCompat & ModelCompat };
-
-/** Merge header layers left to right; a later layer wins per key. */
-function mergeHeaders(...layers: (JsonObject | undefined)[]): JsonObject | undefined {
-	const merged: JsonObject = {};
-	for (const layer of layers) {
-		if (!layer) continue;
-		for (const [key, value] of Object.entries(layer)) merged[key] = value;
-	}
-	return Object.keys(merged).length > 0 ? merged : undefined;
-}
-
-/**
- * Synthesize one provider entry's model list: base table ⊕ `models.json` patches, with the
- * endpoint, headers and compat of the layer the model ends up on (design §4/§5.2/§5.3).
- * `issues` collects everything that had to be reported instead of applied.
- */
-function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builtin: BuiltinCatalog, issues: LoadIssue[]): ModelEntry[] {
-	const { vendor } = entry;
-	const declaration = vendor.declaration;
-	const patches = new Map<string, JsonObject>();
-	for (const row of Array.isArray(layer.models) ? (layer.models as unknown[]) : []) {
-		if (!isObject(row)) continue;
-		const id = stringOr(row.id);
-		if (!id) {
-			issues.push({ level: "warning", message: `${entry.id}: models[] entry has no "id"` });
-			continue;
-		}
-		patches.set(id, row);
-	}
-	const base = new Map<string, CatalogModel>();
-	for (const model of vendor.models) base.set(model.id, { ...model, input: [...model.input], cost: { ...model.cost } });
-	for (const [id, row] of patches) {
-		if (base.has(id)) continue;
-		// An id only the user declares still needs a complete entry for pi: `registerProvider`
-		// throws on a model without cost, and pi's request path dereferences it.
-		base.set(id, { id, name: id, reasoning: false, input: ["text"], contextWindow: 128000, maxTokens: 16384, cost: { ...ZERO_COST } });
-	}
-
-	const multiEndpoint = Object.keys(declaration.apis).length > 0;
-	const models: ModelEntry[] = [];
-	for (const [id, raw] of base) {
-		const patch = patches.get(id);
-		const merged = applyModelPatch(raw as unknown as JsonObject, patch ?? {}) as unknown as CatalogModel;
-		const choice = resolveModelEndpoint(declaration, layer, merged);
-		for (const issue of choice.issues) issues.push({ level: "warning", message: `${entry.id}: ${issue}` });
-		const endpoint = choice.endpoint;
-
-		// Compat is a model property (pi only reads it per model), layered lowest first: the
-		// whitelist absorbed from pi's built-in catalog, the model entry, then the user's
-		// provider-level block — which only reaches models on the effective default protocol
-		// (design §5.3, decision 17: moving an OpenAI-shaped compat onto an Anthropic endpoint
-		// is a cross-family copy pi itself would not make).
-		const absorbed = absorbCompat({ id, api: endpoint.api }, builtin);
-		const compat: ModelCompat = {
-			...absorbed,
-			...(merged.compat ?? {}),
-			...(choice.stampApi ? {} : isObject(layer.compat) ? layer.compat : {}),
-		};
-
-		const accountSuffix = entry.base || !entry.account ? "" : ` (${entry.account.id})`;
-		const protocolSuffix = multiEndpoint && choice.stampApi ? ` (${endpoint.api})` : "";
-		models.push({
-			...merged,
-			id,
-			name: `${merged.name}${accountSuffix}${protocolSuffix}`,
-			...(choice.stampApi ? { api: endpoint.api } : {}),
-			...(choice.stampBaseUrl ? { baseUrl: endpoint.baseUrl } : {}),
-			headers: mergeHeaders(declaration.headers, endpoint.headers, entry.account?.headers, merged.headers),
-			...(Object.keys(compat).length > 0 ? { compat } : {}),
-		});
-	}
-	return models;
-}
-
-/**
- * The *base* view of a model list: what `sync --write` stores and what a vendor's
- * `models.json` holds.
- * Derived products stay out of it — the protocol suffix on the display name and the
- * endpoint's base URL are computed at registration time (design §4/§5.2), so writing them
- * back would freeze a layer-2 computation into the layer-1 table.
- */
-function baseTableView(models: readonly CatalogModel[], declaration: ProviderDeclaration, issues: LoadIssue[]): CatalogModel[] {
-	return models.map((model) => {
-		const choice = resolveModelEndpoint(declaration, {}, model);
-		for (const issue of choice.issues) issues.push({ level: "warning", message: issue });
-		// A model on the default protocol carries no `api` at all: that is what keeps
-		// `providers.<id>.api`/`baseUrl` able to redirect it later.
-		return choice.stampApi ? { ...model, api: choice.endpoint.api } : model;
-	});
-}
-
-/** Fetch one endpoint's model list. The auth shape follows the protocol, not the account. */
-async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: string }, headers: JsonObject, apiKey: string | undefined, signal?: AbortSignal): Promise<LiveModelRow[]> {
-	if (!endpoint.modelsPath) throw new Error("no modelsPath: no discovery for this endpoint");
-	if (!apiKey) throw new Error("no API key resolved");
-	const url = `${endpoint.baseUrl.replace(/\/+$/, "")}${endpoint.modelsPath.startsWith("/") ? endpoint.modelsPath : `/${endpoint.modelsPath}`}`;
-	const timeout = AbortSignal.timeout(10_000);
-	const auth = endpoint.api === "anthropic-messages" ? { "anthropic-version": "2023-06-01", "x-api-key": apiKey } : { Authorization: `Bearer ${apiKey}` };
-	const response = await fetch(url, {
-		headers: { Accept: "application/json", ...headers, ...auth } as Record<string, string>,
-		signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
-	});
-	if (!response.ok) throw new Error(`HTTP ${response.status} (GET ${url})`);
-	const payload = (await response.json()) as JsonObject;
-	const rows = Array.isArray(payload.data) ? payload.data : payload.models;
-	if (!Array.isArray(rows)) throw new Error(`no data/models array (GET ${url})`);
-	return rows.filter((row): row is LiveModelRow => isObject(row) && typeof row.id === "string");
-}
-
-/**
- * id → clone. `input`/`cost` are copied so nothing shares a reference with the list they came
- * from, and a row that skipped provider-file validation (the raw `models.json` re-read in `sync`)
- * still ends up with the array `input` every consumer assumes.
- */
-function cloneById(models: readonly ModelEntry[]): Map<string, ModelEntry> {
-	return new Map(
-		models.map((model) => [
-			model.id,
-			{ ...model, input: Array.isArray(model.input) ? [...model.input] : ["text"], cost: { ...model.cost } },
-		]),
-	);
-}
-
-/** A row from `/models` or pi's store patches only the fields a wire owns. */
-function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_length?: unknown; contextWindow?: unknown }): void {
-	const name = stringOr(row.name);
-	const ctx = numberOr(row.context_length ?? row.contextWindow, 0);
-	if (name) known.name = name;
-	if (ctx > 0) known.contextWindow = ctx;
-}
-
-/**
- * Apply discovery to a model list: the id set, display name and context window only. Every
- * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
- * a curated model to pi's defaults. An id the base table has never seen takes its capability
- * from the naming convention in `convention.ts` (same-family inheritance, then a known-family
- * list); curated parameters only ever come from the base table.
- */
-export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string): { models: ModelEntry[]; unknown: string[] } {
-	const byId = cloneById(models);
-	const unknown: string[] = [];
-	for (const row of rows) {
-		const known = byId.get(row.id);
-		if (known) {
-			patchLiveFields(known, row);
-			continue;
-		}
-		unknown.push(row.id);
-		const convention = conventionCapability(models, row.id, api);
-		byId.set(row.id, {
-			id: row.id,
-			name: stringOr(row.name) ?? row.id,
-			reasoning: convention?.reasoning ?? false,
-			...(convention?.thinkingLevelMap ? { thinkingLevelMap: convention.thinkingLevelMap } : {}),
-			input: ["text"],
-			contextWindow: numberOr(row.context_length ?? row.contextWindow, 128000),
-			maxTokens: 16384,
-			cost: { ...ZERO_COST },
-		});
-	}
-	return { models: [...byId.values()], unknown };
-}
-
-/**
- * Merge pi's persisted snapshot into a model list. Unlike a `/models` answer, the store holds
- * what we registered last time (full definitions), so an id the base table has never seen is
- * restored *whole* instead of being rebuilt from the naming convention; an id the base table
- * knows still only takes the snapshot's live display name and context window.
- *
- * The store also holds what registration derived — `provider` plus the resolved `api`/`baseUrl`.
- * Those are dropped: an id the base table does not carry has no declared protocol (discovery
- * cannot choose one), so it must stay on the provider's default protocol, where a later
- * `providers.<id>.api`/`baseUrl` can still move it. A model on a second protocol is expressed by
- * the base table or by the user's `models.json`, not by a restored cache.
- */
-export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonly JsonObject[]): ModelEntry[] {
-	const byId = cloneById(models);
-	for (const row of rows) {
-		const id = String(row.id);
-		const known = byId.get(id);
-		if (known) {
-			patchLiveFields(known, row);
-			continue;
-		}
-		const rest = { ...(row as Record<string, unknown>) };
-		delete rest.provider;
-		delete rest.api;
-		delete rest.baseUrl;
-		byId.set(id, {
-			...rest,
-			id,
-			name: stringOr(row.name) ?? id,
-			contextWindow: numberOr(row.context_length ?? row.contextWindow, 128000),
-			maxTokens: numberOr(row.maxTokens, 16384),
-			input: Array.isArray(row.input) ? (row.input as string[]) : ["text"],
-			// A registered model must always carry `cost` (pi's `calculateCost()` dereferences it).
-			cost: isObject(row.cost) ? (row.cost as CatalogModel["cost"]) : { ...ZERO_COST },
-		});
-	}
-	return [...byId.values()];
-}
-
-/**
- * This process's live list per endpoint. pi re-registers a provider by calling
- * `refreshModels` with `allowNetwork: false` right after every `registerProvider`
- * (`model-runtime.js` ends `registerProvider` with `void this.refresh({ allowNetwork: false })`),
- * so without this memo that cache-only round would overwrite the live values just registered.
- */
-const liveSnapshots = new Map<string, ModelEntry[]>();
-/**
- * Base ids the last complete discovery round no longer returned, per vendor. Reported and,
- * with `sync --prune`, dropped from the base table — never dropped silently. Only a round in
- * which every discoverable endpoint answered non-empty updates it (see `refreshEntry`).
- */
-const vanishedByVendor = new Map<string, string[]>();
-/** Last discovery failure per endpoint, so an offline round cannot erase it. */
-const lastErrors = new Map<string, string>();
-const endpointKey = (vendorId: string, api: string): string => `${vendorId}\u0000${api}`;
-
-/** Every declared endpoint of a vendor: the default one plus each `apis.<api>`. */
-function vendorEndpoints(vendor: Vendor): { api: string; baseUrl: string; modelsPath?: string; headers?: JsonObject }[] {
-	const { declaration } = vendor;
-	return [
-		{ api: declaration.api, baseUrl: declaration.baseUrl, ...(declaration.modelsPath ? { modelsPath: declaration.modelsPath } : {}), ...(declaration.headers ? { headers: declaration.headers } : {}) },
-		...Object.entries(declaration.apis).map(([api, endpoint]) => ({
-			api,
-			baseUrl: endpoint.baseUrl,
-			...(endpoint.modelsPath ?? declaration.modelsPath ? { modelsPath: endpoint.modelsPath ?? declaration.modelsPath } : {}),
-			...(endpoint.headers ? { headers: endpoint.headers } : {}),
-		})),
-	];
-}
-
-/** Credential for one endpoint, in pi's own order: stored → context → account → layer → env. */
-function endpointCredential(entry: ProviderEntry, layer: JsonObject, contextKey: string | undefined): string | undefined {
-	let stored: string | undefined;
-	try {
-		const credential = readStoredCredential(entry.id);
-		stored = credential && typeof credential === "object" && "key" in credential && typeof (credential as { key?: unknown }).key === "string" ? (credential as { key: string }).key : undefined;
-	} catch {
-		stored = undefined;
-	}
-	return (
-		stored ??
-		contextKey ??
-		resolveConfigValue(entry.account?.apiKey) ??
-		resolveConfigValue(stringOr(layer.apiKey)) ??
-		(entry.vendor.defaultAccount ? resolveConfigValue(`$${entry.vendor.defaultAccount.envVar}`) : undefined)
-	);
-}
-
-async function refreshEntry(
-	entry: ProviderEntry,
-	layer: JsonObject,
-	builtin: BuiltinCatalog,
-	options: { allowFetch: boolean; contextKey?: string; signal?: AbortSignal; stored?: readonly JsonObject[] },
-): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[] }> {
-	const issues: LoadIssue[] = [];
-	const models = synthesizeModels(entry, layer, builtin, issues);
-	const apiKey = endpointCredential(entry, layer, options.contextKey);
-	// Report the missing credential before any request, naming the file and the built-in
-	// variable so the fix is obvious (and never send the variable *name* as the token).
-	const keyHint = `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json, providers.${entry.id}.apiKey${entry.vendor.defaultAccount ? `, $${entry.vendor.defaultAccount.envVar}` : ""} or run /login ${entry.id}`;
-	const storedRows = (options.stored ?? []).filter((row) => isObject(row) && typeof row.id === "string");
-	let result = models;
-	let live = false;
-	const unknown: string[] = [];
-	// Vanished tracking: the union of every *answerable* endpoint's ids, and whether any of
-	// them failed or answered empty. An empty registry response is known to happen without
-	// meaning deletion (SCNet quota exhaustion returns 200 + `data: []`), so it suppresses the
-	// report rather than declaring the whole base table gone.
-	const discoveredIds = new Set<string>();
-	let attempted = 0;
-	let discoverFailed = false;
-	let emptyAnswer = false;
-
-	for (const endpoint of vendorEndpoints(entry.vendor)) {
-		const key = endpointKey(entry.vendor.id, endpoint.api);
-		const memo = liveSnapshots.get(key);
-		let list = memo ?? result;
-		if (!memo && storedRows.length > 0) {
-			// Restored from pi's own store: only rows that name this protocol (pi stamps `api`
-			// on persisted models), plus rows that name none at all (older snapshots).
-			const own = storedRows.filter((row) => row.api === undefined || row.api === endpoint.api);
-			list = mergeStoredSnapshot(list, own);
-		}
-		if (!options.allowFetch) {
-			result = list;
-			live = live || memo !== undefined;
-			continue;
-		}
-		try {
-			if (!apiKey) throw new Error(keyHint);
-			// The probe is per endpoint, but it only has to succeed once per process: the memo
-			// keeps the result for the cache-only round pi runs right after registration.
-			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, apiKey, options.signal);
-			const applied = applyLiveModels(list, rows, endpoint.api);
-			// Memoize unless the merged list is empty: an empty answer (a quota-exhausted wire
-			// answers 200 + `[]`) over an empty base must not shadow the persisted snapshot on
-			// the next round, while an empty answer over a known table is still worth keeping.
-			if (applied.models.length > 0) liveSnapshots.set(key, applied.models);
-			lastErrors.delete(key);
-			result = applied.models;
-			live = true;
-			unknown.push(...applied.unknown);
-			if (endpoint.modelsPath) {
-				attempted += 1;
-				if (rows.length === 0) emptyAnswer = true;
-				for (const row of rows) discoveredIds.add(row.id);
-			}
-		} catch (error) {
-			lastErrors.set(key, `${endpoint.api}: ${String(error)}`);
-			// A failed probe keeps the list it had — this process's memo, pi's snapshot, or the
-			// base table — and stays "live" when a memo is what it is serving.
-			result = list;
-			live = live || memo !== undefined;
-			if (endpoint.modelsPath) discoverFailed = true;
-		}
-	}
-	// Vendor-wide, not per wire: a model that moved protocol or is served only on the second
-	// endpoint must not look gone just because one endpoint's registry omits it.
-	let vanished: string[] = [];
-	if (options.allowFetch && attempted > 0 && !discoverFailed && !emptyAnswer) {
-		vanished = models.filter((model) => !discoveredIds.has(model.id)).map((model) => model.id);
-		vanishedByVendor.set(entry.vendor.id, vanished);
-	}
-	return { models: result, live, unknown, vanished, issues };
-}
-
-/** A compact, one-line-per-provider status, plus everything needed by the commands. */
-export interface ProviderStatus {
-	id: string;
-	models: number;
-	live: boolean;
-	unknown: string[];
-	/** Base ids the last complete discovery round no longer returned (kept, `sync --prune` drops). */
-	vanished: string[];
-	issues: LoadIssue[];
-	error?: string;
-	drift?: DriftSummary;
-	apis: { api: string; models: number }[];
-	accounts: string[];
-}
-
-function apiSplit(models: readonly ModelEntry[], defaultApi: string, multiEndpoint: boolean): { api: string; models: number }[] {
-	if (!multiEndpoint) return [{ api: defaultApi, models: models.length }];
-	const counts = new Map<string, number>();
-	for (const model of models) {
-		const api = model.api ?? defaultApi;
-		counts.set(api, (counts.get(api) ?? 0) + 1);
-	}
-	return [...counts.entries()].map(([api, models]) => ({ api, models })).sort((a, b) => a.api.localeCompare(b.api));
-}
-
+/** pi's refresh context: what the model runtime hands a `refreshModels` round. */
 type RefreshContext = { allowNetwork: boolean; signal: AbortSignal; publish: (options: { persist: unknown }) => Promise<unknown>; credential?: { type?: string; key?: string }; stored?: { models?: unknown[] } };
 
 function registerEntry(
@@ -562,12 +152,6 @@ function registerEntry(
 	return { refresh };
 }
 
-/** Trim a toast: the first lines plus a count, never a wall of text. */
-function toastLines(lines: readonly string[], limit = 8): string {
-	const shown = lines.slice(0, limit).join("; ");
-	return lines.length > limit ? `${shown} (+${lines.length - limit} more)` : shown;
-}
-
 export default async function customProviders(pi: ExtensionAPI) {
 	// Never write to stderr: raw output corrupts the TUI. Report through the session UI.
 	loadEnvFile(path.join(getAgentDir(), ".env"));
@@ -622,32 +206,6 @@ export default async function customProviders(pi: ExtensionAPI) {
 	}
 
 	const sortedStatuses = (): ProviderStatus[] => [...statuses.values()].sort((a, b) => a.id.localeCompare(b.id));
-
-	/**
-	 * Everything worth reporting, most actionable first: file/validation problems (they are
-	 * ours to fix and would otherwise be buried), then failed refreshes, then new ids, then
-	 * the "no live data" note — which is expected offline and only noise in quantity.
-	 */
-	const problemLines = (): string[] => [
-		...globalIssues.filter((issue) => issue.level === "error").map((issue) => issue.message),
-		...globalIssues.filter((issue) => issue.level === "warning").map((issue) => issue.message),
-		// Problems a provider's own synthesis reported (endpoint fallbacks, invalid model apis).
-		...[...new Set(sortedStatuses().flatMap((status) => status.issues.map((issue) => issue.message)))].filter(
-			(message) => !globalIssues.some((issue) => issue.message === message),
-		),
-		...sortedStatuses()
-			.filter((status) => status.error)
-			.map((status) => `${status.id}: refresh failed, using ${status.models} model(s)${status.live ? " from the last successful fetch" : " from the base table"} (${status.error})`),
-		...sortedStatuses()
-			.filter((status) => status.unknown.length > 0)
-			.map((status) => `${status.id}: new model(s) not in models.json: ${status.unknown.join(", ")}`),
-		...sortedStatuses()
-			.filter((status) => status.vanished.length > 0)
-			.map((status) => `${status.id}: model(s) no longer returned by discovery (kept, sync --prune drops): ${status.vanished.join(", ")}`),
-		...sortedStatuses()
-			.filter((status) => !status.error && !status.live)
-			.map((status) => `${status.id}: live models unavailable (${status.models} model(s) from base)`),
-	];
 
 	pi.registerCommand("refresh-custom-models", {
 		description: "Refresh the Command Code and SCNet model lists",
@@ -790,7 +348,8 @@ export default async function customProviders(pi: ExtensionAPI) {
 				const apis = status.apis.length > 1 ? ` [${status.apis.map((entry) => `${entry.api} ${entry.models}`).join(", ")}]` : "";
 				return `${status.id}: ${status.models} models (${origin})${apis}${status.unknown.length > 0 ? `, new: ${status.unknown.length}` : ""}${status.error ? ", refresh failed" : ""}`;
 			});
-			notify(`Providers: ${toastLines(lines)}${problemLines().length > 0 ? `; issues: ${toastLines(problemLines())}` : ""}`, problemLines().length > 0 ? "warning" : "info");
+			const problems = problemLines(sortedStatuses(), globalIssues);
+			notify(`Providers: ${toastLines(lines)}${problems.length > 0 ? `; issues: ${toastLines(problems)}` : ""}`, problems.length > 0 ? "warning" : "info");
 		},
 	});
 
@@ -808,7 +367,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 				// refreshModels never throws by design; a throw here must still not kill startup.
 			}
 		}
-		const problems = problemLines();
+		const problems = problemLines(sortedStatuses(), globalIssues);
 		if (problems.length > 0 && ctx.hasUI) ctx.ui.notify(`custom-providers: ${toastLines(problems)}`, "warning");
 	});
 }

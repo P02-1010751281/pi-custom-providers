@@ -17,8 +17,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { BUILTIN_APIS, normalizeApi, type JsonObject, type ProviderDeclaration } from "./config.ts";
 import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";
+import { isObject, numberOr, stringOr } from "./util.ts";
 
-const isObject = (value: unknown): value is JsonObject => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** `provider.json` keys this package reads. Everything else is reported, never guessed at. */
 const PROVIDER_KEYS = new Set(["name", "api", "baseUrl", "modelsPath", "headers", "apis", "override"]);
@@ -31,8 +31,6 @@ const MODEL_KEYS = new Set(["id", "name", "api", "baseUrl", "reasoning", "thinki
 const ACCOUNT_KEYS = new Set(["apiKey", "authHeader", "headers"]);
 const ACCOUNT_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
-const stringOr = (value: unknown): string | undefined => (typeof value === "string" && value.length > 0 ? value : undefined);
-const numberOr = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
 
 type JsonRead = { value?: unknown; missing?: boolean; issue?: string };
 
