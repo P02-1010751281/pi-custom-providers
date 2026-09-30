@@ -45,14 +45,13 @@
  */
 import { homedir } from "node:os";
 import path from "node:path";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./builtin.ts";
 import { normalizeApi, providerLayerFor, readModelsConfig, type JsonObject } from "./config.ts";
 import { configValueForPi, loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
-import { baseTableView, collectEntries, synthesizeModels, type ProviderEntry } from "./providers.ts";
-import { collectVendors } from "./provider-files.ts";
+import { baseTableView, collectEntries, synthesizeModels, type ModelEntry, type ProviderEntry } from "./providers.ts";
+import { collectVendors, writeProviderFile } from "./provider-files.ts";
 import { DEFAULTS } from "./sources.ts";
 import { apiSplit, problemLines, toastLines, type ProviderStatus } from "./status.ts";
 import { diffBaseTable, readBaseTable, summarizeDiff, writeBaseTable } from "./sync-models.ts";
@@ -63,6 +62,33 @@ const PROVIDER_ROOT = () => path.join(getAgentDir(), "custom-providers");
 
 /** pi's refresh context: what the model runtime hands a `refreshModels` round. */
 type RefreshContext = { allowNetwork: boolean; signal: AbortSignal; publish: (options: { persist: unknown }) => Promise<unknown>; credential?: { type?: string; key?: string }; stored?: { models?: unknown[] } };
+
+/** How a command reports: pi's `ctx.ui.notify`, with its two levels. */
+type Notify = (message: string, level?: "info" | "warning") => void;
+
+/**
+ * The status one provider reports. Shared by the startup path (no network: the base table)
+ * and every refresh round, so the two cannot drift apart in what they report.
+ */
+function statusOf(
+	entry: ProviderEntry,
+	builtin: BuiltinCatalog,
+	defaultApi: string,
+	parts: { models: readonly ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[]; error?: string },
+): ProviderStatus {
+	return {
+		id: entry.id,
+		models: parts.models.length,
+		live: parts.live,
+		unknown: parts.unknown,
+		vanished: parts.vanished,
+		issues: [...parts.issues],
+		apis: apiSplit(parts.models, defaultApi, Object.keys(entry.vendor.declaration.apis).length > 0),
+		accounts: entry.vendor.accounts.map((account) => account.id),
+		...(parts.error ? { error: parts.error } : {}),
+		...(builtin.available ? { drift: summarizeDrift(parts.models, builtin) } : {}),
+	};
+}
 
 function registerEntry(
 	pi: ExtensionAPI,
@@ -90,17 +116,7 @@ function registerEntry(
 
 	// The startup status: what this provider looks like before any network I/O, so the status
 	// command has something to report even if pi never runs a refresh in this session.
-	record({
-		id: entry.id,
-		models: resolved.length,
-		live: false,
-		unknown: [],
-		vanished: vanishedByVendor.get(entry.vendor.id) ?? [],
-		issues: [...issues],
-		apis: apiSplit(resolved, defaultApi, Object.keys(declaration.apis).length > 0),
-		accounts: entry.vendor.accounts.map((account) => account.id),
-		...(builtin.available ? { drift: summarizeDrift(resolved, builtin) } : {}),
-	});
+	record(statusOf(entry, builtin, defaultApi, { models: resolved, live: false, unknown: [], vanished: vanishedByVendor.get(entry.vendor.id) ?? [], issues }));
 
 	const refresh = async (context: RefreshContext): Promise<CatalogModel[]> => {
 		const result = await refreshEntry(entry, layer, builtin, {
@@ -113,18 +129,14 @@ function registerEntry(
 			.map((endpoint) => lastErrors.get(endpointKey(entry.vendor.id, endpoint.api)))
 			.filter((error): error is string => Boolean(error));
 		record(
-			{
-				id: entry.id,
-				models: result.models.length,
+			statusOf(entry, builtin, defaultApi, {
+				models: result.models,
 				live: result.live,
 				unknown: result.unknown,
 				vanished: result.vanished,
 				issues: [...issues, ...result.issues],
-				apis: apiSplit(result.models, defaultApi, Object.keys(declaration.apis).length > 0),
-				accounts: entry.vendor.accounts.map((account) => account.id),
 				...(errors.length > 0 ? { error: errors.join("; ") } : {}),
-				...(builtin.available ? { drift: summarizeDrift(result.models, builtin) } : {}),
-			},
+			}),
 			// pi re-registers with `allowNetwork: false` after every registerProvider: that
 			// round adds no information and must not erase a recorded failure.
 			{ keepExisting: !context.allowNetwork },
@@ -223,136 +235,136 @@ export default async function customProviders(pi: ExtensionAPI) {
 		},
 	});
 
+	// The command surface. Each branch is one job; the dispatcher only routes to them.
+	const runInit = (notify: Notify, rest: string[]): void => {
+		const force = rest.includes("--force");
+		const ids = rest.filter((arg) => !arg.startsWith("--"));
+		const results = (ids.length > 0 ? ids : DEFAULTS.map((vendor) => vendor.id)).map((id) => {
+			const shipped = DEFAULTS.find((vendor) => vendor.id === id);
+			if (!shipped) return `${id}: unknown (known: ${DEFAULTS.map((vendor) => vendor.id).join(", ")})`;
+			return writeProviderFile(path.join(root, id), shipped, force);
+		});
+		notify(`init: ${toastLines(results)}`);
+	};
+
+	const runDrift = (notify: Notify): void => {
+		const lines = sortedStatuses().flatMap((status) => {
+			const drift = status.drift;
+			return drift ? [...drift.reasoning, ...drift.input, ...drift.maxTokens, ...drift.contextWindow] : [];
+		});
+		const compared = [...statuses.values()].reduce((sum, status) => sum + (status.drift?.matched ?? 0), 0);
+		if (lines.length > 0) {
+			notify(`Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}`);
+			return;
+		}
+		const registered = [...statuses.values()].reduce((sum, status) => sum + status.models, 0);
+		if (!builtin.available) {
+			notify("pi's built-in catalog is unavailable; nothing to compare", "warning");
+			return;
+		}
+		if (registered === 0) {
+			notify("No registered models to compare with pi's built-in catalog");
+			return;
+		}
+		notify(compared > 0 ? "No differences from pi's built-in catalog" : "No registered model matched pi's built-in catalog");
+	};
+
+	const runFiles = (notify: Notify): void => {
+		// Re-scan: `init` may have written a provider.json after startup.
+		const vendorFiles = collectVendors(root, defaults, piProviderIds);
+		const files = vendorFiles.vendors.map((vendor) => {
+			const dir = vendor.directory ? path.relative(root, vendor.directory) : "-";
+			const accounts = vendor.accounts.length > 0 ? vendor.accounts.map((account) => account.id).join(",") : "none";
+			return `${vendor.id} [${vendor.origin}] dir=${dir} models=${vendor.models.length} accounts=${accounts}`;
+		});
+		const ignored = vendorFiles.ignored.length > 0 ? `ignored dirs: ${vendorFiles.ignored.join(", ")}` : "no ignored dirs";
+		// `vendorFiles.issues` already carries a prefixed copy of each vendor's own issues.
+		const problems = [...new Set(vendorFiles.issues.map((issue) => `${issue.level}: ${issue.message}`))];
+		notify(`Provider files: ${toastLines(files)}; ${ignored}${problems.length > 0 ? `; problems: ${toastLines(problems)}` : ""}`);
+	};
+
+	const runSync = (notify: Notify, rest: string[]): void => {
+		const id = rest[0];
+		// Re-scan: `init` may have written the directory after startup.
+		const vendor = collectVendors(root, defaults, piProviderIds).vendors.find((candidate) => candidate.id === id);
+		if (!vendor || !vendor.directory) {
+			notify(id ? `No provider directory named "${id}" under custom-providers/` : "Usage: custom-providers sync <id> [--write]", "warning");
+			return;
+		}
+		const file = path.join(vendor.directory, "models.json");
+		const current = readBaseTable(file);
+		// The base + discovery, without the user's `models.json` layer: syncing must not
+		// bake a user override into the base table. Discovery is this process's memo —
+		// what `refresh-custom-models` last fetched — never a fresh network call. An absent
+		// or empty file falls back to the startup table.
+		let models = current.length > 0 ? current : vendor.models;
+		for (const endpoint of vendorEndpoints(vendor)) {
+			const memo = liveSnapshots.get(endpointKey(vendor.id, endpoint.api));
+			if (memo) models = applyLiveModels(models, memo, endpoint.api).models;
+		}
+		// Ids the last complete discovery no longer returns. Default: keep them and say so.
+		// `--prune` is the explicit call to drop them from the base table.
+		const vanished = vanishedByVendor.get(vendor.id) ?? [];
+		const prune = rest.includes("--prune");
+		if (prune && vanished.length > 0) {
+			const gone = new Set(vanished);
+			models = models.filter((model) => !gone.has(model.id));
+		}
+		const merged = baseTableView(models, vendor.declaration, []);
+		const diff = diffBaseTable(id, file, merged, current);
+		const summary = summarizeDiff(diff);
+		const kept = !prune && vanished.length > 0 ? [`vanished (kept, pass --prune to drop): ${vanished.join(", ")}`] : [];
+		const report = [...summary, ...kept];
+		if (!rest.includes("--write")) {
+			notify(report.length > 0 ? `sync ${id} (dry run, pass --write to apply): ${toastLines(report)}` : `sync ${id}: base table already current`);
+			return;
+		}
+		if (!diff.dirty) {
+			notify(`sync ${id}: base table already current${report.length > 0 ? `; ${toastLines(report)}` : ""}`);
+			return;
+		}
+		const { backup } = writeBaseTable(file, merged);
+		notify(`sync ${id}: wrote ${merged.length} model(s)${backup ? ` (backup: ${path.basename(backup)})` : ""}${report.length > 0 ? `; ${toastLines(report)}` : ""}`);
+	};
+
+	/** One provider's detail, or the list when no id is given. */
+	const runStatus = (notify: Notify, id?: string): void => {
+		if (id) {
+			const status = statuses.get(id);
+			if (!status) {
+				notify(`Unknown provider "${id}" (known: ${sortedStatuses().map((entry) => entry.id).join(", ") || "none"})`, "warning");
+				return;
+			}
+			const detail = [
+				`${status.models} models (${status.live ? "live" : "base"})`,
+				`apis: ${status.apis.map((entry) => `${entry.api} ${entry.models}`).join(", ")}`,
+				`accounts: ${status.accounts.length > 0 ? status.accounts.join(", ") : "none"}`,
+				...(status.error ? [`error: ${status.error}`] : []),
+				...status.unknown.map((id) => `new: ${id}`),
+				...[...new Set(status.issues.map((issue) => `${issue.level}: ${issue.message}`))],
+			];
+			notify(`${status.id}: ${toastLines(detail)}`, status.error ? "warning" : "info");
+			return;
+		}
+		const lines = sortedStatuses().map((status) => {
+			const origin = status.live ? "live" : "base";
+			const apis = status.apis.length > 1 ? ` [${status.apis.map((entry) => `${entry.api} ${entry.models}`).join(", ")}]` : "";
+			return `${status.id}: ${status.models} models (${origin})${apis}${status.unknown.length > 0 ? `, new: ${status.unknown.length}` : ""}${status.error ? ", refresh failed" : ""}`;
+		});
+		const problems = problemLines(sortedStatuses(), globalIssues);
+		notify(`Providers: ${toastLines(lines)}${problems.length > 0 ? `; issues: ${toastLines(problems)}` : ""}`, problems.length > 0 ? "warning" : "info");
+	};
+
 	pi.registerCommand("custom-providers", {
 		description: "Provider status; add `init [<id>...]`, `drift`, `files`, `sync <id> [--write] [--prune]` or a provider id",
 		handler: async (args, ctx) => {
 			const [head, ...rest] = args.trim().split(/\s+/).filter(Boolean);
-			const notify = (message: string, level: "info" | "warning" = "info") => ctx.ui.notify(message, level);
-
-			if (head === "init") {
-				const force = rest.includes("--force");
-				const ids = rest.filter((arg) => !arg.startsWith("--"));
-				const results = (ids.length > 0 ? ids : DEFAULTS.map((vendor) => vendor.id)).map((id) => {
-					const shipped = DEFAULTS.find((vendor) => vendor.id === id);
-					if (!shipped) return `${id}: unknown (known: ${DEFAULTS.map((vendor) => vendor.id).join(", ")})`;
-					const file = path.join(root, id, "provider.json");
-					if (existsSync(file) && !force) return `${id}: provider.json exists (pass --force to overwrite)`;
-					try {
-						mkdirSync(path.dirname(file), { recursive: true });
-						writeFileSync(file, `${JSON.stringify({ name: shipped.name, ...shipped.declaration }, null, "\t")}\n`);
-						return `${id}: wrote provider.json`;
-					} catch (error) {
-						return `${id}: ${String(error)}`;
-					}
-				});
-				notify(`init: ${toastLines(results)}`);
-				return;
-			}
-			if (head === "drift") {
-				const lines = sortedStatuses().flatMap((status) => {
-					const drift = status.drift;
-					return drift ? [...drift.reasoning, ...drift.input, ...drift.maxTokens, ...drift.contextWindow] : [];
-				});
-				const compared = [...statuses.values()].reduce((sum, status) => sum + (status.drift?.matched ?? 0), 0);
-				if (lines.length > 0) {
-					notify(`Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}`);
-					return;
-				}
-				const registered = [...statuses.values()].reduce((sum, status) => sum + status.models, 0);
-				if (!builtin.available) {
-					notify("pi's built-in catalog is unavailable; nothing to compare", "warning");
-					return;
-				}
-				if (registered === 0) {
-					notify("No registered models to compare with pi's built-in catalog");
-					return;
-				}
-				notify(compared > 0 ? "No differences from pi's built-in catalog" : "No registered model matched pi's built-in catalog");
-				return;
-			}
-			if (head === "files") {
-				// Re-scan: `init` may have written a provider.json after startup.
-				const vendorFiles = collectVendors(root, defaults, piProviderIds);
-				const files = vendorFiles.vendors.map((vendor) => {
-					const dir = vendor.directory ? path.relative(root, vendor.directory) : "-";
-					const accounts = vendor.accounts.length > 0 ? vendor.accounts.map((account) => account.id).join(",") : "none";
-					return `${vendor.id} [${vendor.origin}] dir=${dir} models=${vendor.models.length} accounts=${accounts}`;
-				});
-				const ignored = vendorFiles.ignored.length > 0 ? `ignored dirs: ${vendorFiles.ignored.join(", ")}` : "no ignored dirs";
-				// `vendorFiles.issues` already carries a prefixed copy of each vendor's own issues.
-				const problems = [...new Set(vendorFiles.issues.map((issue) => `${issue.level}: ${issue.message}`))];
-				notify(`Provider files: ${toastLines(files)}; ${ignored}${problems.length > 0 ? `; problems: ${toastLines(problems)}` : ""}`);
-				return;
-			}
-			if (head === "sync") {
-				const id = rest[0];
-				// Re-scan: `init` may have written the directory after startup.
-				const vendor = collectVendors(root, defaults, piProviderIds).vendors.find((candidate) => candidate.id === id);
-				if (!vendor || !vendor.directory) {
-					notify(id ? `No provider directory named "${id}" under custom-providers/` : "Usage: custom-providers sync <id> [--write]", "warning");
-					return;
-				}
-				const file = path.join(vendor.directory, "models.json");
-				const current = readBaseTable(file);
-				// The base ⊕ discovery, without the user's `models.json` layer: syncing must not
-				// bake a user override into the base table. Discovery is this process's memo —
-				// what `refresh-custom-models` last fetched — never a fresh network call. An absent
-				// or empty file falls back to the startup table.
-				let models = current.length > 0 ? current : vendor.models;
-				for (const endpoint of vendorEndpoints(vendor)) {
-					const memo = liveSnapshots.get(endpointKey(vendor.id, endpoint.api));
-					if (memo) models = applyLiveModels(models, memo, endpoint.api).models;
-				}
-				// Ids the last complete discovery no longer returns. Default: keep them and say so.
-				// `--prune` is the explicit call to drop them from the base table.
-				const vanished = vanishedByVendor.get(vendor.id) ?? [];
-				const prune = rest.includes("--prune");
-				if (prune && vanished.length > 0) {
-					const gone = new Set(vanished);
-					models = models.filter((model) => !gone.has(model.id));
-				}
-				const merged = baseTableView(models, vendor.declaration, []);
-				const diff = diffBaseTable(id, file, merged, current);
-				const summary = summarizeDiff(diff);
-				const kept = !prune && vanished.length > 0 ? [`vanished (kept, pass --prune to drop): ${vanished.join(", ")}`] : [];
-				const report = [...summary, ...kept];
-				if (!rest.includes("--write")) {
-					notify(report.length > 0 ? `sync ${id} (dry run, pass --write to apply): ${toastLines(report)}` : `sync ${id}: base table already current`);
-					return;
-				}
-				if (!diff.dirty) {
-					notify(`sync ${id}: base table already current${report.length > 0 ? `; ${toastLines(report)}` : ""}`);
-					return;
-				}
-				const { backup } = writeBaseTable(file, merged);
-				notify(`sync ${id}: wrote ${merged.length} model(s)${backup ? ` (backup: ${path.basename(backup)})` : ""}${report.length > 0 ? `; ${toastLines(report)}` : ""}`);
-				return;
-			}
-			if (head) {
-				const status = statuses.get(head);
-				if (!status) {
-					notify(`Unknown provider "${head}" (known: ${sortedStatuses().map((entry) => entry.id).join(", ") || "none"})`, "warning");
-					return;
-				}
-				const detail = [
-					`${status.models} models (${status.live ? "live" : "base"})`,
-					`apis: ${status.apis.map((entry) => `${entry.api} ${entry.models}`).join(", ")}`,
-					`accounts: ${status.accounts.length > 0 ? status.accounts.join(", ") : "none"}`,
-					...(status.error ? [`error: ${status.error}`] : []),
-					...status.unknown.map((id) => `new: ${id}`),
-					...[...new Set(status.issues.map((issue) => `${issue.level}: ${issue.message}`))],
-				];
-				notify(`${status.id}: ${toastLines(detail)}`, status.error ? "warning" : "info");
-				return;
-			}
-
-			const lines = sortedStatuses().map((status) => {
-				const origin = status.live ? "live" : "base";
-				const apis = status.apis.length > 1 ? ` [${status.apis.map((entry) => `${entry.api} ${entry.models}`).join(", ")}]` : "";
-				return `${status.id}: ${status.models} models (${origin})${apis}${status.unknown.length > 0 ? `, new: ${status.unknown.length}` : ""}${status.error ? ", refresh failed" : ""}`;
-			});
-			const problems = problemLines(sortedStatuses(), globalIssues);
-			notify(`Providers: ${toastLines(lines)}${problems.length > 0 ? `; issues: ${toastLines(problems)}` : ""}`, problems.length > 0 ? "warning" : "info");
+			const notify: Notify = (message, level = "info") => ctx.ui.notify(message, level);
+			if (head === "init") return runInit(notify, rest);
+			if (head === "drift") return runDrift(notify);
+			if (head === "files") return runFiles(notify);
+			if (head === "sync") return runSync(notify, rest);
+			return runStatus(notify, head);
 		},
 	});
 

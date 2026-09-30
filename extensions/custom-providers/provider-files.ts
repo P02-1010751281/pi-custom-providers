@@ -10,10 +10,10 @@
  * otherwise silently shrink a provider's model list. Entry-level problems (a model
  * without an `id`, an account without a key, an unknown key) only skip that entry.
  *
- * Nothing here writes. `sync-models.ts` (`sync --write`) and the `init` command are the only
- * writers in this package.
+ * The only writers in this package are `writeProviderFile` here (`init`, the deliberate
+ * exception to «only `sync` writes» — design §10/§13) and `sync-models.ts` (`sync --write`).
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { BUILTIN_APIS, normalizeApi, type JsonObject, type ProviderDeclaration } from "./config.ts";
 import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";
@@ -320,6 +320,24 @@ export function loadDirectory(rootDir: string, id: string): DirectoryVendor {
 		fatal: models.broken || accounts.broken,
 		issues,
 	};
+}
+
+/**
+ * Write a vendor's `provider.json` from the shipped declaration — `custom-providers init`.
+ * This is the one write outside `sync`, and it is deliberately narrow: the file is the
+ * shipped endpoints plus the display name, and an existing file is left alone unless
+ * `--force`. Returns the line the command reports (tests assert on it).
+ */
+export function writeProviderFile(dir: string, vendor: { id: string; name: string; declaration: ProviderDeclaration }, force: boolean): string {
+	const file = path.join(dir, "provider.json");
+	if (existsSync(file) && !force) return `${vendor.id}: provider.json exists (pass --force to overwrite)`;
+	try {
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(file, `${JSON.stringify({ name: vendor.name, ...vendor.declaration }, null, "\t")}\n`);
+		return `${vendor.id}: wrote provider.json`;
+	} catch (error) {
+		return `${vendor.id}: ${String(error)}`;
+	}
 }
 
 /**

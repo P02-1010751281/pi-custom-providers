@@ -55,7 +55,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 路径与目录约定
 
-- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`util.ts` 三个 JSON 守卫、`index.ts` 扩展接线（`registerEntry`、命令、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
+- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`provider-files.ts` 目录层（扫描 / 逐文件校验 / 接管白名单 + `writeProviderFile` 写 `provider.json`）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`sync-models.ts` `models.json` 的 diff + 写盘（`sync --write` 的唯一路径）、`util.ts` 三个 JSON 守卫、`index.ts` 扩展接线（`registerEntry`、`statusOf`、五个命令分支 `runInit`/`runDrift`/`runFiles`/`runSync`/`runStatus`、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
 - pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
 - 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
 
@@ -104,7 +104,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 - 四个自有词汇之外全部是 pi 的字段：`apis`(第二协议端点) / `modelsPath`(发现路径) / `override`(接管内置 id) / `accounts.json`。协议用 pi 的 `api` 值，别名（`openai`/`chat`、`anthropic`/`messages`、`responses`）在加载时归一。
 - 落端点规则：默认协议上的模型**不带** `api`/`baseUrl`（保住 `providers.<id>.baseUrl` 的重定向能力）；非默认协议两者都带，名字加 ` (协议)`。实现见 `config.ts` 的 `resolveModelEndpoint()`，别在别处再写一套。
-- 写盘只有两条且都在明面上：`sync --write`（先留 `.bak`，写基底 ⊕ 发现）与 pi 自己的 `models-store.json` 缓存。扩展永不写 `models.json`。
+- 写盘只有两条且都在明面上：`provider.json`（`init` → `provider-files.ts` 的 `writeProviderFile`）与 `<id>/models.json`（`sync --write` → `sync-models.ts` 的 `writeBaseTable`，先留 `.bak`，写基底 ⊕ 发现）；pi 自己的 `models-store.json` 快照由 pi 落盘。扩展永不写 **pi 全局**的 `models.json`。
 - 报告一律走 `ctx.ui.notify` 并裁剪（8 行 + `(+N more)`）；扩展**不写 stderr**。
 - 目录名撞内置 vendor 的 `aliases`（如同时有 `commandcode/` 与 `codecommand/`）会跳过后者并报告：两个目录会争同一个 provider 的配置。
 - **没有内置 provider（2026-09-22 改）**：`sources.ts` 的 `DEFAULTS` 只在**同名目录存在**时作基底（端点 / 密钥变量），`collectVendors` 不再预置它 —— 没目录就没 provider。因此旧警示 `replaces the built-in definition` 整段删除（连同测试）。命中 **pi 自带** provider id 仍需 `"override": true`（另一分支，不变）。`/custom-providers init [<id>] [--force]` 把默认端点写成 `<id>/provider.json`（已存在不动）。
