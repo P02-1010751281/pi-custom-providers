@@ -74,16 +74,16 @@ const curated = () => ({ id: "GLM-5.2", name: "GLM-5.2", reasoning: true, input:
 const restored = api.mergeStoredSnapshot([curated()], [
 	{ id: "GLM-5.2", name: "GLM-5.2", api: "openai-completions", contextWindow: 999999 },
 	{ id: "MiniMax-M2.5", name: "MiniMax-M2.5", api: "openai-completions", provider: "scnet", baseUrl: "https://api.scnet.cn/api/llm/v1", reasoning: true, input: ["text"], contextWindow: 200000, maxTokens: 131072, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
-], "openai-completions");
+]);
 assert(restored.length === 2, "a stored row the base table lacks is restored");
 const restoredKnown = restored.find((model) => model.id === "GLM-5.2");
 assert(restoredKnown.contextWindow === 999999 && restoredKnown.maxTokens === 131072 && restoredKnown.thinkingLevelMap?.max === "max", "a restored known id takes the live context window and keeps its curated parameters");
 const restoredNew = restored.find((model) => model.id === "MiniMax-M2.5");
 assert(restoredNew.reasoning === true && restoredNew.maxTokens === 131072 && restoredNew.input.includes("text"), "a restored unseen id keeps the definition we registered, not convention defaults");
-assert(restoredNew.api === undefined && restoredNew.baseUrl === undefined && restoredNew.provider === undefined, "a restored id on the default protocol keeps no derived api/baseUrl/provider, so a later redirect can still move it");
-const moved = api.mergeStoredSnapshot([], [{ id: "moved", api: "anthropic-messages", baseUrl: "https://a.example/anthropic" }], "openai-completions")[0];
-assert(moved.api === "anthropic-messages" && moved.baseUrl === "https://a.example/anthropic", "a restored id on a second protocol keeps its api + baseUrl");
-const repaired = api.mergeStoredSnapshot([], [{ id: "bare" }], "openai-completions");
+assert(restoredNew.api === undefined && restoredNew.baseUrl === undefined && restoredNew.provider === undefined, "a restored id the base table lacks keeps no derived api/baseUrl/provider, so a later redirect can still move it");
+const moved = api.mergeStoredSnapshot([], [{ id: "moved", api: "anthropic-messages", baseUrl: "https://a.example/anthropic" }])[0];
+assert(moved.api === undefined && moved.baseUrl === undefined, "a restored id the base table lacks loses its stored api/baseUrl even when they name a second protocol (a later providers.<id>.api flip must still move it)");
+const repaired = api.mergeStoredSnapshot([], [{ id: "bare" }]);
 assert(repaired[0].cost && typeof repaired[0].cost.input === "number" && repaired[0].contextWindow === 128000 && repaired[0].maxTokens === 16384, "a restored row missing required fields still gets safe defaults");
 
 // --- models.json: absent vs broken ---------------------------------------------

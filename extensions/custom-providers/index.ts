@@ -234,15 +234,27 @@ async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: s
  * from the naming convention in `convention.ts` (same-family inheritance, then a known-family
  * list); curated parameters only ever come from the base table.
  */
+
+/** id → clone: nothing shares `input`/`cost` with the list it was built from. */
+function cloneById(models: readonly ModelEntry[]): Map<string, ModelEntry> {
+	return new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
+}
+
+/** A row from `/models` or pi's store patches only the fields a wire owns. */
+function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_length?: unknown; contextWindow?: unknown }): void {
+	const name = stringOr(row.name);
+	const ctx = numberOr(row.context_length ?? row.contextWindow, 0);
+	if (name) known.name = name;
+	if (ctx > 0) known.contextWindow = ctx;
+}
+
 export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string): { models: ModelEntry[]; unknown: string[] } {
-	const byId = new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
+	const byId = cloneById(models);
 	const unknown: string[] = [];
 	for (const row of rows) {
-		const ctx = row.context_length ?? row.contextWindow;
 		const known = byId.get(row.id);
 		if (known) {
-			if (typeof ctx === "number" && ctx > 0) known.contextWindow = ctx;
-			if (stringOr(row.name)) known.name = row.name as string;
+			patchLiveFields(known, row);
 			continue;
 		}
 		unknown.push(row.id);
@@ -253,7 +265,7 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 			reasoning: convention?.reasoning ?? false,
 			...(convention?.thinkingLevelMap ? { thinkingLevelMap: convention.thinkingLevelMap } : {}),
 			input: ["text"],
-			contextWindow: numberOr(ctx, 128000),
+			contextWindow: numberOr(row.context_length ?? row.contextWindow, 128000),
 			maxTokens: 16384,
 			cost: { ...ZERO_COST },
 		});
@@ -266,35 +278,31 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
  * what we registered last time (full definitions), so an id the base table has never seen is
  * restored *whole* instead of being rebuilt from the naming convention; an id the base table
  * knows still only takes the snapshot's live display name and context window.
+ *
+ * The store also holds what registration derived — `provider` plus the resolved `api`/`baseUrl`.
+ * Those are dropped: an id the base table does not carry has no declared protocol (discovery
+ * cannot choose one), so it must stay on the provider's default protocol, where a later
+ * `providers.<id>.api`/`baseUrl` can still move it. A model on a second protocol is expressed by
+ * the base table or by the user's `models.json`, not by a restored cache.
  */
-export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonly JsonObject[], defaultApi: string): ModelEntry[] {
-	const byId = new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
+export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonly JsonObject[]): ModelEntry[] {
+	const byId = cloneById(models);
 	for (const row of rows) {
 		const id = String(row.id);
-		const name = stringOr(row.name);
-		const ctx = numberOr(row.context_length ?? row.contextWindow, 0);
 		const known = byId.get(id);
 		if (known) {
-			if (name) known.name = name;
-			if (ctx > 0) known.contextWindow = ctx;
+			patchLiveFields(known, row);
 			continue;
 		}
-		// The store also holds what registration derived — `provider` plus the resolved
-		// `api`/`baseUrl`. A model on the default protocol must carry neither, or a later
-		// `providers.<id>.api`/`baseUrl` could no longer move it (design §4/§5.2).
-		const storedApi = row.api;
-		const storedBaseUrl = row.baseUrl;
 		const rest = { ...(row as Record<string, unknown>) };
 		delete rest.provider;
 		delete rest.api;
 		delete rest.baseUrl;
-		const onDefault = storedApi === undefined || storedApi === defaultApi;
 		byId.set(id, {
 			...rest,
 			id,
-			name: name ?? id,
-			...(onDefault ? {} : { api: storedApi, baseUrl: storedBaseUrl }),
-			contextWindow: ctx > 0 ? ctx : 128000,
+			name: stringOr(row.name) ?? id,
+			contextWindow: numberOr(row.context_length ?? row.contextWindow, 128000),
 			maxTokens: numberOr(row.maxTokens, 16384),
 			input: Array.isArray(row.input) ? (row.input as string[]) : ["text"],
 			// A registered model must always carry `cost` (pi's `calculateCost()` dereferences it).
@@ -361,9 +369,6 @@ async function refreshEntry(
 ): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[] }> {
 	const issues: LoadIssue[] = [];
 	const models = synthesizeModels(entry, layer, builtin, issues);
-	// The protocol a model with no `api` of its own lands on (§5.1): used to decide whether a
-	// restored snapshot row belongs on the default endpoint or on a declared second one.
-	const defaultApi = normalizeApi(layer.api) ?? entry.vendor.declaration.api;
 	const apiKey = endpointCredential(entry, layer, options.contextKey);
 	// Report the missing credential before any request, naming the file and the built-in
 	// variable so the fix is obvious (and never send the variable *name* as the token).
@@ -389,7 +394,7 @@ async function refreshEntry(
 			// Restored from pi's own store: only rows that name this protocol (pi stamps `api`
 			// on persisted models), plus rows that name none at all (older snapshots).
 			const own = storedRows.filter((row) => row.api === undefined || row.api === endpoint.api);
-			list = mergeStoredSnapshot(list, own, defaultApi);
+			list = mergeStoredSnapshot(list, own);
 		}
 		if (!options.allowFetch) {
 			result = list;
@@ -680,8 +685,13 @@ export default async function customProviders(pi: ExtensionAPI) {
 					notify(`Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}`);
 					return;
 				}
+				const registered = [...statuses.values()].reduce((sum, status) => sum + status.models, 0);
 				if (!builtin.available) {
 					notify("pi's built-in catalog is unavailable; nothing to compare", "warning");
+					return;
+				}
+				if (registered === 0) {
+					notify("No registered models to compare with pi's built-in catalog");
 					return;
 				}
 				notify(compared > 0 ? "No differences from pi's built-in catalog" : "No registered model matched pi's built-in catalog");
@@ -696,7 +706,8 @@ export default async function customProviders(pi: ExtensionAPI) {
 					return `${vendor.id} [${vendor.origin}] dir=${dir} models=${vendor.models.length} accounts=${accounts}`;
 				});
 				const ignored = vendorFiles.ignored.length > 0 ? `ignored dirs: ${vendorFiles.ignored.join(", ")}` : "no ignored dirs";
-				const problems = [...new Set([...vendorFiles.issues, ...vendorFiles.vendors.flatMap((vendor) => vendor.issues)].map((issue) => `${issue.level}: ${issue.message}`))];
+				// `vendorFiles.issues` already carries a prefixed copy of each vendor's own issues.
+				const problems = [...new Set(vendorFiles.issues.map((issue) => `${issue.level}: ${issue.message}`))];
 				notify(`Provider files: ${toastLines(files)}; ${ignored}${problems.length > 0 ? `; problems: ${toastLines(problems)}` : ""}`);
 				return;
 			}

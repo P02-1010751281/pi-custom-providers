@@ -16,6 +16,14 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
+- **未发版状态（2026-09-30）**：v0.4.0 已本地提交（`b5d8e4c` + 两轮审计修复）但**未打 tag、未推送**，`~/.pi` 里的 pin 仍是 `@v0.3.0`；README 已按**将要发布**的 `@v0.4.0` 写，打 tag 后才成立。
+
+## 已知技术债（明确未做，不是遗漏）
+
+- `index.ts` 仍是单文件编排器：`customProviders` ~220 行（启动/注册/状态/`refresh-custom-models`/内联命令分发），`refreshEntry` 与 `registerEntry` 各 ~90 行。拆分要把 `scanned`/`statuses`/`entries`/`liveSnapshots` 的闭包状态外提，改动面大于收益，留到后续 `cs-refactor`。
+- 测试脚手架有重复：pi 替身在 `harness.mjs`/`smoke.mjs`/`builtin-test.mjs`/`pi-native-test.mjs` 各一份（各自需要不同的桩面），`base()` 模型工厂在 4 个测试里重复。可合并，但不是缺陷。
+- `sync` 会解析同一份 `<id>/models.json` 两次（`collectVendors` 校验一次，`readBaseTable` 为了拿当前磁盘状态再读一次）；第二次是刻意的（用户可能刚改过文件）。
+
 ## 项目碎片知识
 
 <!-- cs-note managed: 用 cs-note 维护，新条目按下面分节追加 -->
