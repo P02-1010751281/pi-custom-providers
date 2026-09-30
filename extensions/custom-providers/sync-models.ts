@@ -1,14 +1,15 @@
 /**
- * `custom-providers sync <id> [--write]` — the only code in this package that writes a
- * user file, and only with `--write`.
+ * `custom-providers sync <id> [--write] [--prune]` — the only code in this package that
+ * writes a user file, and only with `--write`.
  *
  * What it writes is the *base table*: the vendor's model base (catalog or existing
  * `<id>/models.json`) merged with what discovery returned. The user layers (`providers.<id>`
  * and `modelOverrides` in pi's global `models.json`) are deliberately not baked in — a
  * single `sync --write` must not fossilize a user override into the base table.
  *
- * Ids that discovery no longer returns are kept and reported: whether a model is gone for
- * good is the user's call, not a truncated response's.
+ * Ids that a complete discovery round no longer returns are kept and reported by default;
+ * `--prune` is the explicit call to drop them. Whether a model is gone for good is the user's
+ * call, not a truncated or failed response's.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -63,7 +64,7 @@ export function summarizeDiff(diff: BaseTableDiff): string[] {
 	return [
 		...diff.added.map((id) => `+ ${id}`),
 		...diff.changed.map((entry) => `~ ${entry.id} (${entry.fields.join(", ")})`),
-		...diff.removed.map((id) => `- ${id} (kept: discovery did not return it)`),
+		...diff.removed.map((id) => `- ${id} (removed: discovery did not return it)`),
 	];
 }
 

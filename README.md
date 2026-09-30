@@ -138,9 +138,9 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `/custom-providers drift` | 与 pi 内置目录的差异（只报不改） | 否 |
 | `/custom-providers files` | 扫描结果：目录、三文件、被忽略的目录、校验问题 | 否 |
 | `/custom-providers init [<id>...] [--force]` | 为出厂默认 vendor 写 `<id>/provider.json`（已存在则不动，`--force` 覆盖）；不写任何密钥 | `provider.json` |
-| `/custom-providers sync <id> [--write]` | 打印「基底 ⊕ 发现 vs `<id>/models.json`」差异；`--write` 才落盘（先留 `.bak`） | 仅 `--write` |
+| `/custom-providers sync <id> [--write] [--prune]` | 打印「基底 ⊕ 发现 vs `<id>/models.json`」差异；`--write` 才落盘（先留 `.bak`）；`--prune` 才删掉发现不再返回的 id | 仅 `--write` |
 
-`sync --write` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 会保留并在摘要里标为「kept」。
+`sync --write` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 默认保留并在摘要里标为「kept」，加 `--prune` 才真删（仅当本轮**所有可发现端点都成功**才算「消失」，任一失败则不报不删）。
 
 ## 密钥解析
 
@@ -167,6 +167,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 - `reasoning` / `input` 的权威是**官方 / pi 内置目录**（同一 id 在 pi 内置各 provider 间多数票 → 厂商能力页 → 旧值）；中转线自己的 `/models` 根本不发能力字段。
 - `thinkingLevelMap` 只在 anthropic 协议线上取 pi 内置值（那是 Anthropic 自己的 adaptive-effort 档位，属模型事实）；OpenAI 形线的 effort 词表是网关自定义的，不照搬。
 - `maxTokens` / `contextWindow` / `cost` 以代理为准（只报不改：中转线会截断，高报会 400）。
+- 实时 `/models` 从不生成能力字段。只有它**新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning`（anthropic 线连 `thinkingLevelMap` 也继承）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in catalog`），不静默写盘。
 
 ## 测试
 
@@ -174,4 +175,4 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 node tests/run-all.mjs
 ```
 
-11 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘）、`sync-test`（差异、`.bak`、round-trip）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`catalog-test`、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+13 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单 + 与 catalog 一致）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`catalog-test`、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。

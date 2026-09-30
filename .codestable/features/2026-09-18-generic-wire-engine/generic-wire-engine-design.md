@@ -266,7 +266,7 @@
 | 项 | 规则 |
 |---|---|
 | 解析 | 顶层 `data` 或 `models` 数组；行必须 `id: string` |
-| **吸收白名单** | **只补** id 集合（未知 id 追加 + 报告）、`name`、`contextWindow`。**永不生成** `cost` / `maxTokens` / `reasoning` / `input` / `thinkingLevelMap`，也**不推断 `api`**（`supported_endpoints` 只在 `custom-providers <id>` 里报告）；消失的 id 保留。⚠ 别与**生成期**的能力权威搞混：`reasoning`/`input` 是 `catalog.ts` 里的静态事实，由生成器按官方/pi 内置写（决策 18）；这里说的是**实时 `/models` 不能改能力**（它根本不发能力字段） |
+| **吸收白名单** | **只补** id 集合（未知 id 追加 + 报告）、`name`、`contextWindow`。**永不生成** `cost` / `maxTokens` / `reasoning` / `input` / `thinkingLevelMap`，也**不推断 `api`**（`supported_endpoints` 只在 `custom-providers <id>` 里报告）；消失的 id 保留 + 报告（`sync --prune` 才删）。⚠ 别与**生成期**的能力权威搞混：`reasoning`/`input` 是 `catalog.ts` 里的静态事实，由生成器按官方/pi 内置写（决策 18）；这里说的是**实时 `/models` 不能改能力**（它根本不发能力字段；未知 id 的 `reasoning`/`thinkingLevelMap` 也不从 pi 内置目录兜底——已否决，能力只信上游信息/探测结果；上游不给时由 `convention.ts` 惯例兜底（同族继承 → 已知家族名单，`thinkingLevelMap` 只 anthropic 线给），两步不命中才 `false`） |
 | 与覆盖链的关系 | 吸收结果作为 §4 的第 3 层参与合成（每层按字段补丁），**不**直接替换注册表 —— 否则一次刷新就洗掉用户第 4 层 |
 
 ### 6.4 失败与持久化
@@ -327,9 +327,9 @@
 | `… drift` | 与 pi 内置目录的差异（现有）；id 匹配用 `normalizeModelId`（去命名空间 / 去 `-YYYYMMDD` 日期尾 / 去分隔符 + 小写）；**内置目录读不到 → 静默跳过 drift**（只报“built-in catalog unavailable”，不当错误）。`reasoning`/`input` 已在**生成期**对齐内置（决策 18）⇒ 这两项还报差异即意味着 `catalog.ts` 过期（重新生成）；`maxTokens`/`contextWindow` 的差异按代理权威**只报不改** | 否 |
 | `… files` | 扫描结果：provider 目录、三文件在位情况、被忽略的目录、全部校验问题 | 否 |
 | `… init [<id>...] [--force]` | 把 `sources.ts` 的出厂默认（`name` + declaration）写成 `<id>/provider.json`；已存在不动，`--force` 才覆盖；**不写任何密钥** | `provider.json` |
-| `… sync <id> [--write]` | 打印「当前基底 ⊕ 发现 vs `<id>/models.json`」差异摘要；`--write` 才落盘（先 `models.json.bak`） | 仅 `--write` |
+| `… sync <id> [--write] [--prune]` | 打印「当前基底 ⊕ 发现 vs `<id>/models.json`」差异摘要；`--write` 才落盘（先 `models.json.bak`）；`--prune` 才删掉本轮发现不再返回的 id | 仅 `--write` |
 
-输出约束：所有命令都走 `ctx.ui.notify`（toast）⇒ **必须裁剪**（每个 id 先列 8 行 + `(+N more)`；超长总数只给计数）。`sync --write` 写的内容 = **基底（catalog 或现有 `<id>/models.json`）⊕ 发现结果**，**不含** pi 全局 `models.json` 的用户层（第 3 层）与 `modelOverrides`（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id **保留** + 报告（删不删由用户定）。
+输出约束：所有命令都走 `ctx.ui.notify`（toast）⇒ **必须裁剪**（每个 id 先列 8 行 + `(+N more)`；超长总数只给计数）。`sync --write` 写的内容 = **基底（catalog 或现有 `<id>/models.json`）⊕ 发现结果**，**不含** pi 全局 `models.json` 的用户层（第 3 层）与 `modelOverrides`（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id **保留** + 报告（`sync --prune` 才删）。「消失」只在**该 vendor 所有可发现端点（有 `modelsPath`、且本轮网络探测成功）都给出结果**的轮次才判定，取**所有端点答案的并集**（模型换协议或只挂在第二条线都不算消失）；任一端点失败或返回空数组则不报不删（否则无法区分「厂商下架」与「该线抖动 / 配额耗尽返回 200 + 空表」）。
 
 ## 10. 校验与错误表
 
@@ -382,6 +382,7 @@
 | `sources.ts` | 改 | 内置 vendor 改同一 schema（`api`/`baseUrl`/`apis`）+ 内置基底账号字段；id `commandcode` + 别名；删 `siblingId`/`anthropicBaseUrl` |
 | `index.ts` | 改 | 输入 = 内置 vendor + 扫描到的目录；账号展开注册；memo 按 (provider, endpoint) 键控；命令扩展；状态结构扩展 |
 | `builtin.ts` | 改 | compat 吸收按协议家族过滤（四族；另四类协议不接受 compat） |
+| `convention.ts` | 新增（后加） | 未知新 id 的能力惯例兜底：同族继承（基底表首条同族条目的 `reasoning`，anthropic 线连 `thinkingLevelMap`）+ `CONVENTION_FAMILIES` 已知家族名单；两者不命中才 `reasoning:false`。仅由 `applyLiveModels` 在未知 id 分支调用，不改写已知模型 |
 | `catalog.ts` / `scripts/refresh-catalog.mjs` | 改 | 生成器迭代 `sources.ts` 的端点（含 responses）；`commandcode` 重命名；**catalog 条目不烘焙 `api`/`baseUrl`**（落端点由加载时 §5.2 计算，同今天）。⚠ **不在此列**：能力权威已按决策 18 改完（内置多数票 → 能力页 → 旧值，`builtin.ts` 的 `normalizeModelId` 复用不改） |
 | `README.md` / `.codestable/attention.md` | 改 | 三文件布局、字段表、优先级、命令、错误表、测试清单 |
 | `tests/*` | 改/增 | 见 §12；`tests/run-all.mjs` 的硬编码清单同步（6 → N 个，含改名后的 `apis-test.mjs`） |
@@ -396,6 +397,8 @@
 | `tests/provider-files-test.mjs`（新） | 扫描发现；无 `provider.json` 忽略；JSON 非法/未知键/凭据键越位/**`compat` 越位**/缺 `baseUrl`/协议不在 `BUILTIN_APIS`/`apis.<n>` 缺 `baseUrl`/`apis` 重复默认协议；`models.json` 非法→vendor 跳过；条目缺 `id`；`accounts.json` 非法→vendor 跳过；第 3 层补丁语义（只写 `{id, api}` 时基底 `contextWindow`/`cost` 不被清零）；模型条目的 compat 按有效协议的家族校验 |
 | `tests/accounts-test.mjs`（新） | `"default": "main"` 指针 → `main` 注册为 `<id>`、`work` → `<id>-work`；有账号但无 `default` 指针 → 不注册 base id 但其余账号照常；指针指向不存在的账号 → 只不注册 base id；**无 `accounts.json` / 空文件 / 全无凭据 → base id 照常注册且无凭据（§2.3 的 /login 通路）**；账号 id 非法；id 冲突；账号非认证键被报告；`providers.<accountId>` 第 3 层基底+覆盖 |
 | `tests/sync-test.mjs`（新） | 差异摘要内容；`--write` 才落盘；`.bak` 生成；写后内容可被重新加载（round-trip） |
+| `tests/vanished-test.mjs`（新） | 消失 id 报告；空数组（配额）与端点失败抑制；`--prune` 才从 `models.json` 删 |
+| `tests/convention-test.mjs`（新） | `familyKey` 边界；同族继承（含 `reasoning:false` 与 anthropic 线 map 传递）；家族名单兜底；名单覆盖 catalog 里全部“均推理”家族；`applyLiveModels` 接线 |
 | `tests/pi-native-test.mjs`（改） | 真 `ModelRuntime`：responses 端点（stub fetch）；离线轮不抹错误；**`refreshModels` 返回值回来时第 3 层覆盖仍在**（不会被发现洗掉）；`no authentication method configured` 断言按 §2.3 校正 |
 | 发现与接管补测（并入 `provider-files-test` / `pi-native-test`） | §6：吸收白名单（只补 id/name/contextWindow）、失败保留上一份、memo > store > 基底、按 `(baseUrl, modelsPath)` 探针去重、`modelsPath` 缺省继承与「两处都缺 → 无发现」、URL 拼接规范化、`.env` 参与 `$VAR` 解析；§8：`override: true` 接管内置 id、无 `override` 跳过 + 报告、pi 全局 `models.json` 声明的 id 不触发接管（错误 #17/#18）、目录名撞别名（#25） |
 | 凭据/登录补测（新增或并入 `accounts-test`） | 无凭据时**仍然注册**且 `pi` 侧存在 login 方法（#27）；stored 凭据（`auth.json` / `--api-key`）优先于账号 `apiKey`；`authHeader: true` 无 key 时请求期报 `No API key found`；`refreshModels` 返回非法表时**我们**先剔条报告（#26），不让 pi 抛 |
@@ -418,7 +421,7 @@
 | `~/.pi/agent/custom-providers/` 撞 pi 原生约定 | 目录名 = 项目名；只认含 `provider.json` 且能解析的子目录，其余忽略并在 `files` 列出 |
 | compat 跨协议误贴 | §5.3 家族校验 + 报告 + 测试 |
 | `accounts.json` 被误当成配置中心 | 只接受认证键，其它键报告并指向 `models.json` |
-| `sync --write` 覆盖手改 | 默认只打印；`--write` 才写 + `.bak` |
+| `sync --write` 覆盖手改 | 默认只打印；`--write` 才写 + `.bak`；`--prune` 才删消失 id |
 | 账号把 picker 拉长 | 仅用户显式建账号时发生；显示名带后缀；`files` 列出全部 |
 | `override: true` 打坏内置 provider | 必须显式 + README 警示 + 重载即恢复 |
 | 生成器网络（commandcode.ai 不通） | 先用 `api.scnet.cn` 验证多协议生成；恢复后补 `--dry-run` |
@@ -476,7 +479,8 @@
 | 2–3 | `apis-test` + `config.ts` 的 api 规则 | `tests/apis-test.mjs`：`BUILTIN_APIS` 与 pi 注册表逐一比对一致（10/10）；别名归一；`resolveModelEndpoint` 五种情形；SCNet 一个 vendor 两端点、模型级 `api` 迁移、provider 级 `api` 翻转、别名键配置 |
 | 4–5 | `provider-files.ts` + index 接线 | `tests/provider-files-test.mjs`：扫描/校验/凭据键越位/compat 越位/`apis` 重复声明（同协议两种拼写不会互相覆盖）/坏文件 fail-closed/接管边界/别名撞名 |
 | 6–7 | 账号展开 | `tests/accounts-test.mjs`：`default` 指针、后缀、无指针则抑制 base id（含报告文案）、无 `accounts.json` 仍注册、非法名与非认证键被报告、账号层 `providers.<accountId>` |
-| 8 | `sync-models.ts` | `tests/sync-test.mjs`：按字段差异、`--write` 才写、`.bak`、round-trip、用户层不入基底 |
+| 8 | `sync-models.ts` | `tests/sync-test.mjs`：按字段差异、`--write` 才写、`.bak`、round-trip、用户层不入基底；`tests/vanished-test.mjs`：消失 id 报告 + 失败/空答案抑制 + `--prune` 才删 |
+| 14 | `convention.ts` | `tests/convention-test.mjs`：`familyKey`、同族继承、家族名单、与 catalog 一致、接线 |
 | 9 | responses 端到端 | `tests/responses-test.mjs`：pi 自己的 `openai-responses` 实现发出 `POST https://demo.example/responses`，body 带 `model` |
 | 10 | 命令 | `provider-files-test` 末尾断言 `files` / `<id>` / 未知 id / `drift` 的实际输出 |
 | 11 | 生成器多协议 + 重命名 | `node scripts/refresh-catalog.mjs --dry-run` → `commandcode 70 / scnet 19`，全 `+0 -0 ~0`；`catalog.ts` 按 vendor 键 |

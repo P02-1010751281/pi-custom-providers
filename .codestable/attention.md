@@ -6,6 +6,16 @@
 
 CodeStable 所有落盘产出的正文用**中文**：plan / design、plan review / design-review、code review、QA、验收、issue（report / analysis / fix-note）、refactor、roadmap、goal、沉淀（compound）等所有人读报告都用中文表达。机器状态（YAML / JSON / `state.yaml` / frontmatter 字段）保持机读格式不翻译。如需改默认语言，改这一节。
 
+## 版本号与发版规则（semver）
+
+发布 tag 用 `vMAJOR.MINOR.PATCH`，严格按 semver（2026-09-30 起生效，推翻此前「只有引擎换代才升 minor」的旧实践）：
+
+- **新增 feature → MINOR**（如 v0.2.4 → v0.3.0）。
+- **破坏性变更（`feat!` / `BREAKING CHANGE`）→ MINOR**（0.x 阶段；1.0 之后改升 MAJOR）。
+- **bug fix / 文档 / chore → PATCH**（如 v0.2.3 → v0.2.4）。
+
+发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
+
 ## 项目碎片知识
 
 <!-- cs-note managed: 用 cs-note 维护，新条目按下面分节追加 -->
@@ -21,7 +31,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 测试
 
-- `node tests/run-all.mjs` 跑全部（10 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `provider-files-test.mjs` / `accounts-test.mjs` / `sync-test.mjs` / `responses-test.mjs` / `pi-native-test.mjs`。
+- `node tests/run-all.mjs` 跑全部（13 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `provider-files-test.mjs` / `accounts-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `pi-native-test.mjs`。
 - 测试通过 pi 自己的 jiti loader 加载 TS（见 `tests/harness.mjs`），不写 `~/.pi`；`PI_PKG` 可指定 pi 安装目录。
 - `tests/harness.mjs` 在导入被测代码前把 `PI_CODING_AGENT_DIR` 指向临时目录：不这样会被 `getAgentDir()` 带回你真实的 `~/.pi/agent/models.json`，断言会随本机配置变化（曾因此把 scnet 的 `compat` 覆盖进测试）。
 - `catalog-test.mjs` 会调用 pi-ai 的 `calculateCost()`，是「模型缺 `cost` 就崩」的回归防线。
@@ -39,11 +49,11 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `probeCaps()` 读的是能力页内嵌的 RSC（flight）数据，键名按**去日期后缀 + 小写**对齐（文档 `claude-haiku-4-5` vs 注册表 `claude-haiku-4-5-20251001`）。归一化前这类 id 会静默沿用旧值。键名对不上、以及内嵌数据与渲染表格自相矛盾，现在都会在脚本输出里列出来。
 - Command Code `/models` 首次请求可能 TLS 重置，脚本已内建重试；断言失败前先重试。
 - **空列表 ≠ 目录漂移（2026-09-19 实测，本机 raw curl，非扩展）**：SCNet token plan 配额耗尽时，chat/completions 与 anthropic messages 都返回 **HTTP 429** `Token Plan quota has been exceeded`（两条线一致）；同一时刻 `GET /api/llm/v1/models` 与 `GET /api/llm/anthropic/v1/models` 仍返回 **HTTP 200 + 空数组**（`{"object":"list","data":[]}` / `{"data":[],"has_more":false,...}`），不是 401/429。因此**配额恢复前禁止**执行不带 `--dry-run` 的 `node scripts/refresh-catalog.mjs`：会把 `catalog.ts` 的 scnet 块 19 条全部当 removed 清空。若只有一条 wire 耗尽（如 2026-09-22 的 scnet），正确做法 = 正常跑生成器 → 从 `git show HEAD:extensions/custom-providers/catalog.ts` 把该 vendor 块粘回 → `git diff` 必须只剩另一条 wire 的增量；配额恢复后再全量重生成。
-- 运行期安全：`applyLiveModels()` 只增不删（`rows` 为空时原样返回；已知 id 只更新 name/contextWindow，新 id 才追加），catalog 的 19 条与 `models-store.json` 里的快照都不会被空列表抹掉。
+- 运行期安全：`applyLiveModels()` 只增不删（`rows` 为空时原样返回；已知 id 只更新 name/contextWindow，新 id 才追加），catalog 的 19 条与 `models-store.json` 里的快照都不会被空列表抹掉。发现不再返回的 id 由 `refreshEntry()` 在**该 vendor 所有可发现端点本轮都成功且非空**时算出（取各端点答案并集）并进 `problemLines()` 报告；默认**保留**，只有 `sync <id> --write --prune` 才从 `models.json` 删。空数组（配额耗尽）与任一失败同等待遇：不报不删。未知新 id 的 `reasoning`/`thinkingLevelMap` **不从 pi 内置目录兜底**（已否决）：能力只信上游信息/探测结果。上游不给时走 `convention.ts` 惯例兜底：① 同族继承（基底表里第一条同族条目的 `reasoning`，anthropic 线连 `thinkingLevelMap` 一起继承）；② `CONVENTION_FAMILIES` 已知家族名单（精确匹配 `familyKey()`，anthropic 线补 `{xhigh,max}`，其它线不补 map）；两步不命中才 `reasoning:false`。
 
 ### 路径与目录约定
 
-- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写，生成器也 import）、`config.ts` models.json 层 + 兄弟线继承、`env.ts` .env 解析（扩展与脚本共用）、`catalog.ts` 生成的数据、`builtin.ts` 内置目录交叉校验与 compat 吸收、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。
+- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写，生成器也 import）、`config.ts` models.json 层 + 兄弟线继承、`env.ts` .env 解析（扩展与脚本共用）、`catalog.ts` 生成的数据、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。
 - `models.json` 只读：本扩展把它当覆盖层，从不写回。
 - 一个 provider = 一个（端点 × 协议）：SCNet 两条线是两个 id，用 `siblingId` 共享凭据（不共享 models/baseUrl/api/compat）。
 

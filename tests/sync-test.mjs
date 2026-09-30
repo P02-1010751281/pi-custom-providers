@@ -19,7 +19,8 @@ const base = (id, maxTokens = 100) => ({ id, name: id, reasoning: false, input: 
 const diff = sync.diffBaseTable("demo", file, [base("a", 200), base("b")], [base("a"), base("gone")]);
 assert(diff.added.join(",") === "b", "a new id is an addition");
 assert(diff.changed.length === 1 && diff.changed[0].id === "a" && diff.changed[0].fields.join(",") === "maxTokens", "a changed field is named");
-assert(diff.removed.join(",") === "gone", "an id discovery no longer returns is reported as kept, not dropped");
+assert(diff.removed.join(",") === "gone", "an id discovery no longer returns is named for --prune, not dropped");
+assert(sync.summarizeDiff(diff).some((line) => line.startsWith("- gone (removed")), "the summary marks the pruned id as removed");
 assert(sync.summarizeDiff(diff).some((line) => line.startsWith("~ a (maxTokens)")), "the summary names the field that moved");
 
 // --- serialization round-trip -----------------------------------------------------

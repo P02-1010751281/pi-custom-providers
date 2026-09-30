@@ -47,6 +47,7 @@ import { getAgentDir, readStoredCredential, type ExtensionAPI } from "@earendil-
 import { absorbCompat, loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog, type CatalogCompat, type DriftSummary } from "./builtin.ts";
 import { CATALOG } from "./catalog.ts";
 import { applyModelPatch, normalizeApi, providerLayerFor, readModelsConfig, resolveModelEndpoint, type JsonObject } from "./config.ts";
+import { conventionCapability } from "./convention.ts";
 import { loadEnvFile } from "./env.ts";
 import { collectVendors } from "./provider-files.ts";
 import { DEFAULTS } from "./sources.ts";
@@ -228,9 +229,10 @@ async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: s
  * Apply discovery to a model list: the id set, display name and context window only. Every
  * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
  * a curated model to pi's defaults, and capability flags are decided at generation time
- * (decision 18). Ids that vanish are kept: removing a model is a reviewable catalog change.
+ * (decision 18) or, for an id the base table has never seen, by the naming convention in
+ * `convention.ts` (same-family inheritance, then a known-family list).
  */
-export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[]): { models: ModelEntry[]; unknown: string[] } {
+export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string): { models: ModelEntry[]; unknown: string[] } {
 	const byId = new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
 	const unknown: string[] = [];
 	for (const row of rows) {
@@ -242,10 +244,12 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 			continue;
 		}
 		unknown.push(row.id);
+		const convention = conventionCapability(models, row.id, api);
 		byId.set(row.id, {
 			id: row.id,
 			name: stringOr(row.name) ?? row.id,
-			reasoning: false,
+			reasoning: convention?.reasoning ?? false,
+			...(convention?.thinkingLevelMap ? { thinkingLevelMap: convention.thinkingLevelMap } : {}),
 			input: ["text"],
 			contextWindow: numberOr(ctx, 128000),
 			maxTokens: 16384,
@@ -262,6 +266,12 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
  * so without this memo that cache-only round would overwrite the live values just registered.
  */
 const liveSnapshots = new Map<string, ModelEntry[]>();
+/**
+ * Base ids the last complete discovery round no longer returned, per vendor. Reported and,
+ * with `sync --prune`, dropped from the base table — never dropped silently. Only a round in
+ * which every discoverable endpoint answered non-empty updates it (see `refreshEntry`).
+ */
+const vanishedByVendor = new Map<string, string[]>();
 /** Last discovery failure per endpoint, so an offline round cannot erase it. */
 const lastErrors = new Map<string, string>();
 const endpointKey = (vendorId: string, api: string): string => `${vendorId}\u0000${api}`;
@@ -303,7 +313,7 @@ async function refreshEntry(
 	layer: JsonObject,
 	builtin: BuiltinCatalog,
 	options: { allowFetch: boolean; contextKey?: string; signal?: AbortSignal; stored?: readonly JsonObject[] },
-): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; issues: LoadIssue[] }> {
+): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[] }> {
 	const issues: LoadIssue[] = [];
 	const models = synthesizeModels(entry, layer, builtin, issues);
 	const apiKey = endpointCredential(entry, layer, options.contextKey);
@@ -314,6 +324,14 @@ async function refreshEntry(
 	let result = models;
 	let live = false;
 	const unknown: string[] = [];
+	// Vanished tracking: the union of every *answerable* endpoint's ids, and whether any of
+	// them failed or answered empty. An empty registry response is known to happen without
+	// meaning deletion (SCNet quota exhaustion returns 200 + `data: []`), so it suppresses the
+	// report rather than declaring the whole base table gone.
+	const discoveredIds = new Set<string>();
+	let attempted = 0;
+	let discoverFailed = false;
+	let emptyAnswer = false;
 
 	for (const endpoint of vendorEndpoints(entry.vendor)) {
 		const key = endpointKey(entry.vendor.id, endpoint.api);
@@ -323,7 +341,7 @@ async function refreshEntry(
 			// Restored from pi's own store: only rows that name this protocol (pi stamps `api`
 			// on persisted models), plus rows that name none at all (older snapshots).
 			const own = storedRows.filter((row) => row.api === undefined || row.api === endpoint.api) as unknown as LiveModelRow[];
-			list = applyLiveModels(list, own).models;
+			list = applyLiveModels(list, own, endpoint.api).models;
 		}
 		if (!options.allowFetch) {
 			result = list;
@@ -335,21 +353,34 @@ async function refreshEntry(
 			// The probe is per endpoint, but it only has to succeed once per process: the memo
 			// keeps the result for the cache-only round pi runs right after registration.
 			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, apiKey, options.signal);
-			const applied = applyLiveModels(list, rows);
+			const applied = applyLiveModels(list, rows, endpoint.api);
 			liveSnapshots.set(key, applied.models);
 			lastErrors.delete(key);
 			result = applied.models;
 			live = true;
 			unknown.push(...applied.unknown);
+			if (endpoint.modelsPath) {
+				attempted += 1;
+				if (rows.length === 0) emptyAnswer = true;
+				for (const row of rows) discoveredIds.add(row.id);
+			}
 		} catch (error) {
 			lastErrors.set(key, `${endpoint.api}: ${String(error)}`);
 			// A failed probe keeps the list it had — this process's memo, pi's snapshot, or the
 			// base table — and stays "live" when a memo is what it is serving.
 			result = list;
 			live = live || memo !== undefined;
+			if (endpoint.modelsPath) discoverFailed = true;
 		}
 	}
-	return { models: result, live, unknown, issues };
+	// Vendor-wide, not per wire: a model that moved protocol or is served only on the second
+	// endpoint must not look gone just because one endpoint's registry omits it.
+	let vanished: string[] = [];
+	if (options.allowFetch && attempted > 0 && !discoverFailed && !emptyAnswer) {
+		vanished = models.filter((model) => !discoveredIds.has(model.id)).map((model) => model.id);
+		vanishedByVendor.set(entry.vendor.id, vanished);
+	}
+	return { models: result, live, unknown, vanished, issues };
 }
 
 /** A compact, one-line-per-provider status, plus everything needed by the commands. */
@@ -358,6 +389,8 @@ export interface ProviderStatus {
 	models: number;
 	live: boolean;
 	unknown: string[];
+	/** Base ids the last complete discovery round no longer returned (kept, `sync --prune` drops). */
+	vanished: string[];
 	issues: LoadIssue[];
 	error?: string;
 	drift?: DriftSummary;
@@ -408,6 +441,7 @@ function registerEntry(
 		models: resolved.length,
 		live: false,
 		unknown: [],
+		vanished: vanishedByVendor.get(entry.vendor.id) ?? [],
 		issues: [...issues],
 		apis: apiSplit(resolved, defaultApi, Object.keys(declaration.apis).length > 0),
 		accounts: entry.vendor.accounts.map((account) => account.id),
@@ -430,6 +464,7 @@ function registerEntry(
 				models: result.models.length,
 				live: result.live,
 				unknown: result.unknown,
+				vanished: result.vanished,
 				issues: [...issues, ...result.issues],
 				apis: apiSplit(result.models, defaultApi, Object.keys(declaration.apis).length > 0),
 				accounts: entry.vendor.accounts.map((account) => account.id),
@@ -539,6 +574,9 @@ export default async function customProviders(pi: ExtensionAPI) {
 			.filter((status) => status.unknown.length > 0)
 			.map((status) => `${status.id}: new model(s) not in catalog: ${status.unknown.join(", ")}`),
 		...sortedStatuses()
+			.filter((status) => status.vanished.length > 0)
+			.map((status) => `${status.id}: model(s) no longer returned by discovery (kept, sync --prune drops): ${status.vanished.join(", ")}`),
+		...sortedStatuses()
 			.filter((status) => !status.error && !status.live)
 			.map((status) => `${status.id}: live catalog unavailable (${status.models} model(s) from base)`),
 	];
@@ -557,7 +595,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("custom-providers", {
-		description: "Provider status; add `init [<id>...]`, `drift`, `files`, `sync <id> [--write]` or a provider id",
+		description: "Provider status; add `init [<id>...]`, `drift`, `files`, `sync <id> [--write] [--prune]` or a provider id",
 		handler: async (args, ctx) => {
 			const [head, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 			const notify = (message: string, level: "info" | "warning" = "info") => ctx.ui.notify(message, level);
@@ -614,17 +652,31 @@ export default async function customProviders(pi: ExtensionAPI) {
 				let models = current.length > 0 ? current : vendor.models;
 				for (const endpoint of vendorEndpoints(vendor)) {
 					const memo = liveSnapshots.get(endpointKey(vendor.id, endpoint.api));
-					if (memo) models = applyLiveModels(models, memo).models;
+					if (memo) models = applyLiveModels(models, memo, endpoint.api).models;
+				}
+				// Ids the last complete discovery no longer returns. Default: keep them and say so.
+				// `--prune` is the explicit call to drop them from the base table.
+				const vanished = vanishedByVendor.get(vendor.id) ?? [];
+				const prune = rest.includes("--prune");
+				if (prune && vanished.length > 0) {
+					const gone = new Set(vanished);
+					models = models.filter((model) => !gone.has(model.id));
 				}
 				const merged = baseTableView(models, vendor.declaration, []);
 				const diff = diffBaseTable(id, file, merged, current);
 				const summary = summarizeDiff(diff);
-				if (!rest.includes("--write") || !diff.dirty) {
-					notify(summary.length > 0 ? `sync ${id} (dry run, pass --write to apply): ${toastLines(summary)}` : `sync ${id}: base table already current`);
+				const kept = !prune && vanished.length > 0 ? [`vanished (kept, pass --prune to drop): ${vanished.join(", ")}`] : [];
+				const report = [...summary, ...kept];
+				if (!rest.includes("--write")) {
+					notify(report.length > 0 ? `sync ${id} (dry run, pass --write to apply): ${toastLines(report)}` : `sync ${id}: base table already current`);
+					return;
+				}
+				if (!diff.dirty) {
+					notify(`sync ${id}: base table already current${report.length > 0 ? `; ${toastLines(report)}` : ""}`);
 					return;
 				}
 				const { backup } = writeBaseTable(file, merged);
-				notify(`sync ${id}: wrote ${merged.length} model(s)${backup ? ` (backup: ${path.basename(backup)})` : ""}${summary.length > 0 ? `; ${toastLines(summary)}` : ""}`);
+				notify(`sync ${id}: wrote ${merged.length} model(s)${backup ? ` (backup: ${path.basename(backup)})` : ""}${report.length > 0 ? `; ${toastLines(report)}` : ""}`);
 				return;
 			}
 			if (head) {
