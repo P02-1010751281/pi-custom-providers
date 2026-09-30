@@ -58,6 +58,10 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`provider-files.ts` 目录层（扫描 / 逐文件校验 / 接管白名单 + `writeProviderFile` 写 `provider.json`）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`sync-models.ts` `models.json` 的 diff + 写盘（`sync --write` 的唯一路径）、`util.ts` 三个 JSON 守卫、`index.ts` 扩展接线（`registerEntry`、`statusOf`、五个命令分支 `runInit`/`runDrift`/`runFiles`/`runSync`/`runStatus`、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
 - pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
 - 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
+- `extensions/custom-providers/` 目前**扁平放置**（13 文件 / 2200 行）：pi 发现只需 `extensions/<name>/index.ts` 这一层，模块之间的相对 import 可以自由嵌套，所以扁平只是可读性选择。真需要分组时的触发条件：文件 >20 个或单文件 >600 行。
+- `tests/` **必须保持扁平**：`run-all.mjs` 是 `readdirSync` 单层扫描（不递归），放进子目录的测试会静默不被执行。`tests/fixtures/` 是数据不是测试（当前唯一的子目录）。
+- `.codestable/reference/`（12 份框架文档）与 `.codestable/gates/` 由 CodeStable 插件管理（`.codestable/runtime-manifest.json` 的 `managed_paths`，`updated_by: codestable-runtime-sync`）：**手改会被下次同步覆盖**，项目自己的文档是 `attention.md` 与 `features/<epic>/`。
+- `.agents/`（记忆、会话日志、技能）整体 gitignored，不进仓库、不进 tag。
 
 ### 环境变量与凭证
 
