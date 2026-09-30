@@ -116,6 +116,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 `default` 是**账号 id 字符串指针**：被指向的账号注册为 `<id>`，其余注册为 `<id>-<name>`（上例 → `scnet` 与 `scnet-work`）。账号**只装认证**（`apiKey` / `authHeader` / `headers`）。
 
 - 没有 `apiKey` 的账号被跳过并报告；非法账号名同理。
+- **账号 id 撞车会被跳过并报告**：`<id>-<name>` 若已被另一个 provider 占用（另一个目录的 id、或 pi 内置 provider id），该账号不注册，其余账号与 `<id>` 不受影响。例：已有目录 `demo-work` 时，`demo` 的 `work` 账号注册不上（pi 按 id 合并，不检查就会静默并进 `demo-work`）。注意用户自己写在 `providers` 里的 `<id>-<name>` 不算撞车——那正是该账号的配置块。
 - `accounts.json` 不存在 / 为空 / 全无凭据 → `<id>` **照常注册**（不带凭据、模型不进可用快照），`/login <id>`、`--api-key` 或 stored 凭据随时能把它救回来。
 - 有账号但 `default` 指针缺失或指向不存在的账号 → 目录 vendor **不注册** `<id>`（其余账号照常）；同 id 有出厂默认账号时回落该密钥变量。
 - 账号级模型覆盖写 pi 全局 `models.json` 的 `providers.<accountId>`，本扩展不另造一层。
@@ -180,4 +181,4 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 node tests/run-all.mjs
 ```
 
-13 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开与凭据回落）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+13 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。

@@ -104,5 +104,29 @@ assert(ext.providers.has("scnet"), "the shipped default account keeps the base i
 assert(ext.providers.get("scnet").apiKey === "$SCNET_API_KEY", "and supplies its credential");
 assert(ext.providers.has("scnet-work"), "while the extra account is added");
 
+// --- an account id that collides is skipped and reported, not merged (§7/§10 #13) ------
+// A second directory occupying the id the first vendor's `work` account would take.
+reset();
+vendor({ default: "main", main: { apiKey: "$MAIN_KEY" }, work: { apiKey: "$WORK_KEY" } });
+write("demo-work", "provider.json", provider);
+write("demo-work", "models.json", { models: [testModel("from-dir")] });
+write("demo-work", "accounts.json", {});
+ext = await startExtension();
+assert(ext.providers.has("demo") && ext.providers.has("demo-work"), `both vendors register (got ${[...ext.providers.keys()].join(",")})`);
+assert(ext.providers.get("demo-work").models.some((model) => model.id === "from-dir"), "the directory keeps its own provider id");
+assert(!ext.providers.get("demo-work").models.some((model) => model.id === "m"), "the colliding account is skipped instead of merging into that provider");
+await ext.sessionStart();
+const collision = ext.notifications.map((entry) => entry.message).join(" | ");
+assert(collision.includes('account "work"'), `the skipped account is reported with its id (got ${collision})`);
+
+// An account id that lands on a pi built-in provider id is skipped too (`kimi` + `coding`).
+// `default` names the account that holds the plain `<vendor>` id, so `coding` is an extra one.
+reset();
+write("kimi", "provider.json", provider);
+write("kimi", "accounts.json", { default: "a", a: { apiKey: "$KIMI_A" }, coding: { apiKey: "$KIMI_CODING" } });
+ext = await startExtension();
+assert(!ext.providers.has("kimi-coding"), `an account landing on a pi built-in id is skipped (kimi-coding)`);
+assert(ext.providers.has("kimi"), "and the vendor itself still registers");
+
 console.log(`accounts: ${[...ext.providers.keys()].join(", ")}`);
 console.log("OK");

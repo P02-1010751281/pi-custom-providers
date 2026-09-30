@@ -24,22 +24,42 @@ export interface ProviderEntry {
 	base: boolean;
 }
 
-export function entriesFor(vendor: Vendor): ProviderEntry[] {
+/**
+ * One entry per vendor, plus one per extra account (`<vendor>-<account>`).
+ *
+ * `taken` is every provider id pi already has (its built-ins and the user's own `models.json`
+ * declarations); every scanned vendor id is reserved on top of it, so the result does not
+ * depend on scan order.
+ */
+export function collectEntries(vendors: readonly Vendor[], taken: Iterable<string>): { entries: ProviderEntry[]; issues: LoadIssue[] } {
+	const claimed = new Set(taken);
+	for (const vendor of vendors) if (!vendor.baseSuppressed) claimed.add(vendor.id);
 	const entries: ProviderEntry[] = [];
-	if (!vendor.baseSuppressed) {
-		entries.push({
-			id: vendor.id,
-			name: vendor.name,
-			vendor,
-			...(vendor.baseAccount ? { account: vendor.baseAccount } : {}),
-			base: true,
-		});
+	const issues: LoadIssue[] = [];
+	for (const vendor of vendors) {
+		if (!vendor.baseSuppressed) {
+			entries.push({
+				id: vendor.id,
+				name: vendor.name,
+				vendor,
+				...(vendor.baseAccount ? { account: vendor.baseAccount } : {}),
+				base: true,
+			});
+		}
+		for (const account of vendor.accounts) {
+			if (vendor.baseAccount && account.id === vendor.baseAccount.id) continue;
+			const id = `${vendor.id}-${account.id}`;
+			// pi keys registrations by provider id, so a collision merges into whichever provider
+			// registered first; skip and report instead (design §7/§10 #13).
+			if (claimed.has(id)) {
+				issues.push({ level: "warning", message: `${vendor.id}: account "${account.id}" would register as "${id}", which another provider already uses; skipping it` });
+				continue;
+			}
+			claimed.add(id);
+			entries.push({ id, name: `${vendor.name} (${account.id})`, vendor, account, base: false });
+		}
 	}
-	for (const account of vendor.accounts) {
-		if (vendor.baseAccount && account.id === vendor.baseAccount.id) continue;
-		entries.push({ id: `${vendor.id}-${account.id}`, name: `${vendor.name} (${account.id})`, vendor, account, base: false });
-	}
-	return entries;
+	return { entries, issues };
 }
 
 /** One model, after the layer chain ran: the shape handed to `registerProvider`. */

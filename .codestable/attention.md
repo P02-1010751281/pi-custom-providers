@@ -20,10 +20,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ## 已知技术债（明确未做，不是遗漏）
 
-- `index.ts` 仍是单文件编排器：`customProviders` ~220 行（启动/注册/状态/`refresh-custom-models`/内联命令分发），`refreshEntry` 与 `registerEntry` 各 ~90 行。拆分要把 `scanned`/`statuses`/`entries`/`liveSnapshots` 的闭包状态外提，改动面大于收益，留到后续 `cs-refactor`。
-- 测试脚手架有重复：pi 替身在 `harness.mjs`/`smoke.mjs`/`builtin-test.mjs`/`pi-native-test.mjs` 各一份（各自需要不同的桩面），`base()` 模型工厂在 4 个测试里重复。可合并，但不是缺陷。
-- `sync` 会解析同一份 `<id>/models.json` 两次（`collectVendors` 校验一次，`readBaseTable` 为了拿当前磁盘状态再读一次）；第二次是刻意的（用户可能刚改过文件），`cloneById` 会把未校验行缺的 `input` 补齐。
-- 账号 id 拼成的 provider id（`<vendor>-<account>`）**没有撞 id 检查**（设计 §7/§10 #13 承诺过「跳过该账号 + 报告」）。后果：目录 `demo-work` 与 vendor `demo` 的 `work` 账号会静默合并成同一个 pi provider。补这个检查需要一张全体 id 表，留到后续。
+- 当前没有待办项（2026-09-30 清零）：`index.ts` 编排器已拆分（见「路径与目录约定」）、测试脚手架合并到 `harness.mjs`、账号撞 id 检查已实现（见「引擎行为（v4.0）」）。
+- `sync` 会解析同一份 `<id>/models.json` 两次（`collectVendors` 校验一次，`readBaseTable` 为了拿当前磁盘状态再读一次）；第二次是刻意的（用户可能刚改过文件），`cloneById` 会把未校验行缺的 `input` 补齐。这是设计，不是待修项。
 
 ## 项目碎片知识
 
@@ -57,7 +55,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 路径与目录约定
 
-- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`index.ts` 分层合并/注册/命令（含进程内 `liveSnapshots`）。`tests/fixtures/models.json` 是测试用的模型表。
+- `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi api 词汇 + `models.json` 层（第 3 层复刻）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`util.ts` 三个 JSON 守卫、`index.ts` 扩展接线（`registerEntry`、命令、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
 - pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
 - 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
 
@@ -78,9 +76,9 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - 实时 `/models` 只用于发现 id/上下文/显示名；已知模型的 `maxTokens`、`reasoning`、`input` 等不得被默认值覆盖。
 - pi 内置目录可从扩展读取（loader 把 `@earendil-works/pi-ai` 映射到 compat 入口，导出 `getProviders`/`getModels`）。只允许吸收**少发参数**类字段：目前仅 `supportsTemperature: false`（仅 Anthropic 线，Opus 4.7+ 拒非默认温度）。改请求体形状的字段（`thinkingFormat`、`maxTokensField`、`supportsDeveloperRole`、`forceAdaptiveThinking` 等）是按上游域名调好的，套到中转站会 400，**不得吸收**；`reasoning`/`input`/`maxTokens`/`contextWindow` 只报告不覆盖。
 - provider 注册支持 pi 的 `refreshModels` 钩子：`pi update --models`、凭据变更、联网启动都会触发；返回值**替换**扩展注册的模型列表（不是合并），并可用 `context.publish({ persist })` 写入 `~/.pi/agent/models-store.json`。迁移前 `session_start` 是唯一的自动刷新路径（现在两者并存）。
-- **坑**：pi 的 `ModelRuntime.registerProvider` 结尾是 `void this.refresh({ allowNetwork: false })`（`model-runtime.js`），所以每次重新注册都会紧跟着跑一轮**离线** `refreshModels`。如果实现者在联网刷新后只把 live 结果注册进去而不落盘，这轮离线反射会把值降级回基底表（`index.ts` 用进程内 `liveSnapshots` 顶住，优先级：memo > persisted > 基底表；`tests/pi-native-test.mjs` 就是这个回归测试）。
+- **坑**：pi 的 `ModelRuntime.registerProvider` 结尾是 `void this.refresh({ allowNetwork: false })`（`model-runtime.js`），所以每次重新注册都会紧跟着跑一轮**离线** `refreshModels`。如果实现者在联网刷新后只把 live 结果注册进去而不落盘，这轮离线反射会把值降级回基底表（`live.ts` 用进程内 `liveSnapshots` 顶住，优先级：memo > persisted > 基底表；`tests/pi-native-test.mjs` 就是这个回归测试）。
 - `refreshModels` 只有在凭据能解析（`resolveRefreshCredential`）时才会跑联网阶段；没配 key 时不会发网请求。`context.credential` 只在 `type === "api_key"` 时有 `key`。
-- **坑**：pi 只认**模型级** compat。`applyExtension()`（`provider-composer.js`）用扩展给的模型定义重建每个模型，provider 级 `compat` 被丢弃；而 `models.json` 的 provider 级 `compat` 是在这之前被 `applyModelsJson()` 合并到内置模型表上的，随后也被同一个重建行为覆盖掉。所以对扩展注册的 provider，`models.json` 里写的 compat / `models[]` 都得我们自己再贴一遍（`index.ts` 的 `applyCompat`、`config.ts` 的 `sourceConfigFor` + `normalizeModel`）。不对应的后果是“看起来配了、其实无效”。
+- **坑**：pi 只认**模型级** compat。`applyExtension()`（`provider-composer.js`）用扩展给的模型定义重建每个模型，provider 级 `compat` 被丢弃；而 `models.json` 的 provider 级 `compat` 是在这之前被 `applyModelsJson()` 合并到内置模型表上的，随后也被同一个重建行为覆盖掉。所以对扩展注册的 provider，`models.json` 里写的 compat / `models[]` 都得我们自己再贴一遍（`providers.ts` 的 `synthesizeModels()`、`config.ts` 的 `applyModelPatch()` + `resolveModelEndpoint()`）。不对应的后果是“看起来配了、其实无效”。
 - **坑**：omp 的 provider 字段不是 pi 的字段。`disableStrictTools` / `replayUnsignedThinking`（来自 `~/.omp/agent/models.yml`）在整个 pi 包里没有任何读取点，抄进扩展只是死配置；写 provider 选项前先在 `$PI/dist` 里 grep 字段名。
 - **坑**：UPPER_SNAKE 的明文值一律当**环境变量名**。`resolveApiKey` 旧实现变量未设置时会 `return value`，把变量名当密钥发出去（表现为莫名 401）。`apiKeyConfig` 与 `resolveApiKey` 必须保持同一判定。
 - Command Code 能力页（https://commandcode.ai/docs/reference/cli/models）**自相矛盾且相对实时注册表陈旧**，不要单看渲染出来的表格：
@@ -111,3 +109,4 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - 目录名撞内置 vendor 的 `aliases`（如同时有 `commandcode/` 与 `codecommand/`）会跳过后者并报告：两个目录会争同一个 provider 的配置。
 - **没有内置 provider（2026-09-22 改）**：`sources.ts` 的 `DEFAULTS` 只在**同名目录存在**时作基底（端点 / 密钥变量），`collectVendors` 不再预置它 —— 没目录就没 provider。因此旧警示 `replaces the built-in definition` 整段删除（连同测试）。命中 **pi 自带** provider id 仍需 `"override": true`（另一分支，不变）。`/custom-providers init [<id>] [--force]` 把默认端点写成 `<id>/provider.json`（已存在不动）。
 - **不带模型表（v0.4.0）**：出厂 vendor 不再有模型表；目录只有 `provider.json` 时注册 0 个模型。模型来自 `<id>/models.json`（用户表）或实时发现（`sync --write` 可把发现写回基底）。`builtin.ts` 的 `capabilityAuthority`/`builtinLevelMap` 随生成器一起删除，多数票逻辑只剩 `summarizeDrift` 内联使用。
+- **账号 id 撞车（2026-09-30 实现，设计 §7/§10 #13）**：`providers.ts` 的 `collectEntries()` 先占住「pi 已有 id（`piProviderIds`）+ 所有目录 vendor id」，再逐个分配账号 id；冲突的账号**跳过 + 进 `globalIssues` 报告**（其余账号与 `<id>` 不受影响）。用户 `models.json` 里声明的 `providers.<id>-<name>` **不**算占位——那是该账号自己的配置块（`providerLayerFor(entry.id, ...)`），列进去会把多账号覆盖功能一刀切掉（`tests/accounts-test.mjs` 守住这两侧）。

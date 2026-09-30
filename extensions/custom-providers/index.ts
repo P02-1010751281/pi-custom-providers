@@ -51,7 +51,7 @@ import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./built
 import { normalizeApi, providerLayerFor, readModelsConfig, type JsonObject } from "./config.ts";
 import { configValueForPi, loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
-import { baseTableView, entriesFor, synthesizeModels, type ProviderEntry } from "./providers.ts";
+import { baseTableView, collectEntries, synthesizeModels, type ProviderEntry } from "./providers.ts";
 import { collectVendors } from "./provider-files.ts";
 import { DEFAULTS } from "./sources.ts";
 import { apiSplit, problemLines, toastLines, type ProviderStatus } from "./status.ts";
@@ -177,9 +177,15 @@ export default async function customProviders(pi: ExtensionAPI) {
 
 	const root = PROVIDER_ROOT();
 	const scanned = collectVendors(root, defaults, piProviderIds);
+	// Ids already spoken for: pi's own providers and every scanned vendor id. An account id
+	// colliding with one of them would silently merge — skip and report instead. Ids the *user*
+	// declared in `models.json` are deliberately not on this list: `providers.<vendor>-<account>`
+	// is exactly how an account is configured, not a conflict (design §7/§10 #13).
+	const collected = collectEntries(scanned.vendors, piProviderIds);
 	const globalIssues: LoadIssue[] = [
 		...(configIssue ? [{ level: "warning" as const, message: configIssue }] : []),
 		...scanned.issues,
+		...collected.issues,
 	];
 	const statuses = new Map<string, ProviderStatus>();
 	const record = (status: ProviderStatus, options: { keepExisting?: boolean } = {}): void => {
@@ -189,20 +195,17 @@ export default async function customProviders(pi: ExtensionAPI) {
 
 	// Startup path: register the base tables, no network I/O.
 	const entries: { entry: ProviderEntry; layer: JsonObject; vendorIssues: LoadIssue[]; refresh?: (context: RefreshContext) => Promise<CatalogModel[]> }[] = [];
-	for (const vendor of scanned.vendors) {
-		for (const entry of entriesFor(vendor)) {
-			// An account's own `models.json` block layers over the base provider's (§4 layer 3).
-			const layer = { ...providerLayerFor(vendor.id, vendor.aliases, config), ...(entry.base ? {} : providerLayerFor(entry.id, [], config)) };
-			// Rebuilt per registration: model-level warnings are this provider's own, and
-			// re-registering must not pile them up in a shared list.
-			const vendorIssues: LoadIssue[] = [...(vendor.directory ? vendor.issues : [])];
-			const reported = vendorIssues.length;
-			const registered = registerEntry(pi, entry, layer, builtin, record, vendorIssues);
-			// A refused provider never reaches `record()`, so surface its error here instead of
-			// letting the provider disappear silently from every command.
-			if (!registered) globalIssues.push(...vendorIssues.slice(reported));
-			entries.push({ entry, layer, vendorIssues, ...(registered ? { refresh: registered.refresh } : {}) });
-		}
+	for (const entry of collected.entries) {
+		const layer = { ...providerLayerFor(entry.vendor.id, entry.vendor.aliases, config), ...(entry.base ? {} : providerLayerFor(entry.id, [], config)) };
+		// Rebuilt per registration: model-level warnings are this provider's own, and
+		// re-registering must not pile them up in a shared list.
+		const vendorIssues: LoadIssue[] = [...(entry.vendor.directory ? entry.vendor.issues : [])];
+		const reported = vendorIssues.length;
+		const registered = registerEntry(pi, entry, layer, builtin, record, vendorIssues);
+		// A refused provider never reaches `record()`, so surface its error here instead of
+		// letting the provider disappear silently from every command.
+		if (!registered) globalIssues.push(...vendorIssues.slice(reported));
+		entries.push({ entry, layer, vendorIssues, ...(registered ? { refresh: registered.refresh } : {}) });
 	}
 
 	const sortedStatuses = (): ProviderStatus[] => [...statuses.values()].sort((a, b) => a.id.localeCompare(b.id));
