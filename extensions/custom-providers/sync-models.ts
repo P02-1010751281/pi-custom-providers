@@ -85,7 +85,8 @@ export function writeBaseTable(file: string, models: readonly CatalogModel[]): {
 
 /**
  * The vendor's on-disk base table. Re-read instead of reusing the startup scan: the user may
- * have edited `models.json` since, and `sync` must diff against the current file.
+ * have edited `models.json` since, and `sync` must diff against the current file. A missing or
+ * unparsable file reads as empty; the caller falls back to the startup table in that case.
  */
 export function readBaseTable(file: string): CatalogModel[] {
 	try {

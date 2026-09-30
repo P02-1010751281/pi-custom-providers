@@ -267,7 +267,7 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
  * restored *whole* instead of being rebuilt from the naming convention; an id the base table
  * knows still only takes the snapshot's live display name and context window.
  */
-export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonly JsonObject[]): ModelEntry[] {
+export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonly JsonObject[], defaultApi: string): ModelEntry[] {
 	const byId = new Map(models.map((model) => [model.id, { ...model, input: [...model.input], cost: { ...model.cost } }]));
 	for (const row of rows) {
 		const id = String(row.id);
@@ -279,10 +279,21 @@ export function mergeStoredSnapshot(models: readonly ModelEntry[], rows: readonl
 			if (ctx > 0) known.contextWindow = ctx;
 			continue;
 		}
+		// The store also holds what registration derived — `provider` plus the resolved
+		// `api`/`baseUrl`. A model on the default protocol must carry neither, or a later
+		// `providers.<id>.api`/`baseUrl` could no longer move it (design §4/§5.2).
+		const storedApi = row.api;
+		const storedBaseUrl = row.baseUrl;
+		const rest = { ...(row as Record<string, unknown>) };
+		delete rest.provider;
+		delete rest.api;
+		delete rest.baseUrl;
+		const onDefault = storedApi === undefined || storedApi === defaultApi;
 		byId.set(id, {
-			...(row as unknown as ModelEntry),
+			...rest,
 			id,
 			name: name ?? id,
+			...(onDefault ? {} : { api: storedApi, baseUrl: storedBaseUrl }),
 			contextWindow: ctx > 0 ? ctx : 128000,
 			maxTokens: numberOr(row.maxTokens, 16384),
 			input: Array.isArray(row.input) ? (row.input as string[]) : ["text"],
@@ -350,6 +361,9 @@ async function refreshEntry(
 ): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[] }> {
 	const issues: LoadIssue[] = [];
 	const models = synthesizeModels(entry, layer, builtin, issues);
+	// The protocol a model with no `api` of its own lands on (§5.1): used to decide whether a
+	// restored snapshot row belongs on the default endpoint or on a declared second one.
+	const defaultApi = normalizeApi(layer.api) ?? entry.vendor.declaration.api;
 	const apiKey = endpointCredential(entry, layer, options.contextKey);
 	// Report the missing credential before any request, naming the file and the built-in
 	// variable so the fix is obvious (and never send the variable *name* as the token).
@@ -375,7 +389,7 @@ async function refreshEntry(
 			// Restored from pi's own store: only rows that name this protocol (pi stamps `api`
 			// on persisted models), plus rows that name none at all (older snapshots).
 			const own = storedRows.filter((row) => row.api === undefined || row.api === endpoint.api);
-			list = mergeStoredSnapshot(list, own);
+			list = mergeStoredSnapshot(list, own, defaultApi);
 		}
 		if (!options.allowFetch) {
 			result = list;
@@ -388,8 +402,9 @@ async function refreshEntry(
 			// keeps the result for the cache-only round pi runs right after registration.
 			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, apiKey, options.signal);
 			const applied = applyLiveModels(list, rows, endpoint.api);
-			// Memoize only a non-empty answer: an empty one (a quota-exhausted wire answers
-			// 200 + `[]`) must not shadow the persisted snapshot on the next round.
+			// Memoize unless the merged list is empty: an empty answer (a quota-exhausted wire
+			// answers 200 + `[]`) over an empty base must not shadow the persisted snapshot on
+			// the next round, while an empty answer over a known table is still worth keeping.
 			if (applied.models.length > 0) liveSnapshots.set(key, applied.models);
 			lastErrors.delete(key);
 			result = applied.models;
@@ -660,9 +675,16 @@ export default async function customProviders(pi: ExtensionAPI) {
 					const drift = status.drift;
 					return drift ? [...drift.reasoning, ...drift.input, ...drift.maxTokens, ...drift.contextWindow] : [];
 				});
-				if (lines.length > 0) notify(`Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}`);
-				else if ([...statuses.values()].some((status) => status.drift)) notify("No differences from pi's built-in catalog");
-				else notify("No registered models to compare with pi's built-in catalog");
+				const compared = [...statuses.values()].reduce((sum, status) => sum + (status.drift?.matched ?? 0), 0);
+				if (lines.length > 0) {
+					notify(`Built-in catalog drift (reported, not applied): ${toastLines(lines, 8)}`);
+					return;
+				}
+				if (!builtin.available) {
+					notify("pi's built-in catalog is unavailable; nothing to compare", "warning");
+					return;
+				}
+				notify(compared > 0 ? "No differences from pi's built-in catalog" : "No registered model matched pi's built-in catalog");
 				return;
 			}
 			if (head === "files") {
@@ -674,7 +696,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 					return `${vendor.id} [${vendor.origin}] dir=${dir} models=${vendor.models.length} accounts=${accounts}`;
 				});
 				const ignored = vendorFiles.ignored.length > 0 ? `ignored dirs: ${vendorFiles.ignored.join(", ")}` : "no ignored dirs";
-				const problems = vendorFiles.vendors.flatMap((vendor) => vendor.issues.map((issue) => `${vendor.id}: ${issue.message}`));
+				const problems = [...new Set([...vendorFiles.issues, ...vendorFiles.vendors.flatMap((vendor) => vendor.issues)].map((issue) => `${issue.level}: ${issue.message}`))];
 				notify(`Provider files: ${toastLines(files)}; ${ignored}${problems.length > 0 ? `; problems: ${toastLines(problems)}` : ""}`);
 				return;
 			}
@@ -690,7 +712,8 @@ export default async function customProviders(pi: ExtensionAPI) {
 				const current = readBaseTable(file);
 				// The base ⊕ discovery, without the user's `models.json` layer: syncing must not
 				// bake a user override into the base table. Discovery is this process's memo —
-				// what `refresh-custom-models` last fetched — never a fresh network call.
+				// what `refresh-custom-models` last fetched — never a fresh network call. An absent
+				// or empty file falls back to the startup table.
 				let models = current.length > 0 ? current : vendor.models;
 				for (const endpoint of vendorEndpoints(vendor)) {
 					const memo = liveSnapshots.get(endpointKey(vendor.id, endpoint.api));

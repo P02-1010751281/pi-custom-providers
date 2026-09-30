@@ -121,7 +121,7 @@ export async function seedDefaultProviders(...ids) {
 		const dir = agentPath("custom-providers", id);
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(path.join(dir, "provider.json"), `${JSON.stringify({ name: shipped.name, ...shipped.declaration }, null, "\t")}\n`);
-	const models = FIXTURE_MODELS[id];
+		const models = FIXTURE_MODELS[id];
 		if (!models) throw new Error(`no tests/fixtures/models.json entry for "${id}"`);
 		writeFileSync(path.join(dir, "models.json"), `${JSON.stringify({ models }, null, "\t")}\n`);
 	}

@@ -540,7 +540,7 @@
 - 覆盖链第 1 层只剩 `<id>/models.json`；目录只有 `provider.json` 时基底为空，注册 0 个模型，等发现或用户补表。`sync --write` 可把发现写回基底。
 - **决策 18 的生成期部分随之失效**（没有生成期）：`builtin.ts` 的 `capabilityAuthority()` / `builtinLevelMap()` 删除；「内置多数票」只剩 `summarizeDrift` 内联用于 `drift` 报告，运行期从不写回能力。
 - 测试的模型表移到 `tests/fixtures/models.json`（`harness.mjs` 的 `seedDefaultProviders()` 写入目录），`tests/catalog-test.mjs` 改为 `tests/models-test.mjs`。
-- 上文中 `catalog.ts`/生成器的行按下述口径读（它们描述的是删掉之前的状态）：§2.5 `refreshModels` 坑里的「降级回 catalog」→「降级回基底表」；§3.2 的「内置 vendor 由生成器写」→ 出厂只给端点与密钥变量；§4 覆盖链表第 1 行只剩 `<id>/models.json`；§6.3 吸收白名单的「生成期」注记失效（`reasoning`/`input` 只来自目录表或 `convention.ts`）；§8 的「模型表（`catalog.ts`）」不存在；§9 命令表的「live/catalog」读作「live/基底」；§11/§12/§15/§17 的对应行同步作废。
+- 上文中 `catalog.ts`/生成器的行按下述口径读（它们描述的是删掉之前的状态）：§2.5 `refreshModels` 坑里的「降级回 catalog」→「降级回基底表」；§3.2 的「内置 vendor 由生成器写」→ 出厂只给端点与密钥变量；§4 覆盖链表第 1 行只剩 `<id>/models.json`；§6.3 吸收白名单的「生成期」注记失效（`reasoning`/`input` 只来自目录表或 `convention.ts`）；§8 的「模型表（`catalog.ts`）」不存在；§9 命令表的「live/catalog」读作「live/基底」；§11/§12/§14/§15/§16/§17/§18 的对应行（含 §16 决策 10 的「容器由生成器批量写」、§18 第 11 步的生成器验收）同步作废。
 
 ## 版本沿革（压缩）
 
