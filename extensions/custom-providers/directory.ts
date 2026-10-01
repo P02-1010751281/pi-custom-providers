@@ -15,10 +15,9 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { readAccountsFile, resolveAccounts } from "./credentials.ts";
-import type { ProviderDeclaration } from "./types.ts";
 import { readModelsFile } from "./model-table.ts";
 import { readProviderFile } from "./endpoints.ts";
-import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";
+import type { Account, CatalogModel, LoadIssue, ProviderDeclaration, Vendor } from "./types.ts";
 import { readJson } from "./util.ts";
 
 /** The three files of one directory, each either absent, parsed, or broken. */

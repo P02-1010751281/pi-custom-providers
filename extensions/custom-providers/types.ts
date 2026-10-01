@@ -136,5 +136,3 @@ export interface EndpointChoice {
 	/** Stamp `baseUrl`: the model has its own, or its protocol is not the default one. */
 	stampBaseUrl: boolean;
 }
-
-export type { JsonObject } from "./util.ts";
