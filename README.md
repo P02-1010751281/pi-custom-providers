@@ -165,7 +165,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | 密码库 | `"!keepassxc-cli show -q -s -a password ~/secrets.kdbx pi/scnet"` | 也可 `"!pass show scnet/work"`、`"!op read op://vault/item/credential"` |
 | 加密文件 | `"!gpg --batch --decrypt ~/.pi/secrets/scnet.gpg"` | `age` / `sops` 同理，能打印 key 即可 |
 
-base64 没有原生的值形式（pi 的语法里没有 base64），要内联就把它接进 `!command`。这种命令要**按 bash 写**——它跑在 pi 的 shell 里（见下）：
+base64 没有原生的值形式（pi 的语法里没有 base64），要内联就把它接进 `!command`。这种命令要**按 POSIX sh 写**——它跑在 pi 的 shell 里（见下）：
 
 ```json
 { "main": { "apiKey": "!printf %s 'c2st-…base64…' | openssl base64 -d -A" } }
@@ -175,7 +175,7 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 - `base64 -d`：Linux ✓、Windows 的 Git Bash ✓；macOS 自带的 `base64` 是 BSD 版，解码头是 `-D`（新版也收 `-d`），拿不准就用上一行。
 - 更省事的做法是不内联：配置前先把 base64 解出来，写进 `.env` 用 `$VAR`，或直接写明 + `chmod 600`。
 
-`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。它跑在 **pi 的 shell** 里：Linux/macOS 是平台 shell（`sh -c`），Windows 是 pi 找到的 Git Bash（没装 Git Bash 才回落平台的 `cmd.exe`）——本插件用 pi 同一个 `getShellConfig()` 起命令，所以刷新时与真正请求时看到的是同一个 shell，命令按 bash 写即可。无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
+`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。它跑在 **pi 的 shell** 里：Linux/macOS 上是 `sh -c`（Node 的默认 shell；Debian/Ubuntu 上就是 dash），Windows 上是 pi 找到的 Git Bash（没装 Git Bash 才回落平台的 `cmd.exe`）——本插件用 pi 同一个 `getShellConfig()` 起命令，所以刷新时与真正请求时看到的是同一个 shell，命令按 **POSIX sh** 写（Git Bash 也兼容 sh，但 `[[ ]]`/`<<<` 在 dash 上不成立）。无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
 
 **凭据永远不进仓库**（私有仓库、镜像仓库同理）：`accounts.json` 与 `.env` 属用户层，仓库里只该出现 `provider.json` / `models.json`。别人装本插件用的是自己的 `~/.pi/agent/custom-providers/<id>/accounts.json`，与本项目互不相干。
 

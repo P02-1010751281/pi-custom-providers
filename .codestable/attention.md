@@ -134,7 +134,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `CMD_API_KEY`（Command Code）、`SCNET_API_KEY`（SCNet 两条线）。
 - 凭据是**引用**不是字面量：`accounts.json` 的 `apiKey` 走 pi 的值语法 —— `sk-…`（明文，`$$`/`$!` 转义前导 `$`/`!`）、`$VAR`/`${VAR}`/裸 `UPPER_SNAKE`（环境变量）、`!command`（keyring / 密码管理器：`!secret-tool lookup …`、`!kwallet-query …`、`!pass show …`、`!op read …`）。**扩展传递引用、不在自己的路径上把它解析成字面量**（`live.ts endpointCredential` 的解析只用于判断「有没有凭据」、决定要不要发请求），秘密因此不会落进 pi 的 `models-store.json`；明文只是一种引用，README 已警告 `accounts.json` 要 gitignore + `chmod 600`。
 - 启动时从 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐，已存在的环境变量不覆盖。
-- `!command` 跑在 pi 的 shell 里：非 Windows 是平台 shell（`sh -c`），Windows 是 pi 找到的 Git Bash（`getShellConfig()`；没装 Git Bash 才回落 `cmd.exe`）。扩展在发现刷新时也要解同一个值（只用它判「有没有凭据」），所以两边必须用**同一个** shell —— `env.ts` 现在直接用 pi 导出的 `getShellConfig()`（同 argv/stdin 传输、同 10s 超时、同 ENOENT 回落）。base64 没有原生的值形式，只能借 `!command`；README 给了 Linux/macOS/Windows 都成立的写法。
+- `!command` 跑在 pi 的 shell 里：非 Windows 是 `sh -c`（Node 的 `execSync` 默认 `shell: true` → `/bin/sh`，Debian/Ubuntu 上即 dash），Windows 是 pi 找到的 Git Bash（`getShellConfig()`；没装 Git Bash 才回落 `cmd.exe`）。扩展在发现刷新时也要解同一个值（只用它判「有没有凭据」），所以两边必须用**同一个** shell —— `env.ts` 现在直接用 pi 导出的 `getShellConfig()`（同 argv/stdin 传输、同 10s 超时、同 ENOENT 回落）。推论：命令按 **POSIX sh** 写，`[[`/`<<<` 这类 bash 语法在 dash 上不成立。base64 没有原生的值形式，只能借 `!command`；README 给了 Linux/macOS/Windows 都成立的写法。
 - 仓库与 README 不写密钥。
 - Command Code 账号受限（2026-09-18 实测）：claude 系列全部 `MODEL_NOT_IN_PLAN`，部分 OpenAI 线模型 `insufficient credits`，所以目录里 claude 的 `reasoning`/`input` 只能在升级计划后实测。
 
