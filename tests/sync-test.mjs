@@ -10,7 +10,7 @@ import { agentPath, assert, loadTs, runCommand, startExtension, testModel, withF
  * in would fossilize a user override into the file that is supposed to be its base.
  */
 // The base table's read/diff/write half lives with its reader, in the directory layer.
-const sync = await loadTs("extensions/custom-providers/provider-files.ts");
+const sync = await loadTs("extensions/custom-providers/models-json.ts");
 const vendorDir = agentPath("custom-providers", "demo");
 const file = `${vendorDir}/models.json`;
 const reset = () => writeFileSync(agentPath("models.json"), "{}");

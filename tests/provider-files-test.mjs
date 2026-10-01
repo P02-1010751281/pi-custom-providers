@@ -9,7 +9,7 @@ import { agentPath, assert, loadTs, runCommand, startExtension, vendorDir } from
  * provider). Entry-level problems only skip the entry. Every problem must be *reported* —
  * this package exists because silent config failures are the norm in `models.json`.
  */
-const files = await loadTs("extensions/custom-providers/provider-files.ts");
+const files = await loadTs("extensions/custom-providers/directory.ts");
 const root = agentPath("custom-providers");
 const write = (dir, name, contents) => {
 	mkdirSync(dir, { recursive: true });

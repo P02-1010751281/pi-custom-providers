@@ -7,21 +7,12 @@
  * `sync --write` stores (design §4/§5.2/§5.3).
  */
 import { absorbCompat, type BuiltinCatalog, type CatalogCompat } from "./builtin.ts";
-import { applyModelPatch, resolveModelEndpoint, type ProviderDeclaration } from "./config.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS, applyModelPatch, resolveModelEndpoint, type ProviderDeclaration } from "./config.ts";
 import type { Account, CatalogModel, LoadIssue, ModelCompat, Vendor } from "./types.ts";
 import { isObject, stringOr, type JsonObject } from "./util.ts";
 
 /** Cost of a model we know nothing about. pi dereferences `cost` on every request. */
 export const ZERO_COST: CatalogModel["cost"] = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-
-/**
- * Size of a model nobody declared one for. Discovery never invents parameters, and an entry
- * only the user declares still has to satisfy `registerProvider`, so both numbers are needed
- * — kept in one place because the directory layer, the live layer and the synthesized row
- * all fall back to them, and "we don't know" must mean the same number everywhere.
- */
-export const FALLBACK_CONTEXT_WINDOW = 128_000;
-export const FALLBACK_MAX_TOKENS = 16_384;
 
 /** One registrable pi provider: a vendor, plus the account that supplies its credentials. */
 export interface ProviderEntry {

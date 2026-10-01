@@ -12,7 +12,7 @@
  *      providers is dropped before it is composed.
  *
  * `models.json` stays read-only: this package writes user files only through
- * `custom-providers sync --write` (`provider-files.ts`).
+ * `custom-providers sync --write` (`models-json.ts`).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -62,6 +62,16 @@ export function normalizeApi(value: unknown): string | undefined {
 	const resolved = API_ALIASES[api] ?? api;
 	return (BUILTIN_APIS as readonly string[]).includes(resolved) ? resolved : undefined;
 }
+
+/**
+ * Size of a model nobody declared one for. Discovery never invents parameters, and an entry
+ * only the user declares still has to satisfy `registerProvider`, so both numbers are needed
+ * — kept with the api vocabulary because they are pi's own model defaults, and every layer
+ * that fills a hole (the directory reader, the live row, the synthesized row) must mean the
+ * same number by "we don't know".
+ */
+export const FALLBACK_CONTEXT_WINDOW = 128_000;
+export const FALLBACK_MAX_TOKENS = 16_384;
 
 /** One endpoint of one vendor: a protocol plus where it lives. */
 export interface Endpoint {
