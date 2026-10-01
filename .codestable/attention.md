@@ -16,7 +16,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
-- **未发版状态（2026-10-01）**：v0.4.0 的功能内容已在 master 上（`b5d8e4c` 起，含两轮审计修复、编排器与载荷拆分、`config.ts` 再拆、文档）但**未打 tag、未推送**，`~/.pi` 里的 pin 仍是 `@v0.3.0`；README 已按**将要发布**的 `@v0.4.0` 写，打 tag 后才成立。
+- **已发版状态（2026-10-01）**：v0.4.0 = 移除出厂模型表（纯目录驱动）。tag `v0.4.0` 已推双远端，`~/.pi` 的 pin 改为 `@v0.4.0`；README 的安装行与本文一致，更新日志见 `CHANGELOG.md`。
 
 ## 已知技术债（明确未做，不是遗漏）
 
