@@ -12,7 +12,7 @@
  *      providers is dropped before it is composed.
  *
  * `models.json` stays read-only: this package writes user files only through
- * `custom-providers sync --write` (`models-json.ts`).
+ * `custom-providers sync --write` (`model-table.ts`).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";

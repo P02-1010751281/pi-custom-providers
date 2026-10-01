@@ -8,12 +8,12 @@
  * a misplacement that names `accounts.json` — the two files are deliberately disjoint, and only
  * the message needs the other file's key vocabulary.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
-import { CREDENTIAL_KEYS } from "./accounts-json.ts";
 import { BUILTIN_APIS, normalizeApi, type ProviderDeclaration } from "./config.ts";
+import { CREDENTIAL_KEYS } from "./credentials.ts";
 import type { LoadIssue } from "./types.ts";
-import { isObject, readJson, stringOr } from "./util.ts";
+import { isObject, readJson, serializeJson, stringOr, writeTextAtomic } from "./util.ts";
 
 /** `provider.json` keys this package reads. Everything else is reported, never guessed at. */
 const PROVIDER_KEYS = new Set(["name", "api", "baseUrl", "modelsPath", "headers", "apis", "override"]);
@@ -124,8 +124,7 @@ export function writeProviderFile(dir: string, vendor: { id: string; name: strin
 	const file = path.join(dir, "provider.json");
 	if (existsSync(file) && !force) return `${vendor.id}: provider.json exists (pass --force to overwrite)`;
 	try {
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(file, `${JSON.stringify({ name: vendor.name, ...vendor.declaration }, null, "\t")}\n`);
+		writeTextAtomic(file, serializeJson({ name: vendor.name, ...vendor.declaration }));
 		return `${vendor.id}: wrote provider.json`;
 	} catch (error) {
 		return `${vendor.id}: ${String(error)}`;

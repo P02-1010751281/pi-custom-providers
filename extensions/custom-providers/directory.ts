@@ -14,10 +14,10 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { readAccountsFile, resolveAccounts } from "./accounts-json.ts";
+import { readAccountsFile, resolveAccounts } from "./credentials.ts";
 import type { ProviderDeclaration } from "./config.ts";
-import { readModelsFile } from "./models-json.ts";
-import { readProviderFile } from "./provider-json.ts";
+import { readModelsFile } from "./model-table.ts";
+import { readProviderFile } from "./endpoints.ts";
 import type { LoadIssue, Vendor } from "./types.ts";
 import { readJson } from "./util.ts";
 

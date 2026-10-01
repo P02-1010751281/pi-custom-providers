@@ -39,7 +39,7 @@
  *
  * Files: `sources.ts` built-in vendor endpoints, `config.ts` pi's api vocabulary + the
  * `models.json` layer + pi's model-size fallbacks, `directory.ts` the directory scan and id
- * namespace, `provider-json.ts`/`models-json.ts`/`accounts-json.ts` the three payloads (their
+ * namespace, `endpoints.ts`/`model-table.ts`/`credentials.ts` the three payloads (their
  * readers, and the two writers), `providers.ts` the vendor → registered-provider composition
  * (entries and the layer chain), `live.ts` discovery and the merge rules for a wire's answer,
  * `status.ts` per-provider status and problem text, `builtin.ts` pi cross-check, `util.ts` the
@@ -53,9 +53,9 @@ import { normalizeApi, providerLayerFor, readModelsConfig } from "./config.ts";
 import { collectVendors } from "./directory.ts";
 import { configValueForPi, loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
-import { diffBaseTable, summarizeDiff, writeBaseTable } from "./models-json.ts";
+import { diffBaseTable, summarizeDiff, writeBaseTable } from "./model-table.ts";
 import { baseTableView, collectEntries, synthesizeModels, type ModelEntry, type ProviderEntry } from "./providers.ts";
-import { writeProviderFile } from "./provider-json.ts";
+import { writeProviderFile } from "./endpoints.ts";
 import { DEFAULTS } from "./sources.ts";
 import { apiSplit, problemLines, toastLines, type ProviderStatus } from "./status.ts";
 import type { CatalogModel, LoadIssue, Vendor } from "./types.ts";

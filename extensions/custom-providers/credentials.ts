@@ -2,6 +2,14 @@
  * `<id>/accounts.json` — credentials only (`apiKey`, `authHeader`, `headers`) plus the
  * `default` pointer that names the base account.
  *
+ * An `apiKey` is a *reference*, not necessarily a secret: pi resolves it at request time
+ * (`resolveConfigValue`), so the forms are exactly the ones pi knows — `sk-…` (plaintext, with
+ * `$$`/`$!` to escape a literal leading `$`/`!`), `$VAR` / `${VAR}` / a bare `UPPER_SNAKE`
+ * (environment variable), and `!command` (how a keyring or password manager is reached:
+ * `!secret-tool lookup …`, `!pass show …`, `!op read …`). Nothing secret has to sit on disk, and
+ * this package passes the reference through — it never resolves it into a literal that pi might
+ * then persist.
+ *
  * Read-only: this package never writes it. `resolveAccounts` is the id policy that follows from
  * the file (design §3.3 ②/§8) — which account registers as the base id, and the case where the
  * base id is deliberately suppressed because the user declared accounts but named none.

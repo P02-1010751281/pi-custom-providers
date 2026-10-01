@@ -1,13 +1,15 @@
 /**
  * The JSON vocabulary every layer shares: reading a file into JSON (`readJson` + `JsonRead`),
- * and the object type plus the three guards used while reading untyped JSON. One definition
- * each — they were previously duplicated per module, with `numberOr` even differing between
- * callers.
+ * writing one back out (`serializeJson`, `writeTextAtomic`), and the object type plus the three
+ * guards used while reading untyped JSON. One definition each — they were previously duplicated
+ * per module (`numberOr` even differed between callers), and the two writers each restated the
+ * same serialization and the same temp-file-plus-rename dance.
  *
  * This is the leaf of the import graph: it imports no local module, so the modules that hand
  * the JSON shape back (`config.ts`, `types.ts`) can use these without forming a cycle.
  */
-import { readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 /** A JSON object: what pi's schema means by `object` (never `null`, never an array). */
 export type JsonObject = Record<string, any>;
@@ -38,4 +40,32 @@ export function readJson(file: string): JsonRead {
 	} catch (error) {
 		return { issue: `cannot parse ${file}: ${String(error)}` };
 	}
+}
+
+/** JSON as this package writes it: one tab of indentation and a trailing newline, so diffs are readable. */
+export const serializeJson = (value: unknown): string => `${JSON.stringify(value, null, "\t")}\n`;
+
+/**
+ * Write text to a file atomically: a temp file in the same directory, then a rename, so an
+ * interrupted write leaves either the old file or the new one, never half of either. With
+ * `backup: true` the previous file is kept byte for byte as `<file>.bak` first (only when
+ * there is one to keep). The temp file is removed if the write fails.
+ */
+export function writeTextAtomic(file: string, text: string, options: { backup?: boolean } = {}): { backup?: string } {
+	mkdirSync(path.dirname(file), { recursive: true });
+	const backup = options.backup && existsSync(file) ? `${file}.bak` : undefined;
+	if (backup) copyFileSync(file, backup);
+	const temp = `${file}.tmp-${process.pid}`;
+	try {
+		writeFileSync(temp, text, "utf8");
+		renameSync(temp, file);
+	} catch (error) {
+		try {
+			rmSync(temp, { force: true });
+		} catch {
+			// The temp file may already be gone; the original failure is the one worth reporting.
+		}
+		throw error;
+	}
+	return backup ? { backup } : {};
 }

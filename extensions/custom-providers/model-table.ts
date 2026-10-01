@@ -7,12 +7,11 @@
  * a writer in another is how one file ends up parsed twice, under two sets of rules.
  *
  * `writeBaseTable` and `init`'s `provider.json` are the package's only two writers (§10/§13).
+ * Both go through `util.ts`'s shared codec and atomic write.
  */
-import { copyFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./config.ts";
 import type { CatalogModel, LoadIssue } from "./types.ts";
-import { isObject, numberOr, readJson, stringOr, type JsonObject } from "./util.ts";
+import { isObject, numberOr, readJson, serializeJson, stringOr, writeTextAtomic, type JsonObject } from "./util.ts";
 
 /** One model entry = pi's `ModelDefinitionSchema` fields, and nothing else. */
 const MODEL_KEYS = new Set(["id", "name", "api", "baseUrl", "reasoning", "thinkingLevelMap", "input", "cost", "contextWindow", "maxTokens", "samplingParams", "headers", "compat"]);
@@ -105,7 +104,7 @@ export function serializeBaseTable(models: readonly CatalogModel[]): string {
 		}
 		return ordered;
 	});
-	return `${JSON.stringify({ models: rows }, null, "\t")}\n`;
+	return serializeJson({ models: rows });
 }
 
 export interface BaseTableDiff {
@@ -152,11 +151,5 @@ export function summarizeDiff(diff: BaseTableDiff): string[] {
  * the old file or the new one, never half of either.
  */
 export function writeBaseTable(file: string, models: readonly CatalogModel[]): { backup?: string } {
-	const backup = existsSync(file) ? `${file}.bak` : undefined;
-	if (backup) copyFileSync(file, backup);
-	mkdirSync(path.dirname(file), { recursive: true });
-	const temp = `${file}.tmp-${process.pid}`;
-	writeFileSync(temp, serializeBaseTable(models), "utf8");
-	renameSync(temp, file);
-	return backup ? { backup } : {};
+	return writeTextAtomic(file, serializeBaseTable(models), { backup: true });
 }
