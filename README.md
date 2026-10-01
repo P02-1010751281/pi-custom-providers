@@ -91,7 +91,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `apis` | 否 | 额外协议端点，键 = pi 的 api 值，值 = `{ baseUrl(必填), modelsPath?, headers? }`。省略 `modelsPath` = 继承 `provider.json.modelsPath`。 |
 | `override` | 否 | 允许接管 pi 已知 provider id（如自建 `anthropic` 代理）。不加则跳过并报告。 |
 
-`apiKey` / `authHeader` / `envVar` / `compat` 写在这里会被**报告并忽略**：凭据只属 `accounts.json`，compat 只属模型条目（pi 只认模型级 compat）。
+`apiKey` / `authHeader` / `compat` 写在这里会被**报告并忽略**：凭据只属 `accounts.json`，compat 只属模型条目（pi 只认模型级 compat）。从 pi 自带的 provider 配置里抄过来的 `models` / `modelOverrides` 同理（模型表就是 `models.json`），`oauth` 不在支持范围（报告后忽略）。
 
 ### `models.json`（可选）= 模型基底表
 
@@ -103,7 +103,9 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 ] }
 ```
 
-字段 = pi 的 `ModelDefinitionSchema` 全部字段（`id`/`name`/`api`/`baseUrl`/`reasoning`/`thinkingLevelMap`/`input`/`cost`/`contextWindow`/`maxTokens`/`samplingParams`/`headers`/`compat`），没有自有字段。也接受纯数组简写。省略 `api` = 默认协议；写了 `apis` 里的协议就自动用该端点的 `baseUrl`。
+字段 = pi 的 `ModelDefinitionSchema` 全部字段（`id`/`name`/`api`/`baseUrl`/`reasoning`/`thinkingLevelMap`/`input`/`inputLimits`/`cost`/`promptCache`/`contextWindow`/`maxTokens`/`samplingParams`/`headers`/`compat`），没有自有字段；`cost` 里的 `tiers` 等 pi 认识的其它键原样带过。也接受纯数组简写。省略 `api` = 默认协议；写了 `apis` 里的协议就自动用该端点的 `baseUrl`。
+
+`type`（pi 扩展侧的 chat/image/classifier，`ModelDefinitionSchema` 里没有）不在这里：本包只注册 chat 模型，写了会被报告而不是猜。
 
 ### `accounts.json`（可选）= 凭据
 
@@ -163,7 +165,17 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | 密码库 | `"!keepassxc-cli show -q -s -a password ~/secrets.kdbx pi/scnet"` | 也可 `"!pass show scnet/work"`、`"!op read op://vault/item/credential"` |
 | 加密文件 | `"!gpg --batch --decrypt ~/.pi/secrets/scnet.gpg"` | `age` / `sops` 同理，能打印 key 即可 |
 
-`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
+base64 没有原生的值形式（pi 的语法里没有 base64），要内联就把它接进 `!command`。这种命令要**按 bash 写**——它跑在 pi 的 shell 里（见下）：
+
+```json
+{ "main": { "apiKey": "!printf %s 'c2st-…base64…' | openssl base64 -d -A" } }
+```
+
+- `openssl base64 -d -A`：Linux / macOS / Windows(Git Bash) 都有 `openssl`，`-A` 表示单行输出，最省心。
+- `base64 -d`：Linux ✓、Windows 的 Git Bash ✓；macOS 自带的 `base64` 是 BSD 版，解码头是 `-D`（新版也收 `-d`），拿不准就用上一行。
+- 更省事的做法是不内联：配置前先把 base64 解出来，写进 `.env` 用 `$VAR`，或直接写明 + `chmod 600`。
+
+`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。它跑在 **pi 的 shell** 里：Linux/macOS 是平台 shell（`sh -c`），Windows 是 pi 找到的 Git Bash（没装 Git Bash 才回落平台的 `cmd.exe`）——本插件用 pi 同一个 `getShellConfig()` 起命令，所以刷新时与真正请求时看到的是同一个 shell，命令按 bash 写即可。无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
 
 **凭据永远不进仓库**（私有仓库、镜像仓库同理）：`accounts.json` 与 `.env` 属用户层，仓库里只该出现 `provider.json` / `models.json`。别人装本插件用的是自己的 `~/.pi/agent/custom-providers/<id>/accounts.json`，与本项目互不相干。
 
@@ -171,7 +183,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 仓库**不带模型表**（v0.4.0 起）：基底 = 你的 `<id>/models.json`，没有它则该 provider 暂时没有模型，等发现或你补表。因此：
 
-- `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
+- `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost`（含 `tiers`）/ `samplingParams` / `inputLimits` / `promptCache` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning`（anthropic 线连 `thinkingLevelMap` 也继承）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
 - `/custom-providers drift` 仍把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
@@ -181,4 +193,4 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 node tests/run-all.mjs
 ```
 
-14 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`provider-files-test`（目录扫描与校验、接管边界）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+16 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`directory-test`（目录扫描与校验、接管边界、三个载荷文件）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`env-test`（值语法与 `!command` 的 shell 对照 pi 自己的解析器）、`pi-surface-test`（`models.json` 字段表对照 pi 的 `ModelDefinitionSchema`，并逐个字段读写往返）、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
