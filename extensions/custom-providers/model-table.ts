@@ -13,8 +13,8 @@ import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./config.ts";
 import type { CatalogModel, LoadIssue } from "./types.ts";
 import { isObject, numberOr, readJson, serializeJson, stringOr, writeTextAtomic, type JsonObject } from "./util.ts";
 
-/** One model entry = pi's `ModelDefinitionSchema` fields, and nothing else. */
-const MODEL_KEYS = new Set(["id", "name", "api", "baseUrl", "reasoning", "thinkingLevelMap", "input", "cost", "contextWindow", "maxTokens", "samplingParams", "headers", "compat"]);
+/** One model entry = pi's `ModelDefinitionSchema` fields, and nothing else — in its own order. */
+const MODEL_KEYS = new Set(["id", "name", "api", "baseUrl", "reasoning", "thinkingLevelMap", "input", "inputLimits", "cost", "promptCache", "contextWindow", "maxTokens", "samplingParams", "headers", "compat"]);
 
 /**
  * One model entry, read field by field so a single bad value does not discard an
@@ -42,12 +42,18 @@ function readModelEntry(raw: JsonObject, index: number, issues: LoadIssue[]): Ca
 		contextWindow: numberOr(raw.contextWindow) ?? FALLBACK_CONTEXT_WINDOW,
 		maxTokens: numberOr(raw.maxTokens) ?? FALLBACK_MAX_TOKENS,
 		cost: {
+			// The four rates are pi's required ones, normalized here (a bad value becomes 0);
+			// everything else in the user's object (`tiers`) rides along untouched.
+			...cost,
 			input: numberOr(cost?.input) ?? 0,
 			output: numberOr(cost?.output) ?? 0,
 			cacheRead: numberOr(cost?.cacheRead) ?? 0,
 			cacheWrite: numberOr(cost?.cacheWrite) ?? 0,
 		},
 		...(isObject(raw.thinkingLevelMap) ? { thinkingLevelMap: raw.thinkingLevelMap } : {}),
+		...(isObject(raw.inputLimits) ? { inputLimits: raw.inputLimits } : {}),
+		...(isObject(raw.promptCache) ? { promptCache: raw.promptCache } : {}),
+		...(isObject(raw.samplingParams) ? { samplingParams: raw.samplingParams } : {}),
 		...(isObject(raw.headers) ? { headers: raw.headers } : {}),
 		...(isObject(raw.compat) ? { compat: raw.compat } : {}),
 	};
@@ -96,7 +102,7 @@ export function readModelsFile(file: string, issues: LoadIssue[], label = file):
  */
 
 /** Field order of the written file — readable diffs, id first, then pi's own model fields. */
-const FIELD_ORDER: (keyof CatalogModel)[] = ["id", "name", "api", "baseUrl", "reasoning", "input", "contextWindow", "maxTokens", "cost", "thinkingLevelMap", "headers", "compat"];
+const FIELD_ORDER: (keyof CatalogModel)[] = ["id", "name", "api", "baseUrl", "reasoning", "input", "inputLimits", "contextWindow", "maxTokens", "samplingParams", "cost", "promptCache", "thinkingLevelMap", "headers", "compat"];
 
 export function serializeBaseTable(models: readonly CatalogModel[]): string {
 	const rows = models.map((model) => {

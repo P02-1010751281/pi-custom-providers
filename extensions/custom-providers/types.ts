@@ -29,9 +29,20 @@ export interface CatalogModel {
 	api?: string;
 	reasoning: boolean;
 	input: ("text" | "image")[];
+	/** pi's per-model input limits: request size, and the image resize/count profile. */
+	inputLimits?: JsonObject;
 	contextWindow: number;
 	maxTokens: number;
-	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	/** Default sampling parameters for this model; per-request keys override them. */
+	samplingParams?: JsonObject;
+	/**
+	 * pi's cost record: the four rates are normalized (defaulted to 0 — `calculateCost`
+	 * dereferences `cost` on every request), while anything else pi knows (`tiers`) or gains
+	 * later travels with it instead of being dropped by a `sync --write`.
+	 */
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number } & JsonObject;
+	/** pi's prompt-cache hints for this model (how long an entry is expected to live). */
+	promptCache?: JsonObject;
 	thinkingLevelMap?: Partial<Record<CatalogThinkingLevel, string | null>>;
 	/** Per-model endpoint override (a `models.json` entry, or the loader's own stamp). */
 	baseUrl?: string;
