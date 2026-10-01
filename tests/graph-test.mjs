@@ -12,7 +12,8 @@ import { EXT, assert } from "./harness.mjs";
  *      exactly the shape the one cycle this package ever had took,
  *   3. every module is reachable from `index.ts` — an orphan is dead code.
  *
- * `util.ts` is the leaf (it imports nothing); `index.ts` is the only entry pi loads.
+ * `util.ts` and `apis.ts` are the leaves (they import nothing): the first holds the JSON guards
+ * every layer uses, the second pi's vocabulary. `index.ts` is the only entry pi loads.
  */
 const dir = path.join(EXT, "custom-providers");
 const modules = readdirSync(dir)
@@ -61,6 +62,9 @@ assert(reachable.size === modules.length, `every module is reachable from index.
 // The leaf matters: the JSON guards live there, and they are used by the very modules a
 // dependency of `util.ts` would have to come from.
 assert(deps.get("util.ts").length === 0, "util.ts is the import-graph leaf (it must import nothing)");
+// Same for the pi vocabulary: a dependency here would make every layer that speaks pi's
+// protocols depend on that layer too.
+assert(deps.get("apis.ts").length === 0, "apis.ts holds no local dependency (it is pi's vocabulary, and nothing else)");
 
 console.log(`modules: ${modules.length}, no cycles, all reachable from index.ts`);
 console.log("OK");

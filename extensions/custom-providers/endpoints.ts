@@ -10,9 +10,9 @@
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { BUILTIN_APIS, normalizeApi, type ProviderDeclaration } from "./config.ts";
+import { BUILTIN_APIS, normalizeApi } from "./apis.ts";
 import { CREDENTIAL_KEYS } from "./credentials.ts";
-import type { LoadIssue } from "./types.ts";
+import type { Endpoint, EndpointChoice, LoadIssue, ProviderDeclaration } from "./types.ts";
 import { isObject, readJson, serializeJson, stringOr, writeTextAtomic } from "./util.ts";
 
 /** `provider.json` keys this package reads. Everything else is reported, never guessed at. */
@@ -132,4 +132,83 @@ export function writeProviderFile(dir: string, vendor: { id: string; name: strin
 	} catch (error) {
 		return `${vendor.id}: ${String(error)}`;
 	}
+}
+
+/**
+ * Decide a model's endpoint (design §5.1/§5.2). Two steps, no preference chain:
+ *
+ *   1. the model's own `api` when it names a pi protocol, else the effective default;
+ *   2. that protocol's declared endpoint — `apis.<api>` for a non-default protocol.
+ *
+ * A model on the default protocol gets neither `api` nor `baseUrl` stamped (unless it
+ * carries its own `baseUrl`), which keeps `providers.<id>.baseUrl` able to redirect the
+ * default endpoint. A model on another protocol gets both, or pi would speak the default
+ * protocol to the right host. When no endpoint can be resolved for a declared protocol
+ * the model falls back to the default one and the caller reports it.
+ */
+export function resolveModelEndpoint(
+	decl: ProviderDeclaration,
+	layer: JsonObject,
+	model: { id: string; api?: unknown; baseUrl?: unknown },
+): EndpointChoice & { issues: string[] } {
+	const issues: string[] = [];
+	if (layer.api !== undefined && normalizeApi(layer.api) === undefined) {
+		issues.push(`providers api ${JSON.stringify(layer.api)} is not a pi api; using "${decl.api}"`);
+	}
+	const defaultApi = normalizeApi(layer.api) ?? decl.api;
+	const layerBaseUrl = typeof layer.baseUrl === "string" && layer.baseUrl.length > 0 ? layer.baseUrl : undefined;
+	const declared = (api: string): Endpoint | undefined => {
+		if (api === decl.api) return { api, baseUrl: decl.baseUrl, ...(decl.modelsPath ? { modelsPath: decl.modelsPath } : {}), ...(decl.headers ? { headers: decl.headers } : {}) };
+		const extra = decl.apis[api];
+		return extra ? { api, ...extra } : undefined;
+	};
+
+	// The default endpoint: the declared one, unless the user's layer moved the default
+	// protocol (a flipped default keeps its own `apis.<api>` endpoint) or redirected it.
+	let defaultEndpoint = declared(defaultApi);
+	if (!defaultEndpoint && layerBaseUrl) {
+		// A layer `baseUrl` *is* the endpoint for the flipped protocol (§4): keep the declared
+		// discovery path/headers, and do not warn about a missing `apis.<api>`.
+		defaultEndpoint = {
+			api: defaultApi,
+			baseUrl: layerBaseUrl,
+			...(decl.modelsPath ? { modelsPath: decl.modelsPath } : {}),
+			...(decl.headers ? { headers: decl.headers } : {}),
+		};
+	}
+	if (!defaultEndpoint) {
+		const moved = declared(decl.api);
+		issues.push(`no endpoint for the default api "${defaultApi}"; using "${decl.api}"`);
+		defaultEndpoint = { ...(moved ?? { api: decl.api, baseUrl: decl.baseUrl }), api: decl.api };
+	}
+	const defaultBaseUrl = layerBaseUrl ?? defaultEndpoint.baseUrl;
+
+	const requestedApi = normalizeApi(model.api);
+	if (requestedApi === undefined && model.api !== undefined) {
+		issues.push(`${model.id}: api ${JSON.stringify(model.api)} is not a pi api; using "${defaultApi}"`);
+	}
+	const api = requestedApi ?? defaultApi;
+	const own = typeof model.baseUrl === "string" && model.baseUrl.length > 0 ? model.baseUrl : undefined;
+
+	if (api === defaultApi) {
+		return {
+			endpoint: { api: defaultApi, baseUrl: own ?? defaultBaseUrl, ...(defaultEndpoint.modelsPath ? { modelsPath: defaultEndpoint.modelsPath } : {}), ...(defaultEndpoint.headers ? { headers: defaultEndpoint.headers } : {}) },
+			stampApi: false,
+			stampBaseUrl: own !== undefined,
+			issues,
+		};
+	}
+
+	const endpoint = declared(api);
+	const baseUrl = own ?? endpoint?.baseUrl ?? layerBaseUrl;
+	if (!baseUrl) {
+		issues.push(`${model.id}: no endpoint for api "${api}" (declare it under "apis" or set "baseUrl"); using "${defaultApi}"`);
+		return { endpoint: { api: defaultApi, baseUrl: defaultBaseUrl }, stampApi: false, stampBaseUrl: false, issues };
+	}
+	return {
+		endpoint: { api, baseUrl, ...(endpoint?.modelsPath ? { modelsPath: endpoint.modelsPath } : {}), ...(endpoint?.headers ? { headers: endpoint.headers } : {}) },
+		stampApi: true,
+		stampBaseUrl: true,
+		issues,
+	};
 }

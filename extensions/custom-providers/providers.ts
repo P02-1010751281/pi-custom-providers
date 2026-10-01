@@ -7,8 +7,10 @@
  * `sync --write` stores (design §4/§5.2/§5.3).
  */
 import { absorbCompat, type BuiltinCatalog, type CatalogCompat } from "./builtin.ts";
-import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS, applyModelPatch, resolveModelEndpoint, type ProviderDeclaration } from "./config.ts";
-import type { Account, CatalogModel, LoadIssue, ModelCompat, Vendor } from "./types.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
+import { applyModelPatch } from "./config.ts";
+import { resolveModelEndpoint } from "./endpoints.ts";
+import type { Account, CatalogModel, LoadIssue, ModelCompat, ProviderDeclaration, Vendor } from "./types.ts";
 import { isObject, stringOr, type JsonObject } from "./util.ts";
 
 /** Cost of a model we know nothing about. pi dereferences `cost` on every request. */

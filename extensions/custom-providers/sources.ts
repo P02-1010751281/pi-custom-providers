@@ -19,8 +19,7 @@
  * per-request protocol switch is impossible in either shape. A *different product* with its
  * own billing (pi's own `opencode` vs `opencode-go`) would be a second entry here.
  */
-import type { Account } from "./types.ts";
-import type { ProviderDeclaration } from "./config.ts";
+import type { Account, ProviderDeclaration } from "./types.ts";
 
 export interface VendorDefault {
 	/** The pi provider id. */

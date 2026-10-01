@@ -10,7 +10,8 @@ import { agentPath, assert, FIXTURE_MODELS, loadTs, loader, seedDefaultProviders
  * (so `providers.<id>.baseUrl` can still redirect it), stamping both on a model that is not,
  * and rejecting an api pi cannot stream.
  */
-const cfg = await loadTs("extensions/custom-providers/config.ts");
+const apis = await loadTs("extensions/custom-providers/apis.ts");
+const { resolveModelEndpoint } = await loadTs("extensions/custom-providers/endpoints.ts");
 const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
 const compat = await (await loader()).import("@earendil-works/pi-ai");
 
@@ -22,28 +23,28 @@ const anthropicMessagesBaseUrl = DEFAULTS.find((vendor) => vendor.id === "comman
 // `BUILTIN_APIS` is a private const in pi, so our copy is asserted against the registry pi
 // actually populates: a pi build that adds or drops a protocol must fail here.
 const registered = new Set(compat.getApiProviders().map((provider) => provider.api));
-for (const api of cfg.BUILTIN_APIS) assert(registered.has(api), `pi registers the built-in api "${api}"`);
-assert(registered.size === cfg.BUILTIN_APIS.length, `our api list matches pi's registry (${registered.size} vs ${cfg.BUILTIN_APIS.length})`);
+for (const api of apis.BUILTIN_APIS) assert(registered.has(api), `pi registers the built-in api "${api}"`);
+assert(registered.size === apis.BUILTIN_APIS.length, `our api list matches pi's registry (${registered.size} vs ${apis.BUILTIN_APIS.length})`);
 
-assert(cfg.normalizeApi("anthropic") === "anthropic-messages", "the short name maps to pi's id");
-assert(cfg.normalizeApi("Chat") === "openai-completions", "aliases are case-insensitive");
-assert(cfg.normalizeApi("responses") === "openai-responses", "responses is an alias");
-assert(cfg.normalizeApi("openai-completions") === "openai-completions", "a pi id passes through");
-assert(cfg.normalizeApi("bogus") === undefined, "an unknown protocol is rejected instead of passed to pi");
-assert(cfg.normalizeApi(7) === undefined && cfg.normalizeApi("") === undefined, "non-strings are rejected");
+assert(apis.normalizeApi("anthropic") === "anthropic-messages", "the short name maps to pi's id");
+assert(apis.normalizeApi("Chat") === "openai-completions", "aliases are case-insensitive");
+assert(apis.normalizeApi("responses") === "openai-responses", "responses is an alias");
+assert(apis.normalizeApi("openai-completions") === "openai-completions", "a pi id passes through");
+assert(apis.normalizeApi("bogus") === undefined, "an unknown protocol is rejected instead of passed to pi");
+assert(apis.normalizeApi(7) === undefined && apis.normalizeApi("") === undefined, "non-strings are rejected");
 
 const declaration = { api: "openai-completions", baseUrl: "https://a.example/v1", apis: { "anthropic-messages": { baseUrl: "https://a.example/anthropic" } } };
-assert(cfg.resolveModelEndpoint(declaration, {}, { id: "m" }).stampApi === false, "a model without api stays on the default protocol");
-assert(cfg.resolveModelEndpoint(declaration, {}, { id: "m" }).stampBaseUrl === false, "and carries no baseUrl, so providers.<id>.baseUrl can still redirect it");
-const moved = cfg.resolveModelEndpoint(declaration, {}, { id: "m", api: "anthropic" });
+assert(resolveModelEndpoint(declaration, {}, { id: "m" }).stampApi === false, "a model without api stays on the default protocol");
+assert(resolveModelEndpoint(declaration, {}, { id: "m" }).stampBaseUrl === false, "and carries no baseUrl, so providers.<id>.baseUrl can still redirect it");
+const moved = resolveModelEndpoint(declaration, {}, { id: "m", api: "anthropic" });
 assert(moved.endpoint.api === "anthropic-messages" && moved.endpoint.baseUrl === "https://a.example/anthropic", "a model api picks its declared endpoint");
 assert(moved.stampApi && moved.stampBaseUrl, "a moved model is stamped with api + baseUrl (pi would otherwise use the provider's protocol)");
-const own = cfg.resolveModelEndpoint(declaration, {}, { id: "m", api: "openai-responses", baseUrl: "https://b.example" });
+const own = resolveModelEndpoint(declaration, {}, { id: "m", api: "openai-responses", baseUrl: "https://b.example" });
 assert(own.endpoint.api === "openai-responses" && own.stampBaseUrl, "an undeclared protocol is allowed when the model has its own baseUrl");
-const stranded = cfg.resolveModelEndpoint(declaration, {}, { id: "m", api: "google-generative-ai" });
+const stranded = resolveModelEndpoint(declaration, {}, { id: "m", api: "google-generative-ai" });
 assert(stranded.endpoint.api === "openai-completions" && stranded.issues.length === 1, "an undeclared protocol without a baseUrl falls back to the default and is reported");
-assert(cfg.resolveModelEndpoint(declaration, {}, { id: "m", api: "nope" }).issues.length === 1, "an invalid api is reported");
-const flipped = cfg.resolveModelEndpoint(declaration, { api: "anthropic" }, { id: "m" });
+assert(resolveModelEndpoint(declaration, {}, { id: "m", api: "nope" }).issues.length === 1, "an invalid api is reported");
+const flipped = resolveModelEndpoint(declaration, { api: "anthropic" }, { id: "m" });
 assert(flipped.endpoint.api === "anthropic-messages" && flipped.stampApi === false, "providers.<id>.api flips the default protocol without stamping models");
 
 // --- registration: the SCNet vendor keeps both endpoints reachable --------------
@@ -114,6 +115,6 @@ const aliased = await startExtension();
 const opus = aliased.providers.get("commandcode").models.find((model) => model.id === "claude-opus-5");
 assert(opus?.maxTokens === 1234, "the pre-rename `providers.codecommand` block still configures commandcode");
 
-console.log(`apis: ${cfg.BUILTIN_APIS.join(", ")}`);
+console.log(`apis: ${apis.BUILTIN_APIS.join(", ")}`);
 console.log(`scnet endpoints: ${SCNet.declaration.api} ${SCNet.declaration.baseUrl} | anthropic-messages ${SCNetAnthropic}`);
 console.log("OK");

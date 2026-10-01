@@ -9,7 +9,7 @@
  * loaded extension instance (the test harness re-imports for a clean slate).
  */
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
-import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./config.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
 import { conventionCapability } from "./convention.ts";
 import { resolveConfigValue } from "./env.ts";
 import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";

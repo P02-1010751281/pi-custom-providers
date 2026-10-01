@@ -48,8 +48,9 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { normalizeApi } from "./apis.ts";
 import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./builtin.ts";
-import { normalizeApi, providerLayerFor, readModelsConfig } from "./config.ts";
+import { providerLayerFor, readModelsConfig } from "./config.ts";
 import { collectVendors } from "./directory.ts";
 import { configValueForPi, loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";

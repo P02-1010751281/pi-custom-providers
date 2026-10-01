@@ -9,7 +9,7 @@
  * `writeBaseTable` and `init`'s `provider.json` are the package's only two writers (§10/§13).
  * Both go through `util.ts`'s shared codec and atomic write.
  */
-import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./config.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
 import type { CatalogModel, LoadIssue } from "./types.ts";
 import { isObject, numberOr, readJson, serializeJson, stringOr, writeTextAtomic, type JsonObject } from "./util.ts";
 

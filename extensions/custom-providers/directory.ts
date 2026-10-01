@@ -15,7 +15,7 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { readAccountsFile, resolveAccounts } from "./credentials.ts";
-import type { ProviderDeclaration } from "./config.ts";
+import type { ProviderDeclaration } from "./types.ts";
 import { readModelsFile } from "./model-table.ts";
 import { readProviderFile } from "./endpoints.ts";
 import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";

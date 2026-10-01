@@ -9,7 +9,6 @@
  * `apis` (a second protocol endpoint), `modelsPath` (discovery path), `override`
  * (taking over a built-in provider id) and `accounts.json`.
  */
-import type { ProviderDeclaration } from "./config.ts";
 import type { JsonObject } from "./util.ts";
 
 export type CatalogThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -108,5 +107,34 @@ export interface LiveModelRow {
 	contextWindow?: number;
 }
 
+/** One endpoint of one vendor: a protocol plus where it lives. */
+export interface Endpoint {
+	api: string;
+	baseUrl: string;
+	/** Path appended to `baseUrl` when listing models; absent = no discovery for this endpoint. */
+	modelsPath?: string;
+	headers?: JsonObject;
+}
+
+/**
+ * The endpoint table of one vendor, in pi's own vocabulary: `api` + `baseUrl` is the
+ * default endpoint, `apis` holds every additional protocol endpoint (key = pi api id).
+ */
+export interface ProviderDeclaration {
+	api: string;
+	baseUrl: string;
+	modelsPath?: string;
+	headers?: JsonObject;
+	apis: Record<string, Omit<Endpoint, "api">>;
+}
+
+/** The endpoint table a model lands on, plus what must be stamped on its entry. */
+export interface EndpointChoice {
+	endpoint: Endpoint;
+	/** Stamp `api` on the model entry: it is not on the effective default protocol. */
+	stampApi: boolean;
+	/** Stamp `baseUrl`: the model has its own, or its protocol is not the default one. */
+	stampBaseUrl: boolean;
+}
+
 export type { JsonObject } from "./util.ts";
-export type { ProviderDeclaration } from "./config.ts";
