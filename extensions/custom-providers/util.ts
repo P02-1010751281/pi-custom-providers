@@ -26,19 +26,23 @@ export const numberOr = (value: unknown): number | undefined => (typeof value ==
 /** A file read as JSON: its value, or why it could not be read/parsed. `missing` is a fact, not an error. */
 export type JsonRead = { value?: unknown; missing?: boolean; issue?: string };
 
-/** Read a file as JSON. Absent, unreadable and unparseable are three different answers. */
-export function readJson(file: string): JsonRead {
+/**
+ * Read a file as JSON. Absent, unreadable and unparseable are three different answers.
+ * `label` is how the file is named in a message; it defaults to the path, and callers that
+ * report to a user pass the short name the user knows (`models.json`) instead.
+ */
+export function readJson(file: string, label = file): JsonRead {
 	let raw: string;
 	try {
 		raw = readFileSync(file, "utf8");
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { missing: true };
-		return { issue: `cannot read ${file}: ${String(error)}` };
+		return { issue: `cannot read ${label}: ${String(error)}` };
 	}
 	try {
 		return { value: JSON.parse(raw) };
 	} catch (error) {
-		return { issue: `cannot parse ${file}: ${String(error)}` };
+		return { issue: `cannot parse ${label}: ${String(error)}` };
 	}
 }
 

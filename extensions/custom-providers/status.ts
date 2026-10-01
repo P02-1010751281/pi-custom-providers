@@ -46,13 +46,16 @@ export function toastLines(lines: readonly string[], limit = 8): string {
  * already-sorted statuses so the caller decides the order once per command.
  */
 export function problemLines(statuses: readonly ProviderStatus[], globalIssues: readonly LoadIssue[]): string[] {
+	// The directory layer reports an issue with its location in front (`custom-providers/<id>: …`)
+	// while the provider's own status carries the bare message: one problem, two paths. Compare
+	// without the location so only the first of the two is printed.
+	const withoutLocation = (message: string): string => message.replace(/^custom-providers\/[^:]+: /, "");
+	const alreadyReported = new Set(globalIssues.map((issue) => withoutLocation(issue.message)));
 	return [
 		...globalIssues.filter((issue) => issue.level === "error").map((issue) => issue.message),
 		...globalIssues.filter((issue) => issue.level === "warning").map((issue) => issue.message),
 		// Problems a provider's own synthesis reported (endpoint fallbacks, invalid model apis).
-		...[...new Set(statuses.flatMap((status) => status.issues.map((issue) => issue.message)))].filter(
-			(message) => !globalIssues.some((issue) => issue.message === message),
-		),
+		...[...new Set(statuses.flatMap((status) => status.issues.map((issue) => issue.message)))].filter((message) => !alreadyReported.has(withoutLocation(message))),
 		...statuses
 			.filter((status) => status.error)
 			.map((status) => `${status.id}: refresh failed, using ${status.models} model(s)${status.live ? " from the last successful fetch" : " from the base table"} (${status.error})`),

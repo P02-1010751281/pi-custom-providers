@@ -24,23 +24,26 @@ const ACCOUNT_KEYS = new Set(["apiKey", "authHeader", "headers"]);
 
 const ACCOUNT_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** `accounts.json`: credentials only — a model or endpoint key here is a misplacement. */
-export function readAccountsFile(file: string, issues: LoadIssue[]): { accounts: Account[]; defaultPointer?: string; broken: boolean } {
-	const { value, missing, issue } = readJson(file);
+/**
+ * `accounts.json`: credentials only — a model or endpoint key here is a misplacement. `label` is
+ * how the file is named in messages; the path is still what gets read.
+ */
+export function readAccountsFile(file: string, issues: LoadIssue[], label = file): { accounts: Account[]; defaultPointer?: string; broken: boolean } {
+	const { value, missing, issue } = readJson(file, label);
 	if (missing) return { accounts: [], broken: false };
 	if (issue) {
 		issues.push({ level: "error", message: issue });
 		return { accounts: [], broken: true };
 	}
 	if (!isObject(value)) {
-		issues.push({ level: "error", message: `${file}: root must be a JSON object` });
+		issues.push({ level: "error", message: `${label}: root must be a JSON object` });
 		return { accounts: [], broken: true };
 	}
 	const accounts: Account[] = [];
 	let defaultPointer: string | undefined;
 	if (value.default !== undefined) {
 		if (typeof value.default === "string") defaultPointer = value.default;
-		else issues.push({ level: "warning", message: `${file}: "default" must be an account id string` });
+		else issues.push({ level: "warning", message: `${label}: "default" must be an account id string` });
 	}
 	for (const [id, entry] of Object.entries(value)) {
 		if (id === "default") continue;

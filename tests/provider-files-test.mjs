@@ -156,6 +156,27 @@ assert(notify.at(-1).includes('Unknown provider "nope"') && notify.at(-1).includ
 await run("drift");
 assert(typeof notify.at(-1) === "string" && notify.at(-1).length > 0, "`drift` answers with one line");
 
+// --- one problem, one line --------------------------------------------------------
+// The directory scan reports a problem with its location in front, while the provider's own
+// status keeps the bare message: `problemLines` must print it once. It used to compare the two
+// strings literally, so the same problem was printed twice — once with an absolute path.
+const { problemLines } = await loadTs("extensions/custom-providers/status.ts");
+const modelIssue = { level: "warning", message: 'demo-model: unknown key "typo"' };
+const status = (issues) => ({ id: "demo", models: 1, live: true, unknown: [], vanished: [], issues, apis: [], accounts: [] });
+const reported = [{ level: "warning", message: `custom-providers/demo: ${modelIssue.message}` }];
+const once = problemLines([status([modelIssue])], reported);
+assert(once.filter((line) => line.includes("unknown key")).length === 1, `the same problem is reported once, not twice (got ${JSON.stringify(once)})`);
+const both = problemLines([status([modelIssue, { level: "warning", message: "other: a different problem" }])], reported);
+assert(both.length === 2, `dedup keeps a problem the scan did not report (got ${JSON.stringify(both)})`);
+
+write(vendorDir("demo"), "provider.json", provider({ nonsense: 1 }));
+const relative = files
+	.loadDirectory(root, "demo")
+	.issues.map((issue) => issue.message)
+	.join(" | ");
+assert(relative.includes('provider.json: unknown key "nonsense"'), `a vendor message names the file the user knows (got ${relative})`);
+assert(!relative.includes(root), `and carries no absolute path (got ${relative})`);
+
 console.log(`files: ${filesOut}`);
 console.log(`detail: ${detail}`);
 

@@ -53,9 +53,12 @@ function readModelEntry(raw: JsonObject, index: number, issues: LoadIssue[]): Ca
 	};
 }
 
-/** `models.json`: either a bare array (accepted shorthand) or the canonical `{models: []}`. */
-export function readModelsFile(file: string, issues: LoadIssue[]): { models: CatalogModel[]; broken: boolean } {
-	const { value, missing, issue } = readJson(file);
+/**
+ * `models.json`: either a bare array (accepted shorthand) or the canonical `{models: []}`.
+ * `label` is how the file is named in messages; the path is still what gets read.
+ */
+export function readModelsFile(file: string, issues: LoadIssue[], label = file): { models: CatalogModel[]; broken: boolean } {
+	const { value, missing, issue } = readJson(file, label);
 	if (missing) return { models: [], broken: false };
 	if (issue) {
 		issues.push({ level: "error", message: issue });
@@ -63,7 +66,7 @@ export function readModelsFile(file: string, issues: LoadIssue[]): { models: Cat
 	}
 	const rows = Array.isArray(value) ? value : isObject(value) && Array.isArray(value.models) ? value.models : undefined;
 	if (!rows) {
-		issues.push({ level: "error", message: `${file} must be an array or {"models": [...]}` });
+		issues.push({ level: "error", message: `${label} must be an array or {"models": [...]}` });
 		return { models: [], broken: true };
 	}
 	const models: CatalogModel[] = [];

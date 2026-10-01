@@ -18,7 +18,7 @@ import { readAccountsFile, resolveAccounts } from "./credentials.ts";
 import type { ProviderDeclaration } from "./config.ts";
 import { readModelsFile } from "./model-table.ts";
 import { readProviderFile } from "./endpoints.ts";
-import type { LoadIssue, Vendor } from "./types.ts";
+import type { Account, CatalogModel, LoadIssue, Vendor } from "./types.ts";
 import { readJson } from "./util.ts";
 
 /** The three files of one directory, each either absent, parsed, or broken. */
@@ -70,12 +70,16 @@ export function scanProviderRoot(rootDir: string): { dirs: string[]; ignored: st
 export function loadDirectory(rootDir: string, id: string): DirectoryVendor {
 	const directory = path.join(rootDir, id);
 	const issues: LoadIssue[] = [];
-	const provider = readProviderFile(path.join(directory, "provider.json"), issues);
+	// The readers stamp their messages with the file they read. Name it relative to the vendor
+	// directory: the report already says *which* directory it is talking about, and an absolute
+	// path would make the same problem read differently in the scan's list and in the
+	// provider's own status (`problemLines` compares the two).
+	const provider = readProviderFile(path.join(directory, "provider.json"), issues, "provider.json");
 	if (!provider) {
 		return { id, directory, name: id, declaration: { api: "", baseUrl: "", apis: {} }, models: [], loadable: false, accounts: [], override: false, fatal: true, issues };
 	}
-	const models = readModelsFile(path.join(directory, "models.json"), issues);
-	const accounts = readAccountsFile(path.join(directory, "accounts.json"), issues);
+	const models = readModelsFile(path.join(directory, "models.json"), issues, "models.json");
+	const accounts = readAccountsFile(path.join(directory, "accounts.json"), issues, "accounts.json");
 	return {
 		id,
 		directory,
@@ -151,7 +155,9 @@ export function collectVendors(
 			continue;
 		}
 		const loaded = loadDirectory(rootDir, dir);
-		issues.push(...loaded.issues.map((issue) => ({ ...issue, message: `custom-providers/${dir}: ${issue.message.replace(/^\/.*\//, "")}` })));
+		// The scan reports the same text the vendor's own status carries, with the location in
+		// front — one problem, one wording, so `problemLines` can dedupe the two.
+		issues.push(...loaded.issues.map((issue) => ({ ...issue, message: `custom-providers/${dir}: ${issue.message}` })));
 		if (loaded.fatal) {
 			issues.push({ level: "error", message: `custom-providers/${dir}: not registered (fix the file above)` });
 			continue;

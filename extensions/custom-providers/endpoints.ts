@@ -21,76 +21,79 @@ const PROVIDER_KEYS = new Set(["name", "api", "baseUrl", "modelsPath", "headers"
 /** JSON cannot express these, so they are reported instead of being dropped in silence. */
 const UNSUPPORTED_KEYS = new Set(["oauth", "streamSimple", "refreshModels"]);
 
-/** `provider.json`: the endpoint table — no secrets, no compat, no functions. */
-export function readProviderFile(file: string, issues: LoadIssue[]): { declaration: ProviderDeclaration; name?: string; override: boolean } | undefined {
-	const { value, issue } = readJson(file);
+/**
+ * `provider.json`: the endpoint table — no secrets, no compat, no functions. `label` is how the
+ * file is named in messages; the path is still what gets read.
+ */
+export function readProviderFile(file: string, issues: LoadIssue[], label = file): { declaration: ProviderDeclaration; name?: string; override: boolean } | undefined {
+	const { value, issue } = readJson(file, label);
 	if (issue) {
 		issues.push({ level: "error", message: issue });
 		return undefined;
 	}
 	if (!isObject(value)) {
-		issues.push({ level: "error", message: `${file}: root must be a JSON object` });
+		issues.push({ level: "error", message: `${label}: root must be a JSON object` });
 		return undefined;
 	}
 	for (const key of Object.keys(value)) {
 		if (PROVIDER_KEYS.has(key)) continue;
-		if (CREDENTIAL_KEYS.has(key)) issues.push({ level: "warning", message: `${file}: "${key}" belongs in accounts.json` });
-		else if (key === "compat") issues.push({ level: "warning", message: `${file}: "compat" belongs on model entries in models.json` });
-		else if (UNSUPPORTED_KEYS.has(key)) issues.push({ level: "warning", message: `${file}: "${key}" is not supported in provider files` });
-		else issues.push({ level: "warning", message: `${file}: unknown key "${key}"` });
+		if (CREDENTIAL_KEYS.has(key)) issues.push({ level: "warning", message: `${label}: "${key}" belongs in accounts.json` });
+		else if (key === "compat") issues.push({ level: "warning", message: `${label}: "compat" belongs on model entries in models.json` });
+		else if (UNSUPPORTED_KEYS.has(key)) issues.push({ level: "warning", message: `${label}: "${key}" is not supported in provider files` });
+		else issues.push({ level: "warning", message: `${label}: unknown key "${key}"` });
 	}
 
 	const api = normalizeApi(value.api);
 	if (!api) {
-		issues.push({ level: "error", message: `${file}: unsupported api ${JSON.stringify(value.api)} (pi has ${BUILTIN_APIS.join(", ")})` });
+		issues.push({ level: "error", message: `${label}: unsupported api ${JSON.stringify(value.api)} (pi has ${BUILTIN_APIS.join(", ")})` });
 		return undefined;
 	}
 	const baseUrl = stringOr(value.baseUrl);
 	if (!baseUrl) {
-		issues.push({ level: "error", message: `${file}: "baseUrl" is required` });
+		issues.push({ level: "error", message: `${label}: "baseUrl" is required` });
 		return undefined;
 	}
-	if (value.modelsPath !== undefined && !stringOr(value.modelsPath)) issues.push({ level: "warning", message: `${file}: "modelsPath" has the wrong type` });
-	if (value.headers !== undefined && !isObject(value.headers)) issues.push({ level: "warning", message: `${file}: "headers" has the wrong type` });
-	if (value.override !== undefined && typeof value.override !== "boolean") issues.push({ level: "warning", message: `${file}: "override" has the wrong type` });
+	if (value.modelsPath !== undefined && !stringOr(value.modelsPath)) issues.push({ level: "warning", message: `${label}: "modelsPath" has the wrong type` });
+	if (value.headers !== undefined && !isObject(value.headers)) issues.push({ level: "warning", message: `${label}: "headers" has the wrong type` });
+	if (value.override !== undefined && typeof value.override !== "boolean") issues.push({ level: "warning", message: `${label}: "override" has the wrong type` });
 
 	const apis: ProviderDeclaration["apis"] = {};
 	if (value.apis !== undefined && !isObject(value.apis)) {
-		issues.push({ level: "warning", message: `${file}: "apis" has the wrong type` });
+		issues.push({ level: "warning", message: `${label}: "apis" has the wrong type` });
 	} else if (isObject(value.apis)) {
 		for (const [rawApi, entry] of Object.entries(value.apis)) {
 			const extraApi = normalizeApi(rawApi);
 			if (!extraApi) {
-				issues.push({ level: "warning", message: `${file}: apis.${rawApi}: unsupported api` });
+				issues.push({ level: "warning", message: `${label}: apis.${rawApi}: unsupported api` });
 				continue;
 			}
 			if (extraApi === api) {
-				issues.push({ level: "warning", message: `${file}: apis.${extraApi}: already the default endpoint` });
+				issues.push({ level: "warning", message: `${label}: apis.${extraApi}: already the default endpoint` });
 				continue;
 			}
 			if (apis[extraApi]) {
 				// Two spellings of the same protocol (`anthropic` and `anthropic-messages`): the
 				// first one wins instead of the file's key order deciding the endpoint.
-				issues.push({ level: "warning", message: `${file}: apis.${extraApi}: already declared` });
+				issues.push({ level: "warning", message: `${label}: apis.${extraApi}: already declared` });
 				continue;
 			}
 			if (!isObject(entry)) {
-				issues.push({ level: "warning", message: `${file}: apis.${extraApi}: must be an object` });
+				issues.push({ level: "warning", message: `${label}: apis.${extraApi}: must be an object` });
 				continue;
 			}
 			for (const key of Object.keys(entry)) {
 				if (key === "baseUrl" || key === "modelsPath" || key === "headers") continue;
-				if (CREDENTIAL_KEYS.has(key)) issues.push({ level: "warning", message: `${file}: apis.${extraApi}.${key} belongs in accounts.json` });
-				else if (key === "compat") issues.push({ level: "warning", message: `${file}: apis.${extraApi}: "compat" belongs on model entries in models.json` });
-				else issues.push({ level: "warning", message: `${file}: apis.${extraApi}: unknown key "${key}"` });
+				if (CREDENTIAL_KEYS.has(key)) issues.push({ level: "warning", message: `${label}: apis.${extraApi}.${key} belongs in accounts.json` });
+				else if (key === "compat") issues.push({ level: "warning", message: `${label}: apis.${extraApi}: "compat" belongs on model entries in models.json` });
+				else issues.push({ level: "warning", message: `${label}: apis.${extraApi}: unknown key "${key}"` });
 			}
 			const extraBaseUrl = stringOr(entry.baseUrl);
 			if (!extraBaseUrl) {
-				issues.push({ level: "warning", message: `${file}: apis.${extraApi}: "baseUrl" is required` });
+				issues.push({ level: "warning", message: `${label}: apis.${extraApi}: "baseUrl" is required` });
 				continue;
 			}
 			const modelsPath = stringOr(entry.modelsPath);
-			if (entry.modelsPath !== undefined && !modelsPath) issues.push({ level: "warning", message: `${file}: apis.${extraApi}: "modelsPath" has the wrong type` });
+			if (entry.modelsPath !== undefined && !modelsPath) issues.push({ level: "warning", message: `${label}: apis.${extraApi}: "modelsPath" has the wrong type` });
 			apis[extraApi] = {
 				baseUrl: extraBaseUrl,
 				// Absent = inherit `provider.json.modelsPath`; the endpoint resolver decides.
