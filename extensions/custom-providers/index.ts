@@ -64,7 +64,13 @@ import { isObject, stringOr, type JsonObject } from "./util.ts";
 const PROVIDER_ROOT = () => path.join(getAgentDir(), "custom-providers");
 
 /** pi's refresh context: what the model runtime hands a `refreshModels` round. */
-type RefreshContext = { allowNetwork: boolean; signal: AbortSignal; publish: (options: { persist: unknown }) => Promise<unknown>; credential?: { type?: string; key?: string }; stored?: { models?: unknown[] } };
+/**
+ * What our `refreshModels` needs from pi's `RefreshModelsContext` (a structural subset, so
+ * pi's own object fits). `publish` is optional because our own refresh rounds — the command
+ * and session start — do not persist: pi owns the store and re-publishes a refresh it
+ * started itself, and a hand-built `publish` stub would be a lie about what happens.
+ */
+type RefreshContext = { allowNetwork: boolean; signal: AbortSignal; publish?: (options: { persist: unknown }) => Promise<unknown>; credential?: { type?: string; key?: string }; stored?: { models?: unknown[] } };
 
 /** How a command reports: pi's `ctx.ui.notify`, with its two levels. */
 type Notify = (message: string, level?: "info" | "warning") => void;
@@ -144,7 +150,7 @@ function registerEntry(
 			// round adds no information and must not erase a recorded failure.
 			{ keepExisting: !context.allowNetwork },
 		);
-		if (context.allowNetwork && !context.signal.aborted) {
+		if (context.allowNetwork && context.publish && !context.signal.aborted) {
 			await context.publish({
 				persist: {
 					models: result.models.map((model) => ({ ...model, provider: entry.id, api: model.api ?? defaultApi, baseUrl: model.baseUrl ?? providerBaseUrl })),
@@ -229,7 +235,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 		description: "Refresh the Command Code and SCNet model lists",
 		handler: async (_args, ctx) => {
 			for (const item of entries) registerEntry(pi, item.entry, item.layer, builtin, record, item.vendorIssues);
-			for (const item of entries) if (item.refresh) await item.refresh({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
+			for (const item of entries) if (item.refresh) await item.refresh({ allowNetwork: true, signal: new AbortController().signal });
 			const failed = sortedStatuses().filter((status) => status.error);
 			ctx.ui.notify(
 				`Refreshed ${sortedStatuses().reduce((sum, status) => sum + status.models, 0)} subscription models${failed.length > 0 ? `; failed: ${failed.map((status) => status.id).join(", ")}` : ""}`,
@@ -382,7 +388,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 		for (const item of entries) {
 			if (!item.refresh) continue;
 			try {
-				await item.refresh({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
+				await item.refresh({ allowNetwork: true, signal: new AbortController().signal });
 			} catch {
 				// refreshModels never throws by design; a throw here must still not kill startup.
 			}
