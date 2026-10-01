@@ -51,8 +51,9 @@ import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent"
 import { normalizeApi } from "./apis.ts";
 import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./builtin.ts";
 import { providerLayerFor, readModelsConfig } from "./config.ts";
+import { registrationCredential } from "./credentials.ts";
 import { collectVendors } from "./directory.ts";
-import { configValueForPi, loadEnvFile } from "./env.ts";
+import { loadEnvFile } from "./env.ts";
 import { applyLiveModels, endpointKey, lastErrors, liveSnapshots, refreshEntry, vanishedByVendor, vendorEndpoints } from "./live.ts";
 import { diffBaseTable, summarizeDiff, writeBaseTable } from "./model-table.ts";
 import { baseTableView, collectEntries, synthesizeModels, type ModelEntry, type ProviderEntry } from "./providers.ts";
@@ -119,9 +120,7 @@ function registerEntry(
 		return undefined;
 	}
 	const resolved = synthesizeModels(entry, layer, builtin, issues);
-	const accountKey = configValueForPi(entry.account?.apiKey);
-	const envKey = entry.vendor.defaultAccount ? `$${entry.vendor.defaultAccount.envVar}` : undefined;
-	const authHeader = entry.account?.authHeader ?? entry.vendor.defaultAccount?.authHeader;
+	const { apiKey: accountKey, authHeader } = registrationCredential(entry);
 	const name = entry.name;
 
 	// The startup status: what this provider looks like before any network I/O, so the status
@@ -166,7 +165,7 @@ function registerEntry(
 		name,
 		baseUrl: providerBaseUrl,
 		api: defaultApi,
-		...(accountKey ?? envKey ? { apiKey: accountKey ?? envKey } : {}),
+		...(accountKey ? { apiKey: accountKey } : {}),
 		...(authHeader !== undefined ? { authHeader } : {}),
 		models: resolved as unknown as CatalogModel[],
 		refreshModels: refresh,

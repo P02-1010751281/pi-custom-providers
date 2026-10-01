@@ -8,21 +8,29 @@
  * failure from being erased by an offline round. They are per module evaluation, i.e. per
  * loaded extension instance (the test harness re-imports for a clean slate).
  */
-import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
 import { conventionCapability } from "./convention.ts";
-import { resolveConfigValue } from "./env.ts";
+import { discoveryCredential } from "./credentials.ts";
 import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
 import type { LiveModelRow, LoadIssue, Vendor } from "./types.ts";
 import { isObject, numberOr, stringOr, type JsonObject } from "./util.ts";
 
-/** Fetch one endpoint's model list. The auth shape follows the protocol, not the account. */
-async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: string }, headers: JsonObject, apiKey: string | undefined, signal?: AbortSignal): Promise<LiveModelRow[]> {
+/**
+ * Fetch one endpoint's model list. The auth shape is pi's: the api's own default (`anthropic-messages`
+ * authenticates with `x-api-key`), plus `Authorization: Bearer` when the provider asked for it —
+ * pi's `withConfiguredAuth` adds that one on top of the api's default, so the probe sends the same
+ * headers the real request will send, and the shape therefore comes from the credential.
+ */
+async function discover(endpoint: { api: string; baseUrl: string; modelsPath?: string }, headers: JsonObject, credential: { key?: string; authHeader: boolean }, signal?: AbortSignal): Promise<LiveModelRow[]> {
 	if (!endpoint.modelsPath) throw new Error("no modelsPath: no discovery for this endpoint");
-	if (!apiKey) throw new Error("no API key resolved");
+	const key = credential.key;
+	if (!key) throw new Error("no API key resolved");
 	const url = `${endpoint.baseUrl.replace(/\/+$/, "")}${endpoint.modelsPath.startsWith("/") ? endpoint.modelsPath : `/${endpoint.modelsPath}`}`;
 	const timeout = AbortSignal.timeout(10_000);
-	const auth = endpoint.api === "anthropic-messages" ? { "anthropic-version": "2023-06-01", "x-api-key": apiKey } : { Authorization: `Bearer ${apiKey}` };
+	const auth = {
+		...(endpoint.api === "anthropic-messages" ? { "anthropic-version": "2023-06-01", "x-api-key": key } : { Authorization: `Bearer ${key}` }),
+		...(credential.authHeader ? { Authorization: `Bearer ${key}` } : {}),
+	};
 	const response = await fetch(url, {
 		headers: { Accept: "application/json", ...headers, ...auth } as Record<string, string>,
 		signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
@@ -158,24 +166,6 @@ export function vendorEndpoints(vendor: Vendor): { api: string; baseUrl: string;
 	];
 }
 
-/** Credential for one endpoint, in pi's own order: stored → context → account → layer → env. */
-function endpointCredential(entry: ProviderEntry, layer: JsonObject, contextKey: string | undefined): string | undefined {
-	let stored: string | undefined;
-	try {
-		const credential = readStoredCredential(entry.id);
-		stored = credential && typeof credential === "object" && "key" in credential && typeof (credential as { key?: unknown }).key === "string" ? (credential as { key: string }).key : undefined;
-	} catch {
-		stored = undefined;
-	}
-	return (
-		stored ??
-		contextKey ??
-		resolveConfigValue(entry.account?.apiKey) ??
-		resolveConfigValue(stringOr(layer.apiKey)) ??
-		(entry.vendor.defaultAccount ? resolveConfigValue(`$${entry.vendor.defaultAccount.envVar}`) : undefined)
-	);
-}
-
 export async function refreshEntry(
 	entry: ProviderEntry,
 	layer: JsonObject,
@@ -184,7 +174,7 @@ export async function refreshEntry(
 ): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[] }> {
 	const issues: LoadIssue[] = [];
 	const models = synthesizeModels(entry, layer, builtin, issues);
-	const apiKey = endpointCredential(entry, layer, options.contextKey);
+	const credential = discoveryCredential(entry, layer, options.contextKey);
 	// Report the missing credential before any request, naming the file and the built-in
 	// variable so the fix is obvious (and never send the variable *name* as the token).
 	const keyHint = `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json, providers.${entry.id}.apiKey${entry.vendor.defaultAccount ? `, $${entry.vendor.defaultAccount.envVar}` : ""} or run /login ${entry.id}`;
@@ -217,10 +207,10 @@ export async function refreshEntry(
 			continue;
 		}
 		try {
-			if (!apiKey) throw new Error(keyHint);
+			if (!credential.key) throw new Error(keyHint);
 			// The probe is per endpoint, but it only has to succeed once per process: the memo
 			// keeps the result for the cache-only round pi runs right after registration.
-			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, apiKey, options.signal);
+			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, credential, options.signal);
 			const applied = applyLiveModels(list, rows, endpoint.api);
 			// Memoize unless the merged list is empty: an empty answer (a quota-exhausted wire
 			// answers 200 + `[]`) over an empty base must not shadow the persisted snapshot on

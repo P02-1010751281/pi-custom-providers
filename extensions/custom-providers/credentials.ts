@@ -13,9 +13,16 @@
  * Read-only: this package never writes it. `resolveAccounts` is the id policy that follows from
  * the file (design §3.3 ②/§8) — which account registers as the base id, and the case where the
  * base id is deliberately suppressed because the user declared accounts but named none.
+ *
+ * Credential *selection* lives here too, not at the callers: `registrationCredential` (what
+ * `pi.registerProvider` is handed) and `discoveryCredential` (what this package's own `/models`
+ * probe sends, in pi's order). Both callers used to decide a part of it themselves, which is how
+ * the probe's auth shape and the shape pi really sends could drift apart.
  */
+import { readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { configValueForPi, resolveConfigValue } from "./env.ts";
 import type { Account, LoadIssue } from "./types.ts";
-import { isObject, readJson, stringOr } from "./util.ts";
+import { isObject, readJson, stringOr, type JsonObject } from "./util.ts";
 
 /**
  * Credential keys this package accepts *only* in an account: meeting one in `provider.json` is a
@@ -130,4 +137,64 @@ export function resolveAccounts(
 		baseSuppressed: !fallback,
 		issues,
 	};
+}
+
+/**
+ * The two places an account can come from: this directory's `accounts.json` and the shipped
+ * default account (`sources.ts`). Both functions below need nothing else from a vendor entry.
+ */
+type CredentialSource = {
+	id: string;
+	account?: Account;
+	vendor: { defaultAccount?: Account & { envVar: string } };
+};
+
+/**
+ * The `authHeader` a provider asked for: the account's, else the shipped default's (a vendor fact
+ * — a user account that does not mention it does not turn it off). `undefined` means nothing here
+ * declared one, which leaves pi's own provider-level value in charge.
+ */
+function accountAuthHeader(entry: CredentialSource): boolean | undefined {
+	return entry.account?.authHeader ?? entry.vendor.defaultAccount?.authHeader;
+}
+
+/** `readStoredCredential` returns whatever pi stores; only `{ key: string }` is a usable key. */
+function storedKey(id: string): string | undefined {
+	try {
+		const credential = readStoredCredential(id);
+		return credential && typeof credential === "object" && "key" in credential && typeof (credential as { key?: unknown }).key === "string" ? (credential as { key: string }).key : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * What `pi.registerProvider` is handed: the base account's `apiKey` as a *reference* (pi resolves
+ * it at request time, so no secret is read or persisted here) plus the `authHeader` this provider
+ * asked for. `authHeader` stays absent when nothing declared one, which is what lets a
+ * provider-level value in pi's global `models.json` still decide (pi reads
+ * `extension?.authHeader ?? config?.authHeader ?? false`).
+ */
+export function registrationCredential(entry: CredentialSource): { apiKey?: string; authHeader?: boolean } {
+	const apiKey = configValueForPi(entry.account?.apiKey) ?? (entry.vendor.defaultAccount ? `$${entry.vendor.defaultAccount.envVar}` : undefined);
+	const authHeader = accountAuthHeader(entry);
+	return { ...(apiKey ? { apiKey } : {}), ...(authHeader !== undefined ? { authHeader } : {}) };
+}
+
+/**
+ * The credential *this package's own* discovery request sends — pi has no API that answers "which
+ * credential would you use for this provider?" — in pi's own order: a credential pi has stored
+ * for it, the one pi is offering this session, the account's, the provider layer of pi's global
+ * `models.json`, then the shipped default account's variable. The *shape* travels with it:
+ * `authHeader` decides whether the key also goes out as `Authorization: Bearer`, so `live.ts`
+ * builds the probe's headers from this one answer instead of deciding the shape itself.
+ */
+export function discoveryCredential(entry: CredentialSource, layer: JsonObject, contextKey?: string): { key?: string; authHeader: boolean } {
+	const key =
+		storedKey(entry.id) ??
+		contextKey ??
+		resolveConfigValue(entry.account?.apiKey) ??
+		resolveConfigValue(stringOr(layer.apiKey)) ??
+		(entry.vendor.defaultAccount ? resolveConfigValue(`$${entry.vendor.defaultAccount.envVar}`) : undefined);
+	return { ...(key ? { key } : {}), authHeader: accountAuthHeader(entry) ?? false };
 }
