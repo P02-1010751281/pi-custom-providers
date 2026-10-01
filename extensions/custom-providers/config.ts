@@ -14,10 +14,9 @@
  * `models.json` stays read-only: this package writes user files only through
  * `custom-providers sync --write` (`model-table.ts`).
  */
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { isObject, type JsonObject } from "./util.ts";
+import { isObject, readJson, type JsonObject } from "./util.ts";
 
 
 /**
@@ -185,23 +184,16 @@ export function resolveModelEndpoint(
 /**
  * Read `models.json`. A missing file is the normal state (all settings then come from
  * the environment), so it reports no issue; malformed JSON and a non-object root do,
- * because both would silently discard every override.
+ * because both would silently discard every override. It goes through the same reader the
+ * payload files use — "read a JSON file" is one problem, with one set of answers
+ * (absent / unreadable / unparseable).
  */
 export function readModelsConfig(): { config: JsonObject; issue?: string } {
-	let raw: string;
-	try {
-		raw = readFileSync(path.join(getAgentDir(), "models.json"), "utf8");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return { config: {} };
-		return { config: {}, issue: `cannot read models.json: ${String(error)}` };
-	}
-	try {
-		const parsed = JSON.parse(raw);
-		if (!isObject(parsed)) return { config: {}, issue: "models.json must be a JSON object" };
-		return { config: parsed };
-	} catch (error) {
-		return { config: {}, issue: `cannot parse models.json: ${String(error)}` };
-	}
+	const { value, issue } = readJson(path.join(getAgentDir(), "models.json"), "models.json");
+	if (issue) return { config: {}, issue };
+	if (value === undefined) return { config: {} };
+	if (!isObject(value)) return { config: {}, issue: "models.json must be a JSON object" };
+	return { config: value };
 }
 
 /**
