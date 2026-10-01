@@ -35,11 +35,15 @@ const loaded = files.loadDirectory(root, "demo");
 assert(loaded.loadable && !loaded.fatal, "a valid provider.json loads");
 assert(loaded.declaration.api === "openai-completions" && loaded.declaration.modelsPath === "/models", "the declaration is read in pi's vocabulary");
 
-write(vendorDir("demo"), "provider.json", provider({ apiKey: "$SECRET", compat: { supportsStore: false }, oauth: "radius", nonsense: 1, envVar: "PROBE_KEY" }));
+write(vendorDir("demo"), "provider.json", provider({ apiKey: "$SECRET", compat: { supportsStore: false }, models: [{ id: "x" }], modelOverrides: { x: { contextWindow: 1 } }, oauth: "radius", nonsense: 1, envVar: "PROBE_KEY" }));
 const noisy = files.loadDirectory(root, "demo");
 const messages = noisy.issues.map((issue) => issue.message).join(" | ");
 assert(messages.includes('"apiKey" belongs in accounts.json'), `a credential in provider.json is reported (got: ${messages})`);
 assert(messages.includes('"compat" belongs on model entries'), "a compat block in provider.json is reported");
+// Model-side keys say where they do belong — this provider's `models.json`, which is the only
+// model table this package knows (`sync --write` is its one writer).
+assert(messages.includes('"models" belongs in models.json'), `a model table in provider.json is pointed at models.json (got: ${messages})`);
+assert(messages.includes('"modelOverrides" belongs on model entries in models.json'), "and so is a per-model override");
 assert(messages.includes('"oauth" is not supported'), "a JSON-inexpressible key is reported");
 assert(messages.includes('unknown key "nonsense"'), "an unknown key is reported");
 // `envVar` names the variable of a *shipped default* account (`sources.ts`); a user writes a

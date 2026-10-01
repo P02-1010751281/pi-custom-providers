@@ -24,6 +24,17 @@ const ENDPOINT_KEYS = new Set(["baseUrl", "modelsPath", "headers"]);
  */
 const PROVIDER_KEYS = new Set(["name", "api", "apis", "override", ...ENDPOINT_KEYS]);
 
+/**
+ * pi provider-config keys this package reads on the *model* side, with where they belong: `compat`
+ * is a model field, `modelOverrides` patches model entries, `models` is the table itself — and the
+ * one model table here is this provider's `models.json` (its only writer is `sync --write`).
+ */
+const MODEL_TABLE_HINTS: Record<string, string> = {
+	compat: `belongs on model entries in models.json`,
+	models: `belongs in models.json`,
+	modelOverrides: `belongs on model entries in models.json`,
+};
+
 /** JSON cannot express these, so they are reported instead of being dropped in silence. */
 const UNSUPPORTED_KEYS = new Set(["oauth", "streamSimple", "refreshModels"]);
 
@@ -44,7 +55,7 @@ export function readProviderFile(file: string, issues: LoadIssue[], label = file
 	for (const key of Object.keys(value)) {
 		if (PROVIDER_KEYS.has(key)) continue;
 		if (CREDENTIAL_KEYS.has(key)) issues.push({ level: "warning", message: `${label}: "${key}" belongs in accounts.json` });
-		else if (key === "compat") issues.push({ level: "warning", message: `${label}: "compat" belongs on model entries in models.json` });
+		else if (Object.hasOwn(MODEL_TABLE_HINTS, key)) issues.push({ level: "warning", message: `${label}: "${key}" ${MODEL_TABLE_HINTS[key]}` });
 		else if (UNSUPPORTED_KEYS.has(key)) issues.push({ level: "warning", message: `${label}: "${key}" is not supported in provider files` });
 		else issues.push({ level: "warning", message: `${label}: unknown key "${key}"` });
 	}
