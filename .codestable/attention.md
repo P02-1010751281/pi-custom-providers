@@ -21,7 +21,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 ## 已知技术债（明确未做，不是遗漏）
 
 - 当前没有待办项（2026-10-01 清零）：`index.ts` 编排器已拆分（见「路径与目录约定」）、测试脚手架合并到 `harness.mjs`、账号撞 id 检查已实现（见「引擎行为（v4.0）」）。
-- **已闭合（2026-10-01，第二轮审计 F1–F12）**：① `samplingParams`/`inputLimits`/`promptCache`/`cost.tiers` 只被接受、不被读（现全部读写往返）；② `envVar` 被三处说成用户键却无处可写（现只属出厂默认账号）；③ `config.ts` 手抄第二份 JSON 读（现走 `util.readJson`，为此加了 `label`）；④ 同一问题报两遍（读侧改相对名 + `problemLines` 去重）；⑤ `!command` 用平台 shell，而 pi 在 Windows 用 Git Bash（现直接用 pi 的 `getShellConfig()`）；⑥ `publish` 桩（现可选）；⑦ `config.ts` 三合一（拆出 `apis.ts`，端点落法交还 `endpoints.ts`，类型交还 `types.ts`）；⑧ 模型字段表与值语法无 pin（现由 `pi-surface-test`/`env-test` 对着 pi 自己的 schema 与解析器断言）。
+- **已闭合（2026-10-01，第二轮审计 F1–F12）**：① `samplingParams`/`inputLimits`/`promptCache`/`cost.tiers` 只被接受、不被读（现全部读写往返）；② `envVar` 被三处说成用户键却无处可写（现只属出厂默认账号）；③ `config.ts` 手抄第二份 JSON 读（现走 `util.readJson`，为此加了 `label`）；④ 同一问题报两遍（读侧改相对名 + `problemLines` 去重）；⑤ `!command` 用平台 shell，而 pi 在 Windows 用 Git Bash（现直接用 pi 的 `getShellConfig()`）；⑥ `publish` 桩（现可选）；⑦ `config.ts` 三合一（拆出 `apis.ts`，端点落法交还 `endpoints.ts`，类型交还 `types.ts`）；⑧ 模型字段表与值语法无 pin（现由 `pi-surface-test`/`env-test` 对着 pi 自己的 schema 与解析器断言）；⑨ **F12**：发现探针的凭据优先级写在 `live.ts`、auth 形态按协议自定，而 pi 按 provider 的 `authHeader` 定 → 两者可能分岔（现一并收进 `credentials.ts` 的 `discoveryCredential`，探针发 pi 会发的头：协议默认 + `authHeader` 补 `Authorization: Bearer`；`credential-test.mjs` 守）；⑩ `provider.json` 里写 pi 的 `models`/`modelOverrides` 只得一句通用 unknown（现点名指向本目录的 `models.json`——模型表只有这一个家，pi 全局 `models.json` 的第 3/4 层是补丁层）。
 - **已闭合（2026-09-30）**：`<id>/models.json` 曾被两个文件拥有（`provider-files.ts` 校验读、`sync-models.ts` 裸读/diff/写），`sync` 一条命令解析两次、两套规则。现在读写同处 `model-table.ts`（`d10b467` 合并、`f1bfcc0` 按载荷拆开），`runSync` 用本次命令重扫得到的 `vendor.models` 当磁盘基底表，一条命令只解析一次；`readBaseTable` 已删除。
 - **层序约束（2026-09-30）**：模块只 import 同层或更低层，`graph-test` 守无环与可达（层表见「分层与接口」）。
 
@@ -40,7 +40,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 测试
 
-- `node tests/run-all.mjs` 跑全部（16 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `directory-test.mjs` / `accounts-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `env-test.mjs` / `pi-surface-test.mjs` / `pi-native-test.mjs`。
+- `node tests/run-all.mjs` 跑全部（17 个）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑 `node tests/apis-test.mjs` / `directory-test.mjs` / `accounts-test.mjs` / `credential-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `env-test.mjs` / `pi-surface-test.mjs` / `pi-native-test.mjs`。
+- `credential-test.mjs` 守发现探针的凭据：顺序（本次会话 → 账号 → pi 全局 `models.json` 的 provider 层）、auth 形态（协议默认 + `authHeader` 补 `Authorization: Bearer`）、以及无凭据时不发请求。
 - `env-test.mjs` 把 `env.ts` 的值语法（含 `!command` 跑在哪个 shell）逐例对照 pi 自己的 `resolveConfigValueUncached`；`pi-surface-test.mjs` 把 `MODEL_KEYS` 与 pi 的 `ModelDefinitionSchema` 双向对照（从 `dist/core/model-config.js` 读，pi 不导出它）并做全字段读写往返。这两个事实 pi 都不导出，只能这样钉。`graph-test.mjs` 另守 `apis.ts` 与 `util.ts` 两个图叶子（词汇层不许长出依赖）。
 - 测试通过 pi 自己的 jiti loader 加载 TS（见 `tests/harness.mjs`），不写 `~/.pi`；`PI_PKG` 可指定 pi 安装目录。
 - `tests/harness.mjs` 在导入被测代码前把 `PI_CODING_AGENT_DIR` 指向临时目录：不这样会被 `getAgentDir()` 带回你真实的 `~/.pi/agent/models.json`，断言会随本机配置变化（曾因此把 scnet 的 `compat` 覆盖进测试）。
@@ -61,7 +62,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `extensions/custom-providers/`：`types.ts` 共享类型（手写）、`sources.ts` 端点表（手写）、`config.ts` pi 全局 `models.json` 层（第 3 层复刻：`readModelsConfig`/`providerLayerFor`/`applyModelPatch`）、`apis.ts` pi 的 api 词汇（协议 id + 别名 + `FALLBACK_CONTEXT_WINDOW`/`FALLBACK_MAX_TOKENS`；图叶子）、`env.ts` .env 解析 + pi 值语法解析、`builtin.ts` 内置目录交叉校验与 compat 吸收、`convention.ts` 未知新 id 的能力惯例兜底（同族继承 + 家族名单）、`directory.ts` **目录层**（扫描 / `loadDirectory` 汇编三个载荷 / 接管白名单 / `vendorFromDirectory` / `collectVendors`）、`endpoints.ts` 端点表（读 + `init` 的 `writeProviderFile`）、`model-table.ts` 模型基底表（读 + `sync --write` 的 `FIELD_ORDER`/`serializeBaseTable`/`diffBaseTable`/`writeBaseTable`）、`credentials.ts` 凭据引用（只读 + `resolveAccounts` 账号 id 策略）、`providers.ts` 目录 → 可注册 provider（条目展开 + 分层合并 + 基底视图）、`live.ts` 发现与「wire 答案怎么并进表」的规则（含进程内 `liveSnapshots`/`vanishedByVendor`/`lastErrors`）、`status.ts` 每 provider 状态与问题文本、`util.ts` JSON 编解码与落盘词汇（`readJson`/`JsonRead`、`serializeJson`、`writeTextAtomic` + 对象类型 + 三个守卫；依赖图的叶子，只 import `node:fs`/`node:path`，不 import 任何本地模块）、`index.ts` 扩展接线（`registerEntry`、`statusOf`、五个命令分支 `runInit`/`runDrift`/`runFiles`/`runSync`/`runStatus`、钩子）。`tests/fixtures/models.json` 是测试用的模型表。
 - pi 全局的 `models.json` 只读：本扩展把它当覆盖层，从不写回。本扩展只写自己目录里的文件：`provider.json`（`init`）与 `models.json`（`sync --write`）。
 - 一个 provider = 一个 **vendor**（不是一条线）：SCNet 的两条线注册成一个 `scnet`，第二条线由 `provider.json` 的 `apis."anthropic-messages"` 描述，模型级 `api` 选线；凭据是 provider 级（一条 key）。
-- `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（16 文件 / ~2370 行）：**目录是能力单位（一目录一功能）；文件 = 一个数据单元（它的读/写/词汇）或一段变换**（阶段是顺序，一段可以消费多个单元）。这条判据已四次落地：编排器拆出四个模块（13 文件）、`<id>/models.json` 的读写从两个文件合并（13→12）、三个载荷各自成文件而目录留作装配（12→15）、`config.ts` 拆出 `apis.ts` 并把端点落法交还端点单元（15→16）。可机械判定：① 某文件拥有第二个数据单元 ⇒ 拆；② 某数据单元有两个读者/写者 ⇒ 合；③ 出现第二个**独立能力** ⇒ 那是同级扩展 `extensions/<name>/index.ts`，不是本目录的子目录。**不用文件数/行数当触发线**（目录不会因为文件多而变成另一种东西）。
+- `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（16 文件 / ~2450 行）：**目录是能力单位（一目录一功能）；文件 = 一个数据单元（它的读/写/词汇）或一段变换**（阶段是顺序，一段可以消费多个单元）。这条判据已四次落地：编排器拆出四个模块（13 文件）、`<id>/models.json` 的读写从两个文件合并（13→12）、三个载荷各自成文件而目录留作装配（12→15）、`config.ts` 拆出 `apis.ts` 并把端点落法交还端点单元（15→16）。可机械判定：① 某文件拥有第二个数据单元 ⇒ 拆；② 某数据单元有两个读者/写者 ⇒ 合；③ 出现第二个**独立能力** ⇒ 那是同级扩展 `extensions/<name>/index.ts`，不是本目录的子目录。**不用文件数/行数当触发线**（目录不会因为文件多而变成另一种东西）。
 - **层序不靠目录承载**：层序的真相是依赖图（`graph-test`）+「分层与接口」那张表。给层开子目录＝同一事实的第二份副本，会和依赖图漂移。触发条件（到那时也优先拆能力）：文件 >20、或某一层自身 ≥5 个文件、或出现第二个能力。
 - `tests/` **必须保持扁平**：`run-all.mjs` 是 `readdirSync` 单层扫描（不递归），放进子目录的测试会静默不被执行。`tests/fixtures/` 是数据不是测试（当前唯一的子目录）。
 - `.codestable/reference/`（12 份框架文档）与 `.codestable/gates/` 由 CodeStable 插件管理（`.codestable/runtime-manifest.json` 的 `managed_paths`，`updated_by: codestable-runtime-sync`）：**手改会被下次同步覆盖**，项目自己的文档是 `attention.md` 与 `features/<epic>/`。
@@ -81,7 +82,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | 2 | 账号/id 分配 | `accounts` + `default` 指针 + pi 已有 id | `default` 占基 id、其余 `<id>-<name>`；撞车跳过并报告 | `credentials.ts resolveAccounts` → `directory.ts collectVendors` → `providers.ts collectEntries` |
 | 3 | 分层合成 | ①`<id>/models.json` ②`provider.json` ③pi 全局 `providers.<id>` ④`modelOverrides` | 逐字段 patch 叠链；`baseUrl = config.baseUrl ?? model.baseUrl`；每模型落端点（默认协议不带 `api`）；headers 逐层合并后贴到条目；内置目录白名单吸收（`providers.ts:128`，注册与刷新两条路径都走） | `config.ts readModelsConfig`/`providerLayerFor`/`applyModelPatch`（pi 全局层）→ `providers.ts synthesizeModels`（装配；端点落法调 `endpoints.ts resolveModelEndpoint`）← `builtin.ts absorbCompat` |
 | 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 | `providers.ts baseTableView`（视图变换）+ `index.ts registerEntry`（注册 + `statusOf` 记账） |
-| 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | 按协议选 auth；旧快照当**基底条目**恢复（保参数）；只增不删；失败只记 `lastErrors`、保旧快照（能力字段走 `convention.ts`） | `live.ts vendorEndpoints`/`discover`/`mergeStoredSnapshot`/`applyLiveModels`/`refreshEntry` |
+| 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | auth 形态也照 pi：按协议默认（anthropic 用 `x-api-key`）+ `authHeader` 时补 `Authorization: Bearer`（pi 的 `withConfiguredAuth` 就是这两个头）；旧快照当**基底条目**恢复（保参数）；只增不删；失败只记 `lastErrors`、保旧快照（能力字段走 `convention.ts`） | `live.ts vendorEndpoints`/`discover`/`mergeStoredSnapshot`/`applyLiveModels`/`refreshEntry` |
 | 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 | `status.ts problemLines`/`toastLines`/`apiSplit`（报告文本）；`index.ts` 的命令分支只负责路由与 `notify` |
 | 7 | 写回（唯二出口） | 阶段 5 的发现结果 / 工厂端点 | `sync --write`：基底 ⊕ 发现 → diff → 写盘（`.bak`）；`init`：写 `provider.json` | `model-table.ts writeBaseTable`/`diffBaseTable`/`serializeBaseTable`、`endpoints.ts writeProviderFile`（落盘都走 `util.ts writeTextAtomic`） |
 
@@ -98,7 +99,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较） | 读 |
 | `endpoints.ts` | `<id>/provider.json`：端点表（读 + `init` 写） | 读 + 写 |
 | `model-table.ts` | `<id>/models.json`：模型基底表（读 + `sync --write` 的 diff/写） | 读 + 写 |
-| `credentials.ts` | `<id>/accounts.json`：凭据**引用**（只读）+ 账号 id 策略 `resolveAccounts` | 读 |
+| `credentials.ts` | `<id>/accounts.json`：凭据**引用**（只读）+ 账号 id 策略 `resolveAccounts` + 凭据选择（`registrationCredential` 给 pi、`discoveryCredential` 给自家探针） | 读 |
 | `directory.ts` | **provider 目录本身**：扫描、接管白名单、id 命名空间、三个载荷结果的装配 | 读（装配） |
 | `providers.ts` | 装配（vendor → 可注册 provider） | 变换 |
 | `live.ts` | 上游 `/models` 答案 + pi 快照 | 读（网络）+ 合并 |
@@ -117,7 +118,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | 载荷 | 用户文件的读（其中两种可写）：三个目录载荷 + pi 全局 `models.json` | `JsonRead` → 各载荷结构 | `endpoints.ts` `model-table.ts` `credentials.ts` `config.ts` |
 | 封装边界（目录） | 一个目录 = 一个 vendor：扫描、接管白名单、id 命名空间、装配三个载荷的结果 | 载荷 → `Vendor` | `directory.ts` |
 | 合成 | 4 层补丁链 → pi 可注册的模型 + 基底视图 | `Vendor` → `ProviderEntry` → `ModelEntry` → 注册载荷 | `providers.ts`（+ `builtin.ts`/`convention.ts` 提供能力） |
-| 会话 / 链路 | 发现与快照合并；真发 HTTP（`/models`）、按协议选 auth | `LiveModelRow` → `ModelEntry[]` | `live.ts`（凭据来自 `env.ts`） |
+| 会话 / 链路 | 发现与快照合并；真发 HTTP（`/models`）、auth 形态照 pi（协议默认 + `authHeader`） | `LiveModelRow` → `ModelEntry[]` | `live.ts`（凭据来自 `credentials.ts`） |
 | 编排 | 顺序与入口、pi 的注册与刷新钩子 | 全部 | `index.ts` |
 | 带外管理 | 不在数据路径上：`status`/`drift`/`files`/`sync --write` | `ProviderStatus[]` → 文本；`BaseTableDiff` → 文件 | `status.ts` + `index.ts` 命令分支 |
 
@@ -132,7 +133,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 ### 环境变量与凭证
 
 - `CMD_API_KEY`（Command Code）、`SCNET_API_KEY`（SCNet 两条线）。
-- 凭据是**引用**不是字面量：`accounts.json` 的 `apiKey` 走 pi 的值语法 —— `sk-…`（明文，`$$`/`$!` 转义前导 `$`/`!`）、`$VAR`/`${VAR}`/裸 `UPPER_SNAKE`（环境变量）、`!command`（keyring / 密码管理器：`!secret-tool lookup …`、`!kwallet-query …`、`!pass show …`、`!op read …`）。**扩展传递引用、不在自己的路径上把它解析成字面量**（`live.ts endpointCredential` 的解析只用于判断「有没有凭据」、决定要不要发请求），秘密因此不会落进 pi 的 `models-store.json`；明文只是一种引用，README 已警告 `accounts.json` 要 gitignore + `chmod 600`。
+- 凭据是**引用**不是字面量：`accounts.json` 的 `apiKey` 走 pi 的值语法 —— `sk-…`（明文，`$$`/`$!` 转义前导 `$`/`!`）、`$VAR`/`${VAR}`/裸 `UPPER_SNAKE`（环境变量）、`!command`（keyring / 密码管理器：`!secret-tool lookup …`、`!kwallet-query …`、`!pass show …`、`!op read …`）。**扩展传递引用、不在自己的路径上把它解析成字面量**（`credentials.ts discoveryCredential` 的解析只用于判断「有没有凭据」、决定要不要发请求），秘密因此不会落进 pi 的 `models-store.json`；明文只是一种引用，README 已警告 `accounts.json` 要 gitignore + `chmod 600`。
 - 启动时从 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐，已存在的环境变量不覆盖。
 - `!command` 跑在 pi 的 shell 里：非 Windows 是 `sh -c`（Node 的 `execSync` 默认 `shell: true` → `/bin/sh`，Debian/Ubuntu 上即 dash），Windows 是 pi 找到的 Git Bash（`getShellConfig()`；没装 Git Bash 才回落 `cmd.exe`）。扩展在发现刷新时也要解同一个值（只用它判「有没有凭据」），所以两边必须用**同一个** shell —— `env.ts` 现在直接用 pi 导出的 `getShellConfig()`（同 argv/stdin 传输、同 10s 超时、同 ENOENT 回落）。推论：命令按 **POSIX sh** 写，`[[`/`<<<` 这类 bash 语法在 dash 上不成立。base64 没有原生的值形式，只能借 `!command`；README 给了 Linux/macOS/Windows 都成立的写法。
 - 仓库与 README 不写密钥。

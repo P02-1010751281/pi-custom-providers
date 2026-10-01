@@ -91,7 +91,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `apis` | 否 | 额外协议端点，键 = pi 的 api 值，值 = `{ baseUrl(必填), modelsPath?, headers? }`。省略 `modelsPath` = 继承 `provider.json.modelsPath`。 |
 | `override` | 否 | 允许接管 pi 已知 provider id（如自建 `anthropic` 代理）。不加则跳过并报告。 |
 
-`apiKey` / `authHeader` / `compat` 写在这里会被**报告并忽略**：凭据只属 `accounts.json`，compat 只属模型条目（pi 只认模型级 compat）。从 pi 自带的 provider 配置里抄过来的 `models` / `modelOverrides` 同理（模型表就是 `models.json`），`oauth` 不在支持范围（报告后忽略）。
+`apiKey` / `authHeader` / `compat` / `models` / `modelOverrides` 写在这里会被**报告并忽略**，消息会指明它们该去哪：凭据只属 `accounts.json`；`compat` 是模型字段、`modelOverrides` 是逐条模型补丁，都属模型条目；`models` 整张表属本目录的 `models.json`（`sync --write` 是它唯一的写出口）。pi 全局 `models.json` 的 `providers.<id>` 与 `modelOverrides` 是**补丁层**（见分层表 3/4），不是第二个模型表之家。`oauth` 不在支持范围（报告后忽略）。
 
 ### `models.json`（可选）= 模型基底表
 
@@ -193,4 +193,4 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 node tests/run-all.mjs
 ```
 
-16 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`directory-test`（目录扫描与校验、接管边界、三个载荷文件）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`env-test`（值语法与 `!command` 的 shell 对照 pi 自己的解析器）、`pi-surface-test`（`models.json` 字段表对照 pi 的 `ModelDefinitionSchema`，并逐个字段读写往返）、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+17 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`directory-test`（目录扫描与校验、接管边界、三个载荷文件）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`credential-test`（发现探针用哪份凭据、auth 形态照 pi：协议默认 + `authHeader` 补 `Authorization: Bearer`）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`env-test`（值语法与 `!command` 的 shell 对照 pi 自己的解析器）、`pi-surface-test`（`models.json` 字段表对照 pi 的 `ModelDefinitionSchema`，并逐个字段读写往返）、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
