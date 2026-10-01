@@ -2,7 +2,7 @@
 
 pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型表由你的目录（`models.json`）或实时发现提供，配置词汇全部用 pi 自己的字段。
 
-安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.4.0`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.4.0 = 移除出厂模型表（纯目录驱动：`init` 只写端点，模型靠 `models.json` 或发现），v0.3.0 = 未知新 id 的 A+B 惯例兜底 + 消失 id 报告，v0.2.4 = providers 只来自目录（无内置 id；旧装用 `/custom-providers init` 补目录），v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。
+安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.4.0`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.4.0 = 移除出厂模型表（纯目录驱动：`init` 只写端点，模型靠 `models.json` 或发现），v0.3.0 = 未知新 id 的 A+B 惯例兜底 + 消失 id 报告，v0.2.4 = providers 只来自目录（无内置 id；旧装用 `/custom-providers init` 补目录），v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。更新日志见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 为什么独立成包
 
