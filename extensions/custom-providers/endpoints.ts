@@ -15,8 +15,14 @@ import { CREDENTIAL_KEYS } from "./credentials.ts";
 import type { Endpoint, EndpointChoice, LoadIssue, ProviderDeclaration } from "./types.ts";
 import { isObject, readJson, serializeJson, stringOr, writeTextAtomic } from "./util.ts";
 
-/** `provider.json` keys this package reads. Everything else is reported, never guessed at. */
-const PROVIDER_KEYS = new Set(["name", "api", "baseUrl", "modelsPath", "headers", "apis", "override"]);
+/** The fields of one endpoint — `Endpoint` minus `api`, which is the key it is written under. */
+const ENDPOINT_KEYS = new Set(["baseUrl", "modelsPath", "headers"]);
+
+/**
+ * `provider.json` keys this package reads: the file's own (`name`/`api`/`apis`/`override`) plus
+ * the default endpoint's. Everything else is reported, never guessed at.
+ */
+const PROVIDER_KEYS = new Set(["name", "api", "apis", "override", ...ENDPOINT_KEYS]);
 
 /** JSON cannot express these, so they are reported instead of being dropped in silence. */
 const UNSUPPORTED_KEYS = new Set(["oauth", "streamSimple", "refreshModels"]);
@@ -82,7 +88,7 @@ export function readProviderFile(file: string, issues: LoadIssue[], label = file
 				continue;
 			}
 			for (const key of Object.keys(entry)) {
-				if (key === "baseUrl" || key === "modelsPath" || key === "headers") continue;
+				if (ENDPOINT_KEYS.has(key)) continue;
 				if (CREDENTIAL_KEYS.has(key)) issues.push({ level: "warning", message: `${label}: apis.${extraApi}.${key} belongs in accounts.json` });
 				else if (key === "compat") issues.push({ level: "warning", message: `${label}: apis.${extraApi}: "compat" belongs on model entries in models.json` });
 				else issues.push({ level: "warning", message: `${label}: apis.${extraApi}: unknown key "${key}"` });

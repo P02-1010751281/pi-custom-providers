@@ -57,10 +57,18 @@ write(vendorDir("demo"), "provider.json", provider({ baseUrl: undefined }));
 assert(files.loadDirectory(root, "demo").fatal, "a missing baseUrl is fatal");
 write(vendorDir("demo"), "provider.json", "{ not json");
 assert(files.loadDirectory(root, "demo").fatal, "malformed provider.json is fatal");
-write(vendorDir("demo"), "provider.json", provider({ apis: { "anthropic-messages": { baseUrl: "https://demo.example/anthropic" }, "openai-completions": { baseUrl: "https://dupe.example" }, "anthropic": { baseUrl: "https://alias.example" }, bogus: { baseUrl: "https://x.example" }, "openai-responses": {} } }));
+write(vendorDir("demo"), "provider.json", provider({ apis: { "anthropic-messages": { baseUrl: "https://demo.example/anthropic", modelsPath: "/v3/models", headers: { "x-api": "$TOKEN" } }, "openai-completions": { baseUrl: "https://dupe.example" }, "anthropic": { baseUrl: "https://alias.example" }, bogus: { baseUrl: "https://x.example" }, "openai-responses": {}, "google-generative-ai": { baseUrl: "https://g.example", typo: 1 } } }));
 const apis = files.loadDirectory(root, "demo");
 assert(apis.declaration.apis["anthropic-messages"].baseUrl === "https://demo.example/anthropic", "a second protocol endpoint is declared by api id");
+// An `apis.<api>` entry holds the endpoint fields and nothing else: the two optional ones are
+// read (not merely tolerated), and a typo among them is reported.
+assert(
+	apis.declaration.apis["anthropic-messages"].modelsPath === "/v3/models" && apis.declaration.apis["anthropic-messages"].headers?.["x-api"] === "$TOKEN",
+	`an apis entry carries its own discovery path and headers (got ${JSON.stringify(apis.declaration.apis["anthropic-messages"])})`,
+);
 const apiIssues = apis.issues.map((issue) => issue.message).join(" | ");
+assert(apiIssues.includes('apis.google-generative-ai: unknown key "typo"'), `an unknown key inside an apis entry is reported (got: ${apiIssues})`);
+assert(!apiIssues.includes("apis.anthropic-messages: unknown key"), `and the endpoint fields themselves are never reported as unknown (got: ${apiIssues})`);
 assert(apiIssues.includes("openai-completions: already the default endpoint"), `an apis entry that repeats the default protocol is ignored and reported (got: ${apiIssues})`);
 assert(apiIssues.includes("unsupported api"), "an unknown api key under apis is reported");
 assert(apiIssues.includes("apis.anthropic-messages: already declared"), `two spellings of one protocol do not silently overwrite each other (got: ${apiIssues})`);

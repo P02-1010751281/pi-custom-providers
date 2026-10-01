@@ -18,10 +18,14 @@ import type { Account, LoadIssue } from "./types.ts";
 import { isObject, readJson, stringOr } from "./util.ts";
 
 /**
- * Credential keys that exist *only* in an account: meeting one in `provider.json` is a
- * misplacement, so the reader can say where it belongs. `headers` is an account key too, but a
- * legitimate endpoint key as well, so it is no displacement signal; `envVar` is how a *shipped
- * default* account (`sources.ts`) names its environment variable and is not a user's key at all.
+ * Credential keys this package accepts *only* in an account: meeting one in `provider.json` is a
+ * misplacement, so the reader can say where it belongs. That is this package's policy, not a
+ * pi limit — pi's own `ProviderConfigSchema` accepts provider-level `apiKey`/`authHeader` too;
+ * here credentials have exactly one home.
+ *
+ * `headers` is an account key *and* a legitimate endpoint key (at both `provider.json` levels),
+ * so it is no displacement signal. `envVar` is how a *shipped default* account (`sources.ts`)
+ * names its environment variable and is not a user's key at all.
  */
 export const CREDENTIAL_KEYS = new Set(["apiKey", "authHeader"]);
 
