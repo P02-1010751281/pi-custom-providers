@@ -9,13 +9,14 @@ import { PI, agentPath, assert, loadTs } from "./harness.mjs";
  * hand-kept mirror. `samplingParams` lived in that list while being read by nothing: the key
  * was accepted, the value was dropped from the registered model, and `sync --write` did not
  * write it back. A static comparison of two lists would not have caught that, so this file
- * checks both halves — the lists agree, and every field of them survives a read + write.
+ * checks all of it: the vocabulary agrees with pi's, the writer's fields are all readable, and
+ * every field survives a read + write.
  *
  * A failure here is a decision to make, not necessarily a bug: pi gained a field (carry it),
  * or lost one (drop it), or this package grew a key of its own (which then belongs in its own
  * file, not in a base table).
  */
-const { MODEL_KEYS, readModelsFile, serializeBaseTable } = await loadTs("extensions/custom-providers/model-table.ts");
+const { MODEL_KEYS, FIELD_ORDER, readModelsFile, serializeBaseTable } = await loadTs("extensions/custom-providers/model-table.ts");
 
 /**
  * The top-level property names of one `const <name> = Type.Object({ … });` in pi's source —
@@ -44,6 +45,13 @@ const extra = [...MODEL_KEYS].filter((key) => !piKeys.has(key));
 assert(missing.length === 0, `every field pi's ModelDefinitionSchema knows is readable here (missing: ${missing.join(", ")})`);
 assert(extra.length === 0, `and no key is accepted that pi would drop (not pi's: ${extra.join(", ")})`);
 assert(schemaKeys("ProviderConfigSchema").size > 0, "the schema reader itself works (ProviderConfigSchema is non-empty)");
+
+// The same question one level in: the reader's vocabulary and the writer's are our own two lists,
+// and the writer's must sit inside the reader's. `sync --write` walks `FIELD_ORDER`, so a field
+// only the writer knows would be written out and then come back as `unknown key` — and the next
+// sync would drop it. Nothing above would notice: the sample entry never carries such a field.
+const writeOnly = [...FIELD_ORDER].filter((key) => !MODEL_KEYS.has(key));
+assert(writeOnly.length === 0, `every field the base table is written from is one it can read back (write-only: ${writeOnly.join(", ")})`);
 
 // --- every field survives a read + write -----------------------------------------
 // `sync --write` rewrites the base table out of what the reader kept, so a field the reader

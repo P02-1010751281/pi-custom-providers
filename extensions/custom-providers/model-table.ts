@@ -107,7 +107,13 @@ export function readModelsFile(file: string, issues: LoadIssue[], label = file):
  */
 
 /** Field order of the written file — readable diffs, id first, then pi's own model fields. */
-const FIELD_ORDER: (keyof CatalogModel)[] = ["id", "name", "api", "baseUrl", "reasoning", "input", "inputLimits", "contextWindow", "maxTokens", "samplingParams", "cost", "promptCache", "thinkingLevelMap", "headers", "compat"];
+/**
+ * The order `sync --write` writes the fields in, and — together with `MODEL_KEYS` — the writing
+ * half of the one vocabulary: a field the writer knows and the reader does not is written into
+ * the base table and then reported as an unknown key (and dropped) on the next read. The two are
+ * pinned against each other in `pi-surface-test.mjs`.
+ */
+export const FIELD_ORDER: (keyof CatalogModel)[] = ["id", "name", "api", "baseUrl", "reasoning", "input", "inputLimits", "contextWindow", "maxTokens", "samplingParams", "cost", "promptCache", "thinkingLevelMap", "headers", "compat"];
 
 export function serializeBaseTable(models: readonly CatalogModel[]): string {
 	const rows = models.map((model) => {
