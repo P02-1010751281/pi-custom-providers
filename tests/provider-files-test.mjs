@@ -35,13 +35,18 @@ const loaded = files.loadDirectory(root, "demo");
 assert(loaded.loadable && !loaded.fatal, "a valid provider.json loads");
 assert(loaded.declaration.api === "openai-completions" && loaded.declaration.modelsPath === "/models", "the declaration is read in pi's vocabulary");
 
-write(vendorDir("demo"), "provider.json", provider({ apiKey: "$SECRET", compat: { supportsStore: false }, oauth: "radius", nonsense: 1 }));
+write(vendorDir("demo"), "provider.json", provider({ apiKey: "$SECRET", compat: { supportsStore: false }, oauth: "radius", nonsense: 1, envVar: "PROBE_KEY" }));
 const noisy = files.loadDirectory(root, "demo");
 const messages = noisy.issues.map((issue) => issue.message).join(" | ");
 assert(messages.includes('"apiKey" belongs in accounts.json'), `a credential in provider.json is reported (got: ${messages})`);
 assert(messages.includes('"compat" belongs on model entries'), "a compat block in provider.json is reported");
 assert(messages.includes('"oauth" is not supported'), "a JSON-inexpressible key is reported");
 assert(messages.includes('unknown key "nonsense"'), "an unknown key is reported");
+// `envVar` names the variable of a *shipped default* account (`sources.ts`); a user writes a
+// credential as `"apiKey": "$VAR"`, so a provider.json copy is merely unknown — and must not
+// be pointed at accounts.json, which does not accept it either.
+assert(messages.includes('unknown key "envVar"'), `a shipped-default-only key is unknown, not relocated (got ${messages})`);
+assert(!messages.includes('"envVar" belongs in accounts.json'), "and is not sent to a file that would reject it");
 assert(noisy.loadable, "none of those is fatal: they are ignored keys");
 
 write(vendorDir("demo"), "provider.json", provider({ api: "openai" }));

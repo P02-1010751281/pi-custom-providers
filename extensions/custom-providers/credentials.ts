@@ -17,10 +17,16 @@
 import type { Account, LoadIssue } from "./types.ts";
 import { isObject, readJson, stringOr } from "./util.ts";
 
-/** Keys that belong to `accounts.json`; seeing them here is a misplacement, not a style choice. */
-export const CREDENTIAL_KEYS = new Set(["apiKey", "envVar", "authHeader"]);
+/**
+ * Credential keys that exist *only* in an account: meeting one in `provider.json` is a
+ * misplacement, so the reader can say where it belongs. `headers` is an account key too, but a
+ * legitimate endpoint key as well, so it is no displacement signal; `envVar` is how a *shipped
+ * default* account (`sources.ts`) names its environment variable and is not a user's key at all.
+ */
+export const CREDENTIAL_KEYS = new Set(["apiKey", "authHeader"]);
 
-const ACCOUNT_KEYS = new Set(["apiKey", "authHeader", "headers"]);
+/** What an account may hold — derived, so the displacement warning above cannot drift from it. */
+const ACCOUNT_KEYS = new Set([...CREDENTIAL_KEYS, "headers"]);
 
 const ACCOUNT_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -56,7 +62,7 @@ export function readAccountsFile(file: string, issues: LoadIssue[], label = file
 			continue;
 		}
 		for (const key of Object.keys(entry)) {
-			if (!ACCOUNT_KEYS.has(key)) issues.push({ level: "warning", message: `account "${id}": "${key}" is not an auth field; put model overrides in models.json` });
+			if (!ACCOUNT_KEYS.has(key)) issues.push({ level: "warning", message: `account "${id}": unknown key "${key}" (an account holds ${[...ACCOUNT_KEYS].join(", ")})` });
 		}
 		const apiKey = stringOr(entry.apiKey);
 		if (!apiKey) {

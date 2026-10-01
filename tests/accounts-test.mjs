@@ -76,13 +76,15 @@ assert(skippedReport.includes('account "main": needs "apiKey"'), `the skipped ac
 assert(skippedReport.includes('"default": "main" does not name an account'), "and the dangling pointer");
 
 // Non-auth keys and invalid names are reported, never silently honored.
-vendor({ default: "main", main: { apiKey: "$K", models: [{ id: "x" }] }, "Bad Name": { apiKey: "$K" }, wire: { apiKey: "$K" } });
+vendor({ default: "main", main: { apiKey: "$K", models: [{ id: "x" }], envVar: "PROBE_KEY" }, "Bad Name": { apiKey: "$K" }, wire: { apiKey: "$K" } });
 ext = await startExtension();
 assert(!ext.providers.has("demo-bad-name"), "an invalid account name is skipped");
 assert(ext.providers.get("demo").models.length === 1, "an account cannot inject models: it only carries authentication");
 await ext.sessionStart();
 const accountReport = ext.notifications.map((entry) => entry.message).join(" | ");
-assert(accountReport.includes("not an auth field"), `a non-auth account key is reported (got: ${accountReport})`);
+assert(accountReport.includes('account "main": unknown key "models"'), `a non-account key is reported (got: ${accountReport})`);
+assert(accountReport.includes("an account holds apiKey, authHeader, headers"), "and the report names what an account does hold");
+assert(accountReport.includes('unknown key "envVar"'), `envVar is not a user key here either (got: ${accountReport})`);
 assert(accountReport.includes("invalid name"), "an invalid account name is reported");
 
 // `providers.<accountId>` is the native way to give one account its own model overrides.
