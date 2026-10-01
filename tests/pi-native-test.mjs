@@ -62,6 +62,27 @@ assert(before.length === config.models.length, `runtime exposes the registered t
 assert(before.find((model) => model.id === "claude-opus-5")?.compat?.supportsTemperature === false, "absorbed compat reaches the composed model");
 assert(!(await store.read("commandcode")), "nothing persisted before a network refresh");
 
+// --- the fields of a base-table entry reach pi's composed model -----------------
+// The base table speaks pi's own model vocabulary, so what a user writes there has to arrive:
+// `samplingParams` used to be accepted and then dropped on the floor. pi composes a model from
+// our raw definition but reads per-model `headers` back off that raw definition at request
+// time (`rawModelHeaders`), so headers are checked through the function the request path calls.
+const { resolveConfiguredModelHeaders } = await import(`${PI}/dist/core/provider-composer.js`);
+const SAMPLING = { temperature: 0.3, top_p: 0.9 };
+const decorated = {
+	...config,
+	models: config.models.map((model) =>
+		model.id === "claude-opus-5" ? { ...model, samplingParams: SAMPLING, headers: { "x-from-base-table": "yes", "x-from-env": "$HEADER_TOKEN" } } : model,
+	),
+};
+const decoratedRuntime = await create(new InMemoryCodingAgentModelsStore());
+decoratedRuntime.registerProvider("commandcode", decorated);
+const composedOpus = decoratedRuntime.getModels("commandcode").find((model) => model.id === "claude-opus-5");
+assert(JSON.stringify(composedOpus?.samplingParams) === JSON.stringify(SAMPLING), `a base-table samplingParams reaches the composed model (got ${JSON.stringify(composedOpus?.samplingParams)})`);
+const requestHeaders = resolveConfiguredModelHeaders(composedOpus, undefined, decorated, { HEADER_TOKEN: "resolved-token" });
+assert(requestHeaders["x-from-base-table"] === "yes", `a base-table header reaches the request (got ${JSON.stringify(requestHeaders)})`);
+assert(requestHeaders["x-from-env"] === "resolved-token", "and its value resolves through pi's own value syntax");
+
 await withFetch(async () => ({
 	ok: true,
 	json: async () => ({ data: [{ id: "claude-opus-5", name: "Opus 5 (pi native)", context_length: 777_777 }] }),

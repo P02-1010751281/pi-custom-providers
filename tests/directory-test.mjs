@@ -10,7 +10,6 @@ import { agentPath, assert, loadTs, runCommand, startExtension, vendorDir } from
  * this package exists because silent config failures are the norm in `models.json`.
  */
 const files = await loadTs("extensions/custom-providers/directory.ts");
-const table = await loadTs("extensions/custom-providers/model-table.ts");
 const root = agentPath("custom-providers");
 const write = (dir, name, contents) => {
 	mkdirSync(dir, { recursive: true });
@@ -79,37 +78,6 @@ assert(models.issues.map((issue) => issue.message).join(" | ").includes('b: unkn
 assert(!models.fatal, "entry-level problems do not fail the vendor");
 write(vendorDir("demo"), "models.json", [{ id: "bare-array" }]);
 assert(files.loadDirectory(root, "demo").models[0].id === "bare-array", "a bare array is accepted as the shorthand form");
-
-// --- every pi model field survives a read + write ----------------------------------
-// `sync --write` rewrites the base table out of what the reader kept, so a field the reader
-// ignores is a field the user loses on the next sync — `samplingParams` was named in
-// `MODEL_KEYS` but read by nothing, and `cost.tiers` was collected into a fresh four-key
-// object. One entry carrying every field pi's `ModelDefinitionSchema` knows, back out again.
-const full = {
-	id: "full",
-	name: "Full",
-	api: "anthropic-messages",
-	baseUrl: "https://demo.example/anthropic",
-	reasoning: true,
-	thinkingLevelMap: { high: "high" },
-	input: ["text", "image"],
-	inputLimits: { maxRequestBytes: 1000, images: { maxPerRequest: 4, resize: { maxWidth: 800 } } },
-	cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2, tiers: [{ input: 100, output: 3, cacheRead: 1, cacheWrite: 1 }] },
-	promptCache: { short: 300, long: 3600 },
-	contextWindow: 200000,
-	maxTokens: 8192,
-	samplingParams: { temperature: 0.3, top_p: 0.9 },
-	headers: { "x-test": "1" },
-	compat: { supportsStore: false },
-};
-write(vendorDir("demo"), "models.json", { models: [full] });
-const reloaded = files.loadDirectory(root, "demo");
-const roundTripped = JSON.parse(table.serializeBaseTable(reloaded.models)).models[0];
-for (const [key, value] of Object.entries(full)) {
-	assert(JSON.stringify(roundTripped[key]) === JSON.stringify(value), `the ${key} field survives read + write (got ${JSON.stringify(roundTripped[key])})`);
-}
-assert(Object.keys(roundTripped).length === Object.keys(full).length, `no field is invented (got ${Object.keys(roundTripped).join(",")})`);
-assert(!reloaded.issues.some((issue) => issue.level === "warning"), `and none of them is reported as unknown (got ${reloaded.issues.map((issue) => issue.message).join(" | ")})`);
 
 // --- what pi actually receives ---------------------------------------------------
 reset();

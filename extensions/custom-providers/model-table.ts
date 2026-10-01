@@ -13,8 +13,13 @@ import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./config.ts";
 import type { CatalogModel, LoadIssue } from "./types.ts";
 import { isObject, numberOr, readJson, serializeJson, stringOr, writeTextAtomic, type JsonObject } from "./util.ts";
 
-/** One model entry = pi's `ModelDefinitionSchema` fields, and nothing else — in its own order. */
-const MODEL_KEYS = new Set(["id", "name", "api", "baseUrl", "reasoning", "thinkingLevelMap", "input", "inputLimits", "cost", "promptCache", "contextWindow", "maxTokens", "samplingParams", "headers", "compat"]);
+/**
+ * The keys a `models.json` entry may use — pi's `ModelDefinitionSchema`, in its own order.
+ * Exported so `tests/pi-surface-test.mjs` can pin the list against the schema pi actually
+ * ships: pi exports no model schema, and this list is the one place a pi field goes missing.
+ * (`samplingParams` did exactly that: named here, read by nothing.)
+ */
+export const MODEL_KEYS = new Set(["id", "name", "api", "baseUrl", "reasoning", "thinkingLevelMap", "input", "inputLimits", "cost", "promptCache", "contextWindow", "maxTokens", "samplingParams", "headers", "compat"]);
 
 /**
  * One model entry, read field by field so a single bad value does not discard an
