@@ -2,6 +2,22 @@
 
 版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。
 
+## v0.4.1 — 2026-10-02
+
+### 修复
+
+- **惯例继承不再看协议线**（`00193f0`）：`convention.ts` 的 A 步（同族继承）以前只在 `api === "anthropic-messages"` 时才把同族条目的 `thinkingLevelMap` 一并继承，于是本网关 OpenAI 线上新发现的同族 id 永远拿不到 `xhigh` / `max`，顶多到 `high` 且**不报错**。现在任何协议线上都继承。B 步（`CONVENTION_FAMILIES` 合成 `{xhigh,max}`）仍只给 anthropic 线，因为那是推断而不是继承；无同族可继承时仍是 `reasoning: false`。差分：对 v0.4.0 的 9 个场景只有 2 个变化，均落在该分支上。
+
+### 文档
+
+- **Command Code 上游路由与能力审计入库**（`720fd73`，`f554654` 去掉账号目录名）：85 个 id 按上游签名分桶（含 21 个被计划门挡住的）、逐模型输出上限实测、§5 模态实测、§1 各条探针配方。
+- **`/responses` 线现场验证**（`78824ef`）：`POST <baseUrl>/responses` 在该网关上 200 且流式可用（`resp_01…`），少一层 `/v1` 的路径 404 ⇒ 端点表里 `openai-responses` 的 baseUrl 写法正确；发现阶段仍不据 wire 推协议（`models-test` 守）。
+- README 的安装行与 `.codestable/attention.md` 的发版状态行更新到 v0.4.1。
+
+### 测试
+
+- 17 个用例全绿。`convention-test` 新增「同族继承在 OpenAI 形线上同样发生」与 `applyLiveModels` 的接线断言（注入法证明敏感）。
+
 ## v0.4.0 — 2026-10-01
 
 **破坏性：仓库不再出厂任何模型表。**

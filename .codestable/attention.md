@@ -16,7 +16,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
-- **已发版状态（2026-10-01）**：v0.4.0 = 移除出厂模型表（纯目录驱动）。tag `v0.4.0` 已推双远端，`~/.pi` 的 pin 改为 `@v0.4.0`；README 的安装行与本文一致，更新日志见 `CHANGELOG.md`。
+- **已发版状态（2026-10-02）**：v0.4.1 = 惯例继承不再看协议线（A 步同族继承在任何线上都发生；B 步仍只给 anthropic 线）。tag `v0.4.1` 已推双远端，`~/.pi` 的 pin 改为 `@v0.4.1`；README 的安装行与本文一致，更新日志见 `CHANGELOG.md`。
 
 ## 已知技术债（明确未做，不是遗漏）
 
