@@ -12,7 +12,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 - **新增 feature → MINOR**（如 v0.2.4 → v0.3.0）。
 - **破坏性变更（`feat!` / `BREAKING CHANGE`）→ MINOR**（0.x 阶段；1.0 之后改升 MAJOR）。
-- **bug fix / 文档 / chore → PATCH**（如 v0.2.3 → v0.2.4）。
+- **bug fix / 文档 / chore → PATCH**（如 v0.4.0 → v0.4.1）。
+- **历史例外**：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样，不改写历史。8 个 tag 里仅此一例，生效日起全部合规。
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
