@@ -7,7 +7,7 @@
  * `sync --write` stores (design §4/§5.2/§5.3).
  */
 import { absorbCompat, type BuiltinCatalog, type CatalogCompat } from "./builtin.ts";
-import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
+import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS, inertCompatKeys } from "./apis.ts";
 import { applyModelPatch } from "./config.ts";
 import { resolveModelEndpoint } from "./endpoints.ts";
 import type { Account, CatalogModel, LoadIssue, ModelCompat, ProviderDeclaration, Vendor } from "./types.ts";
@@ -106,6 +106,8 @@ export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builti
 
 	const multiEndpoint = Object.keys(declaration.apis).length > 0;
 	const models: ModelEntry[] = [];
+	/** compat keys pi's request builder will not read, per protocol — collected, named once. */
+	const noEffect = new Map<string, Set<string>>();
 	for (const [id, raw] of base) {
 		const patch = patches.get(id);
 		const merged = applyModelPatch(raw as unknown as JsonObject, patch ?? {}) as unknown as CatalogModel;
@@ -125,6 +127,18 @@ export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builti
 			...(choice.stampApi ? {} : isObject(layer.compat) ? layer.compat : {}),
 		};
 
+		// A key the target protocol's request builder never reads is accepted by pi and then
+		// silently dropped — a warning, never a refusal (pi itself validates types, not
+		// membership). `modelOverrides[M]` is pi's *top* layer, applied after this list, so a key
+		// written only there is reported too.
+		const overrideRow = isObject(layer.modelOverrides) && isObject((layer.modelOverrides as JsonObject)[id]) ? ((layer.modelOverrides as JsonObject)[id] as JsonObject) : undefined;
+		const overrideCompat = overrideRow && isObject(overrideRow.compat) ? (overrideRow.compat as Record<string, unknown>) : undefined;
+		for (const key of [...inertCompatKeys(endpoint.api, compat), ...inertCompatKeys(endpoint.api, overrideCompat)]) {
+			const keys = noEffect.get(endpoint.api) ?? new Set<string>();
+			keys.add(key);
+			noEffect.set(endpoint.api, keys);
+		}
+
 		const accountSuffix = entry.base || !entry.account ? "" : ` (${entry.account.id})`;
 		const protocolSuffix = multiEndpoint && choice.stampApi ? ` (${endpoint.api})` : "";
 		models.push({
@@ -135,6 +149,14 @@ export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builti
 			...(choice.stampBaseUrl ? { baseUrl: endpoint.baseUrl } : {}),
 			headers: mergeHeaders(declaration.headers, endpoint.headers, entry.account?.headers, merged.headers),
 			...(Object.keys(compat).length > 0 ? { compat } : {}),
+		});
+	}
+	for (const [api, keys] of noEffect) {
+		const list = [...keys].sort().map((key) => `"${key}"`).join(", ");
+		const one = keys.size === 1;
+		issues.push({
+			level: "warning",
+			message: `${entry.id}: compat ${one ? "key" : "keys"} ${list} ${one ? "has" : "have"} no effect on ${api} (its request builder never reads ${one ? "it" : "them"})`,
 		});
 	}
 	return models;
