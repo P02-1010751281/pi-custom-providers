@@ -33,7 +33,7 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 
 ### 从旧版升级（v0.1.0 → v4.0 引擎）
 
-- provider id 由 `codecommand` 改为 **`commandcode`**（域名拼写）。旧键 `providers.codecommand` 仍然被读取（`aliases`），但 pi 会把只在 `models.json` 里声明的 id 也注册成一个 provider，于是选择器里会**多出一个 `codecommand` 条目**。把 `models.json` 里的键改成 `providers.commandcode` 即可消掉。
+- provider id 由 `codecommand` 改为 **`commandcode`**（域名拼写）。**旧写法 `providers.codecommand`（或 `codegoat`）已不再被读取**：pi 只按注册 id 解析 provider 块，本包不比它多读一份。旧块还会被 pi 当成另一个「只在 `models.json` 里声明」的 provider 注册进选择器（模型为空）。把键改成 `providers.commandcode` 即可。
 - 一个模型要换协议，写模型条目的 `api`。
 - `siblingId` / `anthropicBaseUrl` 这两个旧字段已删除；SCNet 的 Anthropic 端点现在是 `apis."anthropic-messages"`。
 
@@ -52,19 +52,19 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 ## 配置：`~/.pi/agent/custom-providers/<id>/`
 
-目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。出厂的 `sources.ts` 只在**同名目录存在**时作为它的基底（端点表、密钥变量），绝不单独注册——所以没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑一次 `/custom-providers init`（无参数 = 全部出厂 vendor，也可只写名字）写出默认端点，再自己放 `models.json`，或跑 `/custom-providers sync <id> --write` 用实时发现生成一份（发现不推断协议：走非默认协议的 id 要自己补 `api`）。
+目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。**仓库不带任何出厂 vendor**（v0.5.0 删除了 `sources.ts`/`DEFAULTS`）：没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑 `/providers init <id> --url … --api …`（有 UI 时是向导，会问 id/端点/协议/发现路径，可直接填 key）写出端点声明，再自己放 `models.json`，或跑 `/providers sync <id>` 用实时发现生成一份（发现不推断协议：走非默认协议的 id 要自己补 `api`）。
 
 ```
 ~/.pi/agent/custom-providers/
 ├── scnet/
 │   ├── provider.json     # 端点表：api / baseUrl / modelsPath / headers / apis（无秘密、无 compat）
 │   ├── models.json       # 模型基底表（可省；省了就没有模型，直到发现填上）
-│   └── accounts.json     # 凭据（唯一秘密文件；可省，省了用出厂密钥变量或提示 /login）
+│   └── accounts.json     # 凭据（唯一秘密文件；可省）
 └── my-relay/
     └── provider.json     # 新 vendor 只要这一个文件
 ```
 
-- 发现 = 扫描子目录，**含可解析 `provider.json`** 的子目录才算一个 vendor；其余忽略（`/custom-providers files` 会列出来）。
+- 发现 = 扫描子目录，**含可解析 `provider.json`** 的子目录才算一个 vendor；其余忽略（`/providers files` 会列出来）。
 - 字段全是 pi 自己的词汇，只有四个是我们加的：`apis`（第二协议端点）、`modelsPath`（发现路径）、`override`（接管 pi 内置 provider id）、`accounts.json`。
 
 ### `provider.json`（必需）
@@ -91,7 +91,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `apis` | 否 | 额外协议端点，键 = pi 的 api 值，值 = `{ baseUrl(必填), modelsPath?, headers? }`。省略 `modelsPath` = 继承 `provider.json.modelsPath`。 |
 | `override` | 否 | 允许接管 pi 已知 provider id（如自建 `anthropic` 代理）。不加则跳过并报告。 |
 
-`apiKey` / `authHeader` / `compat` / `models` / `modelOverrides` 写在这里会被**报告并忽略**，消息会指明它们该去哪：凭据只属 `accounts.json`；`compat` 是模型字段、`modelOverrides` 是逐条模型补丁，都属模型条目；`models` 整张表属本目录的 `models.json`（`sync --write` 是它唯一的写出口）。pi 全局 `models.json` 的 `providers.<id>` 与 `modelOverrides` 是**补丁层**（见分层表 3/4），不是第二个模型表之家。`oauth` 不在支持范围（报告后忽略）。
+`apiKey` / `authHeader` / `compat` / `models` / `modelOverrides` 写在这里会被**报告并忽略**，消息会指明它们该去哪：凭据只属 `accounts.json`；`compat` 是模型字段、`modelOverrides` 是逐条模型补丁，都属模型条目；`models` 整张表属本目录的 `models.json`（`sync` 是它唯一的写出口）。pi 全局 `models.json` 的 `providers.<id>` 与 `modelOverrides` 是**补丁层**（见分层表 3/4），不是第二个模型表之家。`oauth` 不在支持范围（报告后忽略）。
 
 ### `models.json`（可选）= 模型基底表
 
@@ -120,7 +120,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 - 没有 `apiKey` 的账号被跳过并报告；非法账号名同理。
 - **账号 id 撞车会被跳过并报告**：`<id>-<name>` 若已被另一个 provider 占用（另一个目录的 id、或 pi 内置 provider id），该账号不注册，其余账号与 `<id>` 不受影响。例：已有目录 `demo-work` 时，`demo` 的 `work` 账号注册不上（pi 按 id 合并，不检查就会静默并进 `demo-work`）。注意用户自己写在 `providers` 里的 `<id>-<name>` 不算撞车——那正是该账号的配置块。
 - `accounts.json` 不存在 / 为空 / 全无凭据 → `<id>` **照常注册**（不带凭据、模型不进可用快照），`/login <id>`、`--api-key` 或 stored 凭据随时能把它救回来。
-- 有账号但 `default` 指针缺失或指向不存在的账号 → 目录 vendor **不注册** `<id>`（其余账号照常）；同 id 有出厂默认账号时回落该密钥变量。
+- 有账号但 `default` 指针缺失或指向不存在的账号 → 目录 vendor **不注册** `<id>`（其余账号照常）。
 - 账号级模型覆盖写 pi 全局 `models.json` 的 `providers.<accountId>`，本扩展不另造一层。
 - 同一产品多把 key = 一个目录多个账号；**不同产品/计费 = 不同目录、不同 provider id**（pi 的 `auth.json` 是一 id 一凭据）。
 
@@ -137,23 +137,33 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 协议选择只有两步：模型条目写了 `api` 就用它（`baseUrl` 取条目自己的，否则 `apis.<api>.baseUrl`）；没写就用**有效默认协议** = 第 3 层 `providers.<id>.api` ?? `provider.json.api`。落在默认协议上的模型**不带** `api`/`baseUrl`（这样 `providers.<id>.baseUrl` 以后还能重定向它）；不在默认协议上的两者都带，显示名加 ` (协议)` 后缀。
 
+### 第 3 层对本扩展 provider 的现实（2026-10-02 实测 pi，`provider-composer.js`）
+
+pi 在**注册时**就用它自己内置的模型表校验用户写的 `providers.<id>` 块，而本扩展的 provider 在 pi 侧没有内置基底（除非 `override` 了某个内置 id），所以：
+
+- 块里**只有 `api`** 不够：pi 报 `must specify "baseUrl", "headers", "compat", "modelOverrides", or "models"` 并拒该 provider。`api` 要和 `baseUrl` 一起写才能翻转默认协议。
+- 块里写 `models[]` 条目会被 pi 当成**新建自定义模型**，每条都得自己带 `api` 和 `baseUrl`（否则 `no "api" specified` / `"baseUrl" is required when defining custom models`）；它**不是**给本扩展已注册模型打补丁的机制。
+- 要**给某个模型打补丁**（改 `maxTokens` / `contextWindow` / 显示名），正确的位置是第 4 层的 `modelOverrides[M]`：pi 最后应用它，且实测可用。
+
+本扩展会把这些被 pi 拒掉的块**在调用 pi 之前**报出来（含上面三句 pi 原文），一个坏块不会连带带走后面的 provider。
+
 ## 命令
 
-| 命令 | 作用 | 写盘 |
-|---|---|---|
-| `/refresh-custom-models` | 刷新全部 vendor 全部端点的模型列表 | 否 |
-| `/custom-providers` | 状态总览（模型数、live/基底、协议分布、新 id、上次错误） | 否 |
-| `/custom-providers <id>` | 单 provider 详情：协议分布、账号、校验问题 | 否 |
-| `/custom-providers drift` | 与 pi 内置目录的差异（只报不改） | 否 |
-| `/custom-providers files` | 扫描结果：每个目录的 id、模型数、账号数，被忽略的目录，文件校验问题 | 否 |
-| `/custom-providers init [<id>...] [--force]` | 为出厂默认 vendor 写 `<id>/provider.json`（已存在则不动，`--force` 覆盖）；不写任何密钥 | `provider.json` |
-| `/custom-providers sync <id> [--write] [--prune]` | 打印「基底 ⊕ 发现 vs `<id>/models.json`」差异；`--write` 才落盘（先留 `.bak`）；`--prune` 才删掉发现不再返回的 id | 仅 `--write` |
+动词表 + 每动词旗标表驱动解析；不匹配一律回 `Usage:`（文案由表生成）。`/providers` 是唯一命令。
 
-`sync --write` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 默认保留并在摘要里标为「kept」，加 `--prune` 才真删（仅当本轮**所有可发现端点都成功**才算「消失」，任一失败则不报不删）。
+| 动词 | 作用 | 写盘 |
+|---|---|---|
+| `/providers [<id>]` | 总览，或单个 provider 详情（协议分布、账号、校验问题、与 pi 内置目录的差异明细） | 否 |
+| `/providers files` | 扫描结果：每个目录的 id、来源、模型数、账号，被忽略的目录，文件校验问题 | 否 |
+| `/providers init [<id>] --url <u> --api <a> [--models-path <p>] [--key <v>] [--force]` | 有 UI 走向导（问缺的部分，key 直接收但会警告明文）；无 UI 必须给 `--url`/`--api`。写 `provider.json`，给了 key 且 `accounts.json` 不存在时写它 | `provider.json`、`accounts.json` |
+| `/providers sync [<id>] [--dry-run] [--prune]` | 联网抓 `/models` → 逐端点跳过失败/空答 → 写基底表；省略 id = 全部 vendor；`--prune` 必须带 id | `<id>/models.json` |
+| `/providers rescan [<id>] [--dry-run]` | 重扫目录 + 用**新快照**重新注册（拾取手改的文件、新目录，并撤销已删目录）；永不写盘 | 否 |
+
+`sync` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 默认保留并在摘要里标为「kept」，加 `--prune` 才真删（仅当该 vendor 本轮**所有可发现端点都成功且非空**才算「消失」，任一失败/空答则跳过该端点并点名，全部失败则不写盘）。写完提示 `run /providers rescan [<id>]` —— 盘变了不等于会话变了。
 
 ## 密钥解析
 
-`accounts.json` 的 `apiKey` 支持 pi 的值语法：`$VAR` / `${VAR}` / `!command` / `$$` / `$!`，以及裸 `UPPER_SNAKE`（视为环境变量名，交给 pi 前会规范化为 `$VAR` —— pi 只插值 `$…`，裸字符串会被当字面量发出去）。发现请求用的凭据顺序与 pi 的请求侧一致：stored（`auth.json` / `--api-key` / `/login`）→ 账号 `apiKey` → 第 3 层 `providers.<id>.apiKey` → 内置密钥变量。启动时读取 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐环境变量（已存在的不覆盖）。
+`accounts.json` 的 `apiKey` 支持 pi 的值语法：`$VAR` / `${VAR}` / `!command` / `$$` / `$!`，以及裸 `UPPER_SNAKE`（视为环境变量名，交给 pi 前会规范化为 `$VAR` —— pi 只插值 `$…`，裸字符串会被当字面量发出去）。发现请求用的凭据顺序与 pi 的请求侧一致：stored（`auth.json` / `--api-key` / `/login`）→ 账号 `apiKey` → 第 3 层 `providers.<id>.apiKey`。启动时读取 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐环境变量（已存在的不覆盖）。
 
 `!command` 就是给秘密后端留的插座——本插件不绑定任何后端，任何能把 key 打到 stdout 的命令都行：
 

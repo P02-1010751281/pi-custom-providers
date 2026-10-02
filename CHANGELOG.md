@@ -2,6 +2,30 @@
 
 版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。
 
+## v0.5.0 — 未发布（tag 待 owner 点头）
+
+### 命令面（破坏性）
+
+- **`/custom-providers` + `/refresh-custom-models` → 单一 `/providers`**：动词表 + 每动词旗标表驱动解析（新模块 `verbs.ts`），任何不匹配都回 `Usage:`（文案由表生成，带诊断行）。动词：`status [<id>]`（默认；`drift` 的计数并入其中）、`files`、`init`、`sync [<id>]`、`rescan [<id>]`。首 token 不命中动词表就当 `<id>`（所以 `drift` 现在是「未知 provider」+ `Usage:`）。
+- **`sync` 是一条完整流程**（`--write` / `--offline` 消失）：默认联网逐端点抓 `/models` → 只把**答了的端点**并进基底表 → 落盘（先留 `.bak`）；省略 id = 全部 vendor；`--dry-run` 只预览；`--prune` 必须带 id，且仍只在「该 vendor 本轮完整一轮」时删。失败或空答的端点跳过并在报告里点名，全部失败则不写盘。结尾提示 `run /providers rescan [<id>]`——盘变了不等于会话变了。
+- **新增 `rescan`（唯一零写盘动词）**：重扫目录 + 用**新快照**重新注册，拾取手改的 `provider.json`/`models.json`/`accounts.json` 与新目录；删掉的目录会被真正撤销（`pi.unregisterProvider`，实测存在且立即生效）。`--dry-run` 只报会变什么。
+- **`drift` 动词删除**：计数进 `status` 概览行（`, drift N`），明细进 `status <id>`。
+
+### 配置与写口
+
+- **`init` 改为向导 + 参数路径**：有 UI 时问缺的部分（id / baseUrl / api / modelsPath / key），无 UI 时 `init <id> --url … --api …` 缺项即 `Usage:`。新增第三个写口 `accounts.json`（`credentials.ts` 的 `writeAccountsFile`）：只在给了 key 且文件不存在时写、值原样落、绝不回显；字面量 key 落盘时会警告明文。
+- **删除出厂层**：`sources.ts` / `DEFAULTS` / `defaultAccount` / `envVar` 兜底 / `Vendor.aliases` 与目录撞名守卫全部删除，`collectVendors(root, piProviderIds)` 的输入只有目录。代价写在这里：`$CMD_API_KEY` / `$SCNET_API_KEY` 这类出厂密钥变量不再被隐含引用，旧目录需要自己写 `accounts.json`（或 `/login`）。
+- **#18 别名漂移修正**：`providerLayerFor(id, config)` 只查 `providers[id]`（`aliases` 参数删除）。
+- **#22/#23/#24**：`config.ts` 复刻 pi 的「schema 错 ⇒ 整份文件丢弃」；用户 `providers.<id>` 块里 pi 会在注册时抛错的四种形态（空块 / 只写 `api` / `models[]` 缺 `api` / `models[]` 缺 `baseUrl`）改为**调用 pi 之前预报告**（error 级即跳过该 provider），并给 `registerProvider` 加 try/catch 兜底，一个坏块不再连带带走后面的 provider。`oauth` 的两态（缺 `baseUrl` 抛错、非 `"radius"` 使 pi 整份丢文件）同样报出。
+
+### 测试
+
+- 21 个用例全绿；`graph-test` 17 模块、无环、全可达。新增 `command-test`、`init-test`、`preflight-test`、`rescan-test`。关键路径用注入法证明敏感：静默忽略外来旗标 → `command-test` 红；去掉 `unregisterProvider` → `rescan-test` 红；去掉 accounts 文件保护 → `init-test` 红。
+
+### 未做
+
+- §10 #15（报「对 `<api>` 无作用的 compat 键」）留待下一轮：需要从 pi dist 重推 per-api 读键表并用测试钉住（`anthropic-messages` 13 键、`openai-completions` 27 键）。
+
 ## v0.4.1 — 2026-10-02
 
 ### 修复
