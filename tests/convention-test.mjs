@@ -3,6 +3,8 @@ import { assert, FIXTURE_MODELS, loadTs, testModel } from "./harness.mjs";
 /**
  * The last-resort capability convention (A same-family inheritance, B known-family list).
  * It must never override the curated table or a probe — only fill an id discovery introduced.
+ * A inherits whatever this provider's table says (any wire); B's synthesized `{xhigh, max}` map
+ * stays Anthropic-only, because that one is invented rather than inherited.
  */
 const { familyKey, conventionCapability, CONVENTION_FAMILIES } = await loadTs("extensions/custom-providers/convention.ts");
 const { applyLiveModels } = await loadTs("extensions/custom-providers/live.ts");
@@ -23,7 +25,19 @@ const curated = [
 const inherited = conventionCapability(curated, "claude-sonnet-6", "anthropic-messages");
 assert(inherited?.reasoning === true && inherited.thinkingLevelMap?.xhigh === "xhigh", "a same-family id inherits reasoning + map");
 const inheritedOpen = conventionCapability(curated, "claude-sonnet-6", "openai-completions");
-assert(inheritedOpen?.reasoning === true && inheritedOpen.thinkingLevelMap === undefined, "but no map on the non-Anthropic wire");
+assert(
+	inheritedOpen?.reasoning === true && inheritedOpen.thinkingLevelMap?.xhigh === "xhigh",
+	"and the same inherited map on an OpenAI-shaped wire: a curated sibling is a fact about this gateway",
+);
+
+// The reported case: a discovered `deepseek/*-fast` id must inherit the table's short map on the
+// OpenAI wire, or pi offers only off..high and the `max` level silently disappears.
+const curatedDeepseek = [{ id: "deepseek/deepseek-v4.1-flash", reasoning: true, thinkingLevelMap: { low: "low", high: "high", max: "max" } }];
+const fast = conventionCapability(curatedDeepseek, "deepseek/deepseek-v4.1-flash-fast", "openai-completions");
+assert(
+	fast?.thinkingLevelMap?.max === "max" && fast.thinkingLevelMap?.low === "low" && fast.thinkingLevelMap?.xhigh === undefined,
+	"a discovered sibling keeps the curated short map on the OpenAI wire",
+);
 assert(conventionCapability(curated, "xiaomi/mimo-v2.7", undefined)?.reasoning === false, "a false sibling is inherited too");
 assert(conventionCapability(curated, "brand-new-v1", undefined) === undefined, "an unknown family falls through to `false`");
 
@@ -60,6 +74,10 @@ const applied = applyLiveModels([testModel("zai-org/GLM-5.3", { reasoning: true,
 const fresh = applied.models.find((model) => model.id === "zai-org/GLM-5.4");
 assert(fresh.reasoning === true && fresh.thinkingLevelMap?.max === "max", "a newly discovered same-family id is registered with the inherited capability");
 assert(applied.unknown.join(",") === "zai-org/GLM-5.4", "and is still reported as new");
+
+const appliedOpen = applyLiveModels([testModel("zai-org/GLM-5.3", { reasoning: true, thinkingLevelMap: { max: "max" } })], [{ id: "zai-org/GLM-5.4" }], "openai-completions");
+const freshOpen = appliedOpen.models.find((model) => model.id === "zai-org/GLM-5.4");
+assert(freshOpen.reasoning === true && freshOpen.thinkingLevelMap?.max === "max", "a discovery on the OpenAI wire registers the inherited map too");
 
 console.log(`convention: A+B, ${CONVENTION_FAMILIES.length} families, ${families.size} seen`);
 console.log("OK");

@@ -5,9 +5,11 @@
  * curated base table. This file only speaks when all of them are silent — the live `/models`
  * wire carries no capability field today. Two steps, in order:
  *
- *   A. same-family inheritance: the new id takes `reasoning` (and, on the Anthropic wire,
- *      `thinkingLevelMap`) from the first already-curated entry of the same family. A new
- *      `GLM-5.4` therefore follows whatever the table already says about `GLM-5.3`.
+ *   A. same-family inheritance: the new id takes `reasoning` and `thinkingLevelMap` from the
+ *      first already-curated entry of the same family, on any wire. A new `GLM-5.4` therefore
+ *      follows whatever the table already says about `GLM-5.3` — a sibling in this provider's
+ *      own table is a fact about *this* gateway, unlike a map copied from someone else's
+ *      catalog, so the inherited half does not depend on the wire.
  *   B. a hard-coded family allowlist: families known to be reasoning-capable, for ids with
  *      no same-family entry to inherit from.
  *
@@ -92,16 +94,17 @@ export function familyKey(id: string): string {
 
 /**
  * The convention's answer for one freshly discovered id, or undefined when neither step
- * applies. `api` gates the `thinkingLevelMap` half: only the Anthropic wire inherits or
- * receives one, because on the OpenAI-shaped wires the same model ships with many different
- * maps and a copied one would be a guess about *this* gateway.
+ * applies. `api` gates **step B's** synthesized map only: a `{xhigh, max}` invented for a
+ * known family is added on the Anthropic wire alone, because on the OpenAI-shaped wires the
+ * same model ships with many different maps and an invented one would be a guess about *this*
+ * gateway. Step A's map is inherited from this provider's own curated sibling, not guessed.
  */
 export function conventionCapability(models: readonly CuratedModel[], id: string, api: string | undefined): ConventionCapability | undefined {
 	const key = familyKey(id);
 	// A. inherit from the curated table
 	const sibling = models.find((model) => model.id !== id && familyKey(model.id) === key);
 	if (sibling) {
-		const map = api === "anthropic-messages" && sibling.thinkingLevelMap ? { ...sibling.thinkingLevelMap } : undefined;
+		const map = sibling.thinkingLevelMap ? { ...sibling.thinkingLevelMap } : undefined;
 		return { reasoning: sibling.reasoning === true, ...(map ? { thinkingLevelMap: map } : {}) };
 	}
 	// B. known reasoning family
