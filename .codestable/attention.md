@@ -92,7 +92,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 | 文件 | 数据单元 | 方向 |
 |---|---|---|
-| `util.ts` / `types.ts` / `apis.ts` / `convention.ts` | JSON 编解码与原子落盘（`readJson`/`serializeJson`/`writeTextAtomic`，图叶子）/ 内部类型词汇（`Endpoint`/`ProviderDeclaration`/`EndpointChoice` 也在此）/ pi 的 api 词汇与模型尺寸默认值（图叶子）/ 未知 id 能力惯例 | — |
+| `util.ts` / `types.ts` / `apis.ts` / `convention.ts` | JSON 编解码与原子落盘（`readJson`/`serializeJson`/`writeTextAtomic`，图叶子）/ 内部类型词汇（`Endpoint`/`ProviderDeclaration`/`EndpointChoice` 也在此）/ pi 的 api 词汇与模型尺寸默认值（图叶子）/ 未知 id 能力惯例（A 同族继承 `reasoning` + `thinkingLevelMap`，与线无关；B 无同族时合成的 `{xhigh,max}` 仅 anthropic 线） | — |
 | `sources.ts` | 工厂端点与密钥变量默认值 | seed 读 |
 | `config.ts` | pi 全局 `models.json`（层 3/4 的读 + 逐条 patch） | 读 + 变换 |
 | `env.ts` | `.env` + pi 值表达式 | 读 + 解析 |
