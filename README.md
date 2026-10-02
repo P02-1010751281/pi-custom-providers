@@ -105,6 +105,8 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 
 字段 = pi 的 `ModelDefinitionSchema` 全部字段（`id`/`name`/`api`/`baseUrl`/`reasoning`/`thinkingLevelMap`/`input`/`inputLimits`/`cost`/`promptCache`/`contextWindow`/`maxTokens`/`samplingParams`/`headers`/`compat`），没有自有字段；`cost` 里的 `tiers` 等 pi 认识的其它键原样带过。也接受纯数组简写。省略 `api` = 默认协议；写了 `apis` 里的协议就自动用该端点的 `baseUrl`。
 
+`compat` 另有一条检查：pi 的请求构造器**各读自己那一份键**（实测 `anthropic-messages` 读 13 个、`openai-completions` 读 27 个、`google-*` 一个都不读），写了目标协议不读的键 pi 照样收下、然后静默丢掉。本包用 pi 的读键表点名这类键（`status` 里的 `compat key "X" has no effect on <api>`），`modelOverrides[M].compat` 这一层也一并看。
+
 `type`（pi 扩展侧的 chat/image/classifier，`ModelDefinitionSchema` 里没有）不在这里：本包只注册 chat 模型，写了会被报告而不是猜。
 
 ### `accounts.json`（可选）= 凭据

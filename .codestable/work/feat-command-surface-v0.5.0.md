@@ -143,7 +143,7 @@
 | §6.3 吸收白名单、§6.4 失败与持久化 | attention | 不搬 |
 | §7 多账号、§8 `override` 白名单 | README / attention | 不搬 |
 | §9 命令表 | README + 代码 | 命令表本轮被 v0.5.0 改写 |
-| §10 校验与错误表（27 条） | 代码消息是家 | **逐条对过**（2026-10-02）：落地 20 条（含 #26，`live.ts:209-229` 的 try/catch 保证 `refreshModels` 不抛，`synthesizeModels` 补 `cost`/`api`/`baseUrl` 替代「剔除该条」）；**未落地 6 条**：#14 旧 `wire` 键不报、#15 compat 跨族不报（**已定：不报，原样转上游**）、#18 别名下的 `modelOverrides` 不报（静默无效）、#24 config 侧 `oauth` 不报（且口径不止一个，见下方处置）、#22/#23 不预报告（**已定：补**）、#27 只做到「无凭据仍注册」未做警告。命令面收口改写 §9；未落地项见下方待决 |
+| §10 校验与错误表（27 条） | 代码消息是家 | **逐条对过**（2026-10-02）：落地 20 条（含 #26，`live.ts:209-229` 的 try/catch 保证 `refreshModels` 不抛，`synthesizeModels` 补 `cost`/`api`/`baseUrl` 替代「剔除该条」）；**未落地 5 条**：#14 旧 `wire` 键不报、#18 别名下的 `modelOverrides` 不报（静默无效）、#24 config 侧 `oauth` 不报（口径见下方处置，缺 `baseUrl` 那半已并入预报告）、#27 只做到「无凭据仍注册」未做警告；**#15 已落地**（compat 无作用键报告：`apis.ts API_COMPAT_KEYS`/`inertCompatKeys` + `compat-keys-test.mjs` 从 pi dist 复推钉住；`#22/#23` 亦已落地）。命令面收口改写 §9；未落地项见下方待决 |
 | §11–§14（改动清单/测试计划/部署/风险）、§15、§18 | 历史 | 不搬（git 留痕） |
 | §16 已定决策 1–18 | 逐条对过：1–17 已在 README/attention/代码；#17（provider 级 compat 只贴**有效默认协议**上的模型，刻意偏离 pi）在 README；#18 的能力权威随 v0.4.0 删生成器后只剩 `convention.ts`/`builtin.ts` 在跑 | 不搬 |
 
@@ -161,10 +161,11 @@
 - #18 B′（别名不再当配置层）；#22/#23/#24（预报告 + try/catch + 复刻 pi 的整份丢文件校验）。
 
 **本会话新测得的 pi 事实（写进 `attention.md` 接管面）**：
+- `compat` 的运行时 schema 是三个**开放**对象 schema 的并集（`ProviderCompatSchema`）⇒ 未知 compat 键通过校验后被静默丢弃；读键表由 `apis.ts` 镜像、`compat-keys-test.mjs` 从 pi dist 复推钉住。
 - 用户 `providers.<id>` 块由 pi 用它**自己的内置模型表**在注册时校验：空块 / 只写 `api` → `must specify …`；`models[]` 缺 `api` → `no "api" specified`；`models[]` 有 `api` 缺 `baseUrl` → `"baseUrl" is required when defining custom models`。⇒ 对本扩展的 provider，`models[]` 是「新建模型」而非补丁，**补丁要用 `modelOverrides`**。
 - `pi.unregisterProvider(name)` 存在且立即生效（撤销 provider 并恢复被覆盖的内置模型）。
 
 **待办（下一轮）**：
-- §10 #15：报「对 `<api>` 无作用的 compat 键」（需 per-api 读键表 + pin）。
+- ~~§10 #15~~ **已落地（2026-10-02）**：`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`（从 pi dist 重推的 per-api 读键表，`anthropic-messages` 13 / `openai-completions` 27 / `openai-responses` 10 / codex+azure 各 6 / mistral 1 / bedrock 1 / google 三条与 `pi-messages` 0），报告点在 `providers.ts synthesizeModels`（每协议一行，覆盖底座表、`models[]`、provider 级 `compat`、`modelOverrides[M].compat`），`tests/compat-keys-test.mjs` 从安装的 pi 复推并断言相等（注入法三方向敏感：表错一键 / 不收集 / 判据失效）。
 - 待 owner 定：`providers.<id>.models[]` 在本扩展里仍作为第 3 层补丁被读（pi 侧会拒这种块，除非条目自带宽 `api`+`baseUrl`）——是保留这条自造层，还是把模型补丁的文档口子只留 `modelOverrides`。
 - `v0.4.1` 差分对照（模型合成部分预期不变）未跑；`this round` 其余项已由 21 用例覆盖。

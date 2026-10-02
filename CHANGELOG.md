@@ -22,9 +22,13 @@
 
 - 21 个用例全绿；`graph-test` 17 模块、无环、全可达。新增 `command-test`、`init-test`、`preflight-test`、`rescan-test`。关键路径用注入法证明敏感：静默忽略外来旗标 → `command-test` 红；去掉 `unregisterProvider` → `rescan-test` 红；去掉 accounts 文件保护 → `init-test` 红。
 
+### 报告
+
+- **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、`providers.<id>.models[]`、provider 级 `compat` 与 `modelOverrides[M].compat`；实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
+
 ### 未做
 
-- §10 #15（报「对 `<api>` 无作用的 compat 键」）留待下一轮：需要从 pi dist 重推 per-api 读键表并用测试钉住（`anthropic-messages` 13 键、`openai-completions` 27 键）。
+- 与 `v0.4.1` 的差分对照：模型合成部分预期不变，尚未跑。
 
 ## v0.4.1 — 2026-10-02
 
