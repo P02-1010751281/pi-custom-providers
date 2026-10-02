@@ -168,4 +168,4 @@
 **待办（下一轮）**：
 - ~~§10 #15~~ **已落地（2026-10-02）**：`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`（从 pi dist 重推的 per-api 读键表，`anthropic-messages` 13 / `openai-completions` 27 / `openai-responses` 10 / codex+azure 各 6 / mistral 1 / bedrock 1 / google 三条与 `pi-messages` 0），报告点在 `providers.ts synthesizeModels`（每协议一行，覆盖底座表、`models[]`、provider 级 `compat`、`modelOverrides[M].compat`），`tests/compat-keys-test.mjs` 从安装的 pi 复推并断言相等（注入法三方向敏感：表错一键 / 不收集 / 判据失效）。
 - 待 owner 定：`providers.<id>.models[]` 在本扩展里仍作为第 3 层补丁被读（pi 侧会拒这种块，除非条目自带宽 `api`+`baseUrl`）——是保留这条自造层，还是把模型补丁的文档口子只留 `modelOverrides`。
-- `v0.4.1` 差分对照（模型合成部分预期不变）未跑；`this round` 其余项已由 21 用例覆盖。
+- ~~`v0.4.1` 差分对照~~ **已跑（2026-10-03）**：7 场景，`prev → head` 零差分，`v0.4.1 → v0.5.0` 4 处差异（出厂默认账号消失 / 旧 key 别名块失效 / 非法 `models[]` 块改为报错跳过 / 其余一致），配方与结果见 `.codestable/audits/2026-10-03-v0.4.1-v0.5.0-model-synthesis-differential.md`。

@@ -26,9 +26,9 @@
 
 - **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、`providers.<id>.models[]`、provider 级 `compat` 与 `modelOverrides[M].compat`；实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
 
-### 未做
+### 差分（v0.4.1 → v0.5.0，模型合成）
 
-- 与 `v0.4.1` 的差分对照：模型合成部分预期不变，尚未跑。
+对「目录 + 基底表 + 端点 + 第 3/4 层」7 个场景，注册结果只有 4 处差异，逐条可归因（配方与 runner 见 `.codestable/audits/2026-10-03-v0.4.1-v0.5.0-model-synthesis-differential.md`）：出厂默认账号消失（`scnet`/`commandcode` 无 `accounts.json` ⇒ `authHeader`/`envVar` 不再隐含，**升级动作：给这些目录写 `accounts.json`**）、旧 key 别名块不再生效（#18 B′）、pi 会拒的 `models[]` 补丁块改为报错并跳过该 provider（#22/#23；旧版是桩掩盖了 pi 的抛错）、其余（协议 stamping / 端点解析 / 基底合成 / provider 级 compat 折算 / 多账号 / `modelOverrides`）完全一致。
 
 ## v0.4.1 — 2026-10-02
 
