@@ -1,6 +1,6 @@
 # Command Code 中转站：上游路由与能力探测记录
 
-日期：2026-10-01 · 对象：`commandcode` / `commandcode-c02-1010751281` 两个 provider 的 85 个模型
+日期：2026-10-01 · 对象：`commandcode` 这个 provider 的 85 个模型（两个本地目录：默认目录与账号专属目录）
 动机：该网关的 `/models` 只返回 `id`/`object`/`created`/`owned_by`/`name`/`context_length`/`supported_endpoints`，**零上游信息、零能力信息**（0/85 行有 thinking/effort/modality 字段），所以「这个模型是谁在服务、支持什么」只能主动探测。
 
 ## 0. 结论速览
