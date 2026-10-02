@@ -34,6 +34,11 @@ curl -s -X POST https://api.commandcode.ai/provider/v1/messages \
   -d '{"model":"claude-sonnet-5-5","max_tokens":99999999,"messages":[{"role":"user","content":"hi"}]}'
 
 # (d) 能力探针：必须用「真图」，不能用 1×1 占位图（见第 6 节）
+
+# (e) Responses 线（用户 provider.json 声明的 openai-responses 端点 = baseUrl + pi 自己拼的 /responses）
+curl -s -X POST https://api.commandcode.ai/provider/v1/responses \
+  -H "Authorization: Bearer $K" -H "Content-Type: application/json" -H "Accept: text/event-stream" \
+  -d '{"model":"deepseek/deepseek-v4-flash","input":"Reply with exactly: RESP_OK","stream":true,"store":false,"max_output_tokens":64}'
 ```
 
 坑：
@@ -41,6 +46,9 @@ curl -s -X POST https://api.commandcode.ai/provider/v1/messages \
 - `/provider/v1/models/<id>` 是 404，没有单模型元数据端点。
 - 上游主机名只在个别错误的**内层字符串化 JSON**里出现（`error.message` 里再嵌一层 `{"...","param":{"url":"https://api.novita.ai/..."}}`），要递归/正则挖，别只看外层。
 - 超限探针**不会**真的生成 token（除 Vercel 通道会静默夹取），代价约等于一次 400。
+
+**Responses 线现场验证（2026-10-02）**：2026-09-11 记录过一次 `POST /provider/v1/responses` → 404 `is not a registered API route`（当时用户 provider.json 里还没有这条线，`9740c80` 是 09-19 凭 `/models` 的 `supported_endpoints` 提示加上的）。今天同一路径已可用：**200** 且返回真 Responses 对象（`id: resp_01…`），流式也能跑（`content-type: text/event-stream`，事件链 `response.created → response.output_item.added → response.reasoning_summary_text.delta… → response.completed`，无 `response.failed`）；`POST /provider/responses`（少一层 `/v1`）仍 404。
+⇒ 端点表里 `apis["openai-responses"].baseUrl = https://api.commandcode.ai/provider/v1` 的写法正确（pi 自己拼 `/responses`，扩展的 `responses-test` 钉的就是这个拼法）。85 行的 `supported_endpoints` 虽都列了 `/responses`，但扩展**从不据 wire 推断协议**（`models-test` 有断言），所以表里 0 条用它、全走默认 `/chat/completions`：这是设计，不是缺陷。
 
 ## 2. 五条通道的指纹（这是判定品牌的核心依据）
 
