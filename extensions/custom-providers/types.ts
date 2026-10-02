@@ -50,7 +50,7 @@ export interface CatalogModel {
 	headers?: JsonObject;
 }
 
-/** One vendor: a directory under `custom-providers/` (the shipped `sources.ts` defaults only seed one). */
+/** One vendor: a directory under `custom-providers/`. The directory name is its provider id. */
 export type VendorId = string;
 
 /** One credential set. It only ever carries authentication — never endpoints or models. */
@@ -74,14 +74,10 @@ export type VendorOrigin = "directory";
 export interface Vendor {
 	id: VendorId;
 	name: string;
-	/** Other `models.json` provider keys this vendor answers to (its own id first). */
-	aliases: readonly string[];
 	declaration: ProviderDeclaration;
 	/** The base model table: `<id>/models.json`, empty until that file or discovery fills it. */
 	models: readonly CatalogModel[];
 	origin: VendorOrigin;
-	/** The shipped default account (`envVar` + `authHeader`) for this vendor id, used when the directory declares no accounts. */
-	defaultAccount?: Account & { envVar: string };
 	/** Resolved accounts. The one that registers as `<id>` is `baseAccount`, if any. */
 	accounts: readonly Account[];
 	/**

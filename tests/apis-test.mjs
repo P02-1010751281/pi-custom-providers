@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { agentPath, assert, FIXTURE_MODELS, loadTs, loader, seedDefaultProviders, startExtension } from "./harness.mjs";
+import { agentPath, assert, FIXTURE_MODELS, loadTs, loader, seedDefaultProviders, startExtension, TEST_VENDORS } from "./harness.mjs";
 
 /**
  * Protocol (api) selection — design §5.
@@ -12,12 +12,11 @@ import { agentPath, assert, FIXTURE_MODELS, loadTs, loader, seedDefaultProviders
  */
 const apis = await loadTs("extensions/custom-providers/apis.ts");
 const { resolveModelEndpoint } = await loadTs("extensions/custom-providers/endpoints.ts");
-const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
 const compat = await (await loader()).import("@earendil-works/pi-ai");
 
-const SCNet = DEFAULTS.find((vendor) => vendor.id === "scnet");
+const SCNet = TEST_VENDORS.scnet;
 const SCNetAnthropic = SCNet.declaration.apis["anthropic-messages"].baseUrl;
-const anthropicMessagesBaseUrl = DEFAULTS.find((vendor) => vendor.id === "commandcode").declaration.apis["anthropic-messages"].baseUrl;
+const anthropicMessagesBaseUrl = TEST_VENDORS.commandcode.declaration.apis["anthropic-messages"].baseUrl;
 
 // --- the built-in api vocabulary ----------------------------------------------
 // `BUILTIN_APIS` is a private const in pi, so our copy is asserted against the registry pi
@@ -48,7 +47,9 @@ const flipped = resolveModelEndpoint(declaration, { api: "anthropic" }, { id: "m
 assert(flipped.endpoint.api === "anthropic-messages" && flipped.stampApi === false, "providers.<id>.api flips the default protocol without stamping models");
 
 // --- registration: the SCNet vendor keeps both endpoints reachable --------------
-writeFileSync(agentPath("models.json"), "{}");
+// An empty `models.json` is not "no config": pi requires the `providers` key and drops the file
+// (schema error) when it is missing — so "no config" is written as an empty providers object.
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: {} }));
 await seedDefaultProviders();
 const plain = await startExtension();
 assert([...plain.providers.keys()].join(",") === "commandcode,scnet", `one provider per vendor (got ${[...plain.providers.keys()].join(",")})`);
@@ -61,7 +62,7 @@ assert(scnet.models.every((model) => model.cost && typeof model.cost.input === "
 assert(plain.providers.get("commandcode").models.find((model) => model.id === "claude-sonnet-5").baseUrl === anthropicMessagesBaseUrl, "a model whose default endpoint cannot serve it is pointed at the declared endpoint");
 
 // --- moving one model to the vendor's second protocol endpoint -----------------
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { models: [{ id: "GLM-5.2", api: "anthropic-messages" }] } } }));
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { models: [{ id: "GLM-5.2", api: "anthropic-messages", baseUrl: SCNetAnthropic }] } } }));
 const perModel = await startExtension();
 const models = perModel.providers.get("scnet").models;
 const glm = models.find((model) => model.id === "GLM-5.2");
@@ -74,7 +75,7 @@ assert(models.filter((model) => model.id !== "GLM-5.2").every((model) => model.b
 assert(perModel.providers.get("scnet").baseUrl === SCNet.declaration.baseUrl, "a per-model move does not move the provider's endpoint");
 
 // --- flipping the provider's default protocol ----------------------------------
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "anthropic-messages" } } }));
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "anthropic-messages", baseUrl: SCNetAnthropic } } }));
 const wholeVendor = await startExtension();
 assert(wholeVendor.providers.get("scnet").api === "anthropic-messages", "providers.<id>.api flips the provider's protocol");
 assert(wholeVendor.providers.get("scnet").baseUrl === SCNetAnthropic, "and the provider is pointed at that protocol's declared endpoint");
@@ -102,18 +103,26 @@ assert(!refused.providers.has("scnet"), "a flipped default with no endpoint is r
 assert(refused.notifications.map((entry) => entry.message).join(" | ").includes("no endpoint"), "and the refusal is reported instead of dropping the provider silently");
 
 // --- an unknown protocol is reported, never handed to pi -----------------------
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "anthropick" } } }));
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "anthropick", baseUrl: SCNet.declaration.baseUrl } } }));
 const typo = await startExtension();
 await typo.sessionStart();
 const report = typo.notifications.map((entry) => entry.message).join(" | ");
 assert(typo.providers.get("scnet").api === "openai-completions", "a misspelled provider api keeps the declared default");
 assert(report.includes("anthropick"), `a misspelled provider api is reported (got: ${report})`);
 
-// --- the alias key still configures the renamed provider ------------------------
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { codecommand: { models: [{ id: "claude-opus-5", maxTokens: 1234 }] } } }));
+// --- only the registered id is a config layer -----------------------------------
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { codecommand: { models: [{ id: "claude-opus-5", api: "anthropic-messages", baseUrl: anthropicMessagesBaseUrl, maxTokens: 1234 }] } } }));
 const aliased = await startExtension();
-const opus = aliased.providers.get("commandcode").models.find((model) => model.id === "claude-opus-5");
-assert(opus?.maxTokens === 1234, "the pre-rename `providers.codecommand` block still configures commandcode");
+const aliasOpus = aliased.providers.get("commandcode").models.find((model) => model.id === "claude-opus-5");
+assert(aliasOpus !== undefined, "the vendor's own table still registers its models");
+assert(aliasOpus.maxTokens !== 1234, "a pre-rename `providers.codecommand` block is not read (pi only resolves the registered id)");
+
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { commandcode: { models: [{ id: "claude-opus-5", api: "anthropic-messages", baseUrl: anthropicMessagesBaseUrl, maxTokens: 1234 }] } } }));
+const canonical = await startExtension();
+assert(
+	canonical.providers.get("commandcode").models.find((model) => model.id === "claude-opus-5")?.maxTokens === 1234,
+	"the registered id still configures the provider",
+);
 
 console.log(`apis: ${apis.BUILTIN_APIS.join(", ")}`);
 console.log(`scnet endpoints: ${SCNet.declaration.api} ${SCNet.declaration.baseUrl} | anthropic-messages ${SCNetAnthropic}`);

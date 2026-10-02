@@ -15,7 +15,7 @@ const write = (id, name, contents) => {
 	mkdirSync(vendorDir(id), { recursive: true });
 	writeFileSync(`${vendorDir(id)}/${name}`, JSON.stringify(contents, null, "\t"));
 };
-const reset = (modelsJson = {}) => writeFileSync(agentPath("models.json"), JSON.stringify(modelsJson));
+const reset = (modelsJson = { providers: {} }) => writeFileSync(agentPath("models.json"), JSON.stringify(modelsJson));
 const provider = { api: "openai-completions", baseUrl: "https://demo.example/v1", modelsPath: "/models" };
 
 /** A fresh directory vendor with one model, so each scenario starts from the same base. */
@@ -88,22 +88,14 @@ assert(accountReport.includes('unknown key "envVar"'), `envVar is not a user key
 assert(accountReport.includes("invalid name"), "an invalid account name is reported");
 
 // `providers.<accountId>` is the native way to give one account its own model overrides.
-reset({ providers: { demo: { models: [{ id: "m", maxTokens: 100 }] }, "demo-work": { models: [{ id: "m", maxTokens: 4096, contextWindow: 2048 }] } } });
+// A `models[]` entry is a *new model* to pi, so it has to name `api` and `baseUrl` itself
+// (measured: pi throws without them). Patching one of our models is `modelOverrides`' job.
+reset({ providers: { demo: { models: [{ id: "m", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 100 }] }, "demo-work": { models: [{ id: "m", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 4096, contextWindow: 2048 }] } } });
 vendor({ default: "main", main: { apiKey: "$MAIN_KEY" }, work: { apiKey: "$WORK_KEY" } });
 ext = await startExtension();
 assert(ext.providers.get("demo").models[0].maxTokens === 100, "the base provider reads its own models.json block");
 assert(ext.providers.get("demo-work").models[0].maxTokens === 4096 && ext.providers.get("demo-work").models[0].contextWindow === 2048, "an account layers its own block over the base one");
 assert(ext.providers.get("demo-work").models[0].name.includes("(work)"), `an account's models are labelled with the account (got ${ext.providers.get("demo-work").models[0].name})`);
-
-// A directory for a shipped id keeps the shipped base account when the directory only adds accounts.
-reset();
-mkdirSync(vendorDir("scnet"), { recursive: true });
-writeFileSync(`${vendorDir("scnet")}/provider.json`, JSON.stringify({ api: "openai-completions", baseUrl: "https://api.scnet.cn/api/llm/v1", modelsPath: "/models" }));
-writeFileSync(`${vendorDir("scnet")}/accounts.json`, JSON.stringify({ work: { apiKey: "$WORK_KEY" } }));
-ext = await startExtension();
-assert(ext.providers.has("scnet"), "the shipped default account keeps the base id registered");
-assert(ext.providers.get("scnet").apiKey === "$SCNET_API_KEY", "and supplies its credential");
-assert(ext.providers.has("scnet-work"), "while the extra account is added");
 
 // --- an account id that collides is skipped and reported, not merged (§7/§10 #13) ------
 // A second directory occupying the id the first vendor's `work` account would take.

@@ -10,7 +10,9 @@ import { agentPath, assert, loader, startExtension, withFetch } from "./harness.
 const compat = await (await loader()).import("@earendil-works/pi-ai");
 const vendorDir = agentPath("custom-providers", "responses-demo");
 mkdirSync(vendorDir, { recursive: true });
-writeFileSync(agentPath("models.json"), "{}");
+// An empty `models.json` is not "no config": pi requires the `providers` key and drops the file
+// (schema error) when it is missing — so "no config" is written as an empty providers object.
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: {} }));
 writeFileSync(`${vendorDir}/provider.json`, JSON.stringify({
 	api: "openai-completions",
 	baseUrl: "https://demo.example/v1",

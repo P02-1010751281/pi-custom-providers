@@ -6,7 +6,8 @@
  * one vocabulary — `MODEL_KEYS` for reading, `FIELD_ORDER` for writing; a reader in one file and
  * a writer in another is how one file ends up parsed twice, under two sets of rules.
  *
- * `writeBaseTable` and `init`'s `provider.json` are the package's only two writers (§10/§13).
+ * The package's three write outlets all live with their readers: `writeBaseTable` (`sync`), `init`'s
+ * `provider.json` and `init`'s `accounts.json` (§10/§13).
  * Both go through `util.ts`'s shared codec and atomic write.
  */
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";

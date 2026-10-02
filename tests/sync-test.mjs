@@ -1,19 +1,18 @@
+/**
+ * `sync` — fetch every endpoint, merge what answered into the vendor's base table, write it.
+ *
+ * This is the package's only writer of user data (`<id>/models.json`), and `--dry-run` is the one
+ * thing that refuses to write. What it writes is the *base* table: the user's `providers.<id>`
+ * layer and pi's `modelOverrides` are not inputs, because baking them in would fossilize an
+ * override into the file that is supposed to be its base.
+ */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { agentPath, assert, loadTs, runCommand, startExtension, testModel, withFetch } from "./harness.mjs";
 
-/**
- * `sync` — the only code path in this package that writes a user file, and only with
- * `--write` (design §9, decision 13).
- *
- * What it writes is the *base* table (the vendor's model base merged with discovery). The
- * user's `providers.<id>` layer and `modelOverrides` are deliberately excluded: baking them
- * in would fossilize a user override into the file that is supposed to be its base.
- */
 // The base table's read/diff/write half lives with its reader, in the directory layer.
 const sync = await loadTs("extensions/custom-providers/model-table.ts");
 const vendorDir = agentPath("custom-providers", "demo");
 const file = `${vendorDir}/models.json`;
-const reset = () => writeFileSync(agentPath("models.json"), "{}");
 const base = (id, maxTokens = 100) => testModel(id, { maxTokens });
 
 // --- diff semantics ---------------------------------------------------------------
@@ -31,70 +30,83 @@ assert(Array.isArray(parsed.models) && parsed.models[0].id === "a", "the canonic
 assert(serialized.indexOf('"id"') < serialized.indexOf('"name"'), "fields are written in a stable order");
 assert(parsed.models[0].api === undefined && parsed.models[0].baseUrl === undefined, "a model on the default protocol is stored without api/baseUrl");
 
-// --- the command: dry run, then --write -------------------------------------------
+// --- the command: fetch, dry run, write -------------------------------------------
 mkdirSync(vendorDir, { recursive: true });
 writeFileSync(`${vendorDir}/provider.json`, JSON.stringify({ api: "openai-completions", baseUrl: "https://demo.example/v1", modelsPath: "/models", apis: { "anthropic-messages": { baseUrl: "https://demo.example/anthropic" } } }));
 writeFileSync(file, JSON.stringify({ models: [base("a"), { ...base("b"), api: "anthropic-messages" }] }));
-reset();
-// The vendor needs a credential before the extension loads, or the refresh has nothing to
-// resolve and the discovery memo stays empty (which is itself a covered case elsewhere).
+// The fetch needs a credential before anything runs, or every endpoint is skipped uncredentialed.
 process.env.DEMO_KEY = "test-key";
 writeFileSync(`${vendorDir}/accounts.json`, JSON.stringify({ default: "main", main: { apiKey: "$DEMO_KEY" } }));
-const ext = await startExtension();
-/** Fill the in-process discovery memo that `sync` merges — in this extension instance. */
-const refreshAll = async () => {
-	for (const provider of ext.providers.values()) {
-		if (typeof provider.refreshModels === "function") await provider.refreshModels({ allowNetwork: true, signal: new AbortController().signal, publish: async () => true });
-	}
+
+const answered = (rows) => async () => ({ ok: true, json: async () => ({ data: rows }) });
+const offline = async () => {
+	throw new Error("offline test");
 };
+const ext = await startExtension();
+const notify = [];
+const run = (args, stub = answered([{ id: "a", name: "A (live)", context_length: 5000 }, { id: "discovered" }])) =>
+	withFetch(stub, () => runCommand(ext.commands, args, notify));
+const last = () => notify.at(-1);
 
 const before = readFileSync(file, "utf8");
-const dry = [];
-await runCommand(ext.commands, "sync demo", dry);
-assert(readFileSync(file, "utf8") === before, "without --write nothing is written");
-assert(dry.join(" ").includes("already current"), `an unchanged table says so (got ${dry.join(" ")})`);
+await run("sync demo --dry-run");
+assert(readFileSync(file, "utf8") === before, "--dry-run writes nothing");
+assert(last().includes("dry run"), `the dry run says so (got ${last()})`);
+assert(last().includes("+ discovered"), `and names the discovered id (got ${last()})`);
+assert(last().includes("~ a (name, contextWindow)"), `and the fields discovery moved (got ${last()})`);
 
-// What makes a directory vendor's table dirty is discovery, not the user: the base table
-// *is* the file. Run one online refresh with a stubbed registry, then look at the diff.
-await withFetch(async () => ({ ok: true, json: async () => ({ data: [{ id: "a", name: "A (live)", context_length: 5000 }, { id: "discovered" }] }) }), refreshAll);
-const dirty = [];
-await runCommand(ext.commands, "sync demo", dirty);
-assert(JSON.parse(readFileSync(file, "utf8")).models.length === 2, `a dry run does not touch the file (got ${JSON.parse(readFileSync(file, "utf8")).models.length})`);
-assert(dirty.join(" ").includes("--write"), `the dry run says how to apply (got ${dirty.join(" ")})`);
-assert(dirty.join(" ").includes("+ discovered"), `and names the discovered id (got ${dirty.join(" ")})`);
-assert(dirty.join(" ").includes("~ a (name, contextWindow)"), `and the fields discovery moved (got ${dirty.join(" ")})`);
+// One endpoint failing skips that endpoint only; the other one's answer still counts.
+await run(
+	"sync demo --dry-run",
+	async (url) => (url.includes("/anthropic") ? { ok: false, status: 429, json: async () => ({}) } : { ok: true, json: async () => ({ data: [{ id: "discovered" }] }) }),
+);
+assert(last().includes("skipped anthropic-messages: HTTP 429"), `a failed endpoint is reported and skipped (got ${last()})`);
+assert(last().includes("+ discovered"), `while the endpoint that answered is still applied (got ${last()})`);
 
-// A `sync --write` applies the merge, normalizes the shape and keeps a `.bak`.
-writeFileSync(file, JSON.stringify([{ ...base("a"), maxTokens: 999 }, base("b")]));
-const written = [];
-await runCommand(ext.commands, "sync demo --write", written);
+// Every endpoint failing: there is no new data to apply, so the file (and its backup) stay put.
+await run("sync demo", offline);
+assert(readFileSync(file, "utf8") === before, "no answer means no write");
+assert(last().includes("no endpoint answered"), `and that is said out loud (got ${last()})`);
+assert(!existsSync(`${file}.bak`), "not even a backup");
+
+// The write path.
+await run("sync demo");
 const after = JSON.parse(readFileSync(file, "utf8"));
-assert(Array.isArray(after.models), "sync --write rewrites the file in the canonical shape");
+assert(Array.isArray(after.models), "sync rewrites the file in the canonical shape");
 assert(after.models.length === 3, `the discovered id is now part of the base table (got ${after.models.length})`);
-assert(after.models.find((model) => model.id === "a").maxTokens === 999, "the existing base table is the source, not the built-in catalog");
+assert(after.models.find((model) => model.id === "a").maxTokens === 100, "the existing base table is the source, not the built-in catalog");
 assert(after.models.find((model) => model.id === "a").contextWindow === 5000 && after.models.find((model) => model.id === "a").name === "A (live)", "discovery's values are written");
 assert(after.models.find((model) => model.id === "discovered")?.cost?.input === 0, "a discovered id is written with cost (pi requires it)");
 assert(after.models.find((model) => model.id === "discovered").baseUrl === undefined, "and without a derived baseUrl (that is a registration-time product)");
 assert(existsSync(`${file}.bak`), "a .bak of the previous file is written");
-assert(JSON.parse(readFileSync(`${file}.bak`, "utf8")).length === 2, "the backup holds the previous bytes");
-assert(written.join(" ").includes("wrote"), `the write is reported (got ${written.join(" ")})`);
+assert(last().includes("wrote") && last().includes("/providers rescan demo"), `the write points at the command that applies it (got ${last()})`);
 
 // The written file loads back as the same model set.
 const reloaded = await startExtension();
 assert(reloaded.providers.get("demo").models.length === 3, "the written table loads back as the same model set");
-assert(reloaded.providers.get("demo").models.find((model) => model.id === "a").maxTokens === 999, "round trip keeps the values");
 
 // The user layer is not baked into the file: it stays in pi's models.json.
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { demo: { models: [{ id: "a", maxTokens: 7 }] } } }));
-const layered = [];
-await runCommand(ext.commands, "sync demo --write", layered);
-assert(JSON.parse(readFileSync(file, "utf8")).models.find((model) => model.id === "a").maxTokens === 999, "a user override in models.json is not written into the base table");
-assert(layered.join(" ").includes("current"), `and the base table is still reported as current (got ${layered.join(" ")})`);
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { demo: { models: [{ id: "a", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 7 }] } } }));
+await run("sync demo");
+assert(JSON.parse(readFileSync(file, "utf8")).models.find((model) => model.id === "a").maxTokens === 100, "a user override in models.json is not written into the base table");
 
-// A directory that does not exist is reported, not guessed at.
-const missing = [];
-await runCommand(ext.commands, "sync nope --write", missing);
-assert(missing.join(" ").includes("No provider directory"), `an unknown id is reported (got ${missing.join(" ")})`);
+// An id discovery no longer returns is kept, named, and dropped only with `--prune`.
+await run("sync demo --dry-run", answered([{ id: "a" }, { id: "discovered" }]));
+assert(last().includes("vanished (kept, pass --prune to drop): b"), `a vanished id is reported, not dropped (got ${last()})`);
+await run("sync demo --prune", answered([{ id: "a" }, { id: "discovered" }]));
+assert(JSON.parse(readFileSync(file, "utf8")).models.some((model) => model.id === "b") === false, "--prune drops it from the base table");
+
+// No id means every vendor, and `--prune` is per-vendor by design.
+const secondDir = agentPath("custom-providers", "second");
+mkdirSync(secondDir, { recursive: true });
+writeFileSync(`${secondDir}/provider.json`, JSON.stringify({ name: "second", baseUrl: "https://second.example/v1", api: "openai-completions", modelsPath: "/models" }));
+writeFileSync(`${secondDir}/models.json`, JSON.stringify({ models: [base("s1")] }));
+await run("sync");
+assert(last().includes("demo") && last().includes("second"), `no id syncs every vendor (got ${last()})`);
+
+// An unknown id is reported, not guessed at.
+await run("sync nope --dry-run");
+assert(last().includes("No provider directory"), `an unknown id is reported (got ${last()})`);
 
 console.log(`sync diff: +${diff.added.length} ~${diff.changed.length} -${diff.removed.length}`);
 console.log("OK");

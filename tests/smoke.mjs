@@ -53,6 +53,5 @@ console.log(`model counts: ${[...providers].map(([id, c]) => `${id}=${c.models.l
 console.log(`on: ${[...events.keys()].join(", ")}`);
 console.log(`cmd: ${[...commands.keys()].join(", ")}`);
 assert(events.has("session_start"), "session_start handler registered");
-assert(commands.has("refresh-custom-models"), "refresh command registered");
-assert(commands.has("custom-providers"), "status command registered");
+assert([...commands.keys()].join(",") === "providers", `the /providers command is the whole surface (got ${[...commands.keys()].join(",")})`);
 console.log("OK");

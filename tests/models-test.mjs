@@ -94,8 +94,11 @@ assert(typeof cfg.readModelsConfig().issue === "string", "malformed models.json 
 writeFileSync(modelsJson, JSON.stringify({ providers: { scnet: { apiKey: "$SCNET_API_KEY" } } }));
 const parsed = cfg.readModelsConfig();
 assert(parsed.issue === undefined, "a valid models.json parses without an issue");
-assert(cfg.providerLayerFor("scnet", [], parsed.config).apiKey === "$SCNET_API_KEY", "providerLayerFor reads the provider's block");
-assert(cfg.providerLayerFor("commandcode", ["codecommand"], { providers: { codecommand: { authHeader: true } } }).authHeader === true, "providerLayerFor falls back to an alias key");
+assert(cfg.providerLayerFor("scnet", parsed.config).apiKey === "$SCNET_API_KEY", "providerLayerFor reads the provider's block");
+assert(
+	JSON.stringify(cfg.providerLayerFor("commandcode", { providers: { codecommand: { authHeader: true } } })) === "{}",
+	"an alias key is not a config layer: pi resolves `providers.<id>` by the registered id only",
+);
 assert(JSON.stringify(cfg.applyModelPatch({ id: "m", contextWindow: 1000, cost: { input: 1 } }, { maxTokens: 5 }).contextWindow) === "1000", "a models.json entry patches fields instead of replacing the entry");
 
 console.log(`validated ${total} fixture models`);

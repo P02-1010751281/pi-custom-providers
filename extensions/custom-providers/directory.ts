@@ -94,65 +94,39 @@ export function loadDirectory(rootDir: string, id: string): DirectoryVendor {
 	};
 }
 
-/** Turn one parsed directory into a `Vendor`, reporting whatever it had to fall back on. */
-function vendorFromDirectory(loaded: DirectoryVendor, shipped: Vendor | undefined, issues: LoadIssue[]): Vendor {
-	const resolved = resolveAccounts(loaded.accounts, loaded.defaultPointer, {
-		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
-		id: loaded.id,
-	});
+/** Turn one parsed directory into a `Vendor`, reporting whatever the id policy had to say. */
+function vendorFromDirectory(loaded: DirectoryVendor, issues: LoadIssue[]): Vendor {
+	const resolved = resolveAccounts(loaded.accounts, loaded.defaultPointer, { id: loaded.id });
 	issues.push(...resolved.issues);
-	// A directory only has to speak where it differs: the shipped default for the same id
-	// fills in the endpoints the directory leaves out.
-	const declaration: ProviderDeclaration = !shipped
-		? loaded.declaration
-		: {
-				api: loaded.declaration.api || shipped.declaration.api,
-				baseUrl: loaded.declaration.baseUrl || shipped.declaration.baseUrl,
-				...(loaded.declaration.modelsPath || shipped.declaration.modelsPath ? { modelsPath: loaded.declaration.modelsPath ?? shipped.declaration.modelsPath } : {}),
-				...(loaded.declaration.headers || shipped.declaration.headers ? { headers: loaded.declaration.headers ?? shipped.declaration.headers } : {}),
-				apis: { ...shipped.declaration.apis, ...loaded.declaration.apis },
-			};
 	return {
 		id: loaded.id,
 		name: loaded.name,
-		aliases: shipped?.aliases ?? [loaded.id],
-		declaration,
+		declaration: loaded.declaration,
 		// The extension ships no model table: empty until a directory `models.json` or discovery
-		// fills it (and a later `sync --write` can persist that).
+		// fills it (and a later `sync` can persist that).
 		models: loaded.models,
 		origin: "directory",
-		...(shipped?.defaultAccount ? { defaultAccount: shipped.defaultAccount } : {}),
 		accounts: resolved.accounts,
 		...(resolved.baseAccount ? { baseAccount: resolved.baseAccount } : {}),
 		...(resolved.baseSuppressed ? { baseSuppressed: true } : {}),
-		override: loaded.override || (shipped?.override ?? false),
+		override: loaded.override,
 		directory: loaded.directory,
 		issues: loaded.issues,
 	};
 }
 
 /**
- * Every vendor this extension registers: one per `custom-providers/<id>/provider.json`.
- * The shipped `defaults` in `sources.ts` are never registered on their own — they only seed
- * the matching directory (endpoints, env-var account). `piProviderIds` are pi's
- * own provider ids: a directory may only take one of those over with `"override": true` (§8).
+ * Every vendor this extension registers: one per `custom-providers/<id>/provider.json`. The
+ * directory name *is* the provider id — there is no index, no alias table and no shipped vendor
+ * list to merge, so one directory holds exactly one vendor's declaration. `piProviderIds` are
+ * pi's own provider ids: a directory may only take one of those over with `"override": true` (§8).
  */
-export function collectVendors(
-	rootDir: string,
-	defaults: readonly Vendor[],
-	piProviderIds: ReadonlySet<string>,
-): { vendors: Vendor[]; ignored: string[]; issues: LoadIssue[] } {
+export function collectVendors(rootDir: string, piProviderIds: ReadonlySet<string>): { vendors: Vendor[]; ignored: string[]; issues: LoadIssue[] } {
 	const { dirs, ignored } = scanProviderRoot(rootDir);
 	const issues: LoadIssue[] = [];
-	const byId = new Map<string, Vendor>();
-	const defaultById = new Map(defaults.map((vendor) => [vendor.id, vendor]));
-	const reserved = new Set([...defaults.map((vendor) => vendor.id), ...defaults.flatMap((vendor) => vendor.aliases)]);
+	const vendors: Vendor[] = [];
 
 	for (const dir of dirs) {
-		if (reserved.has(dir) && !defaultById.has(dir)) {
-			issues.push({ level: "warning", message: `directory "${dir}" collides with an alias of another vendor; skipping it` });
-			continue;
-		}
 		const loaded = loadDirectory(rootDir, dir);
 		// The scan reports the same text the vendor's own status carries, with the location in
 		// front — one problem, one wording, so `problemLines` can dedupe the two.
@@ -166,8 +140,7 @@ export function collectVendors(
 			continue;
 		}
 		// Same array, not a copy: `resolveAccounts` reports into it too.
-		const vendor = vendorFromDirectory(loaded, defaultById.get(dir), issues);
-		byId.set(dir, vendor);
+		vendors.push(vendorFromDirectory(loaded, issues));
 	}
-	return { vendors: [...byId.values()].sort((a, b) => a.id.localeCompare(b.id)), ignored, issues };
+	return { vendors: vendors.sort((a, b) => a.id.localeCompare(b.id)), ignored, issues };
 }

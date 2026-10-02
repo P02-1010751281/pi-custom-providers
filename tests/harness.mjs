@@ -110,11 +110,24 @@ export async function withFetch(stub, fn) {
 }
 
 /**
- * Invoke the `custom-providers` command, collecting its `notify` lines into `sink` (a plain
- * array of message strings — tests assert on the text, never on the level).
+ * Invoke the `providers` command, collecting its `notify` lines into `sink` (a plain array of
+ * message strings — tests assert on the text, never on the level).
  */
-export function runCommand(commands, args, sink) {
-	return commands.get("custom-providers").handler(args, { hasUI: true, ui: { notify: (message) => sink.push(message) } });
+export function runCommand(commands, args, sink, answers = {}) {
+	const input = [...(answers.input ?? [])];
+	const select = [...(answers.select ?? [])];
+	const confirm = [...(answers.confirm ?? [])];
+	return commands.get("providers").handler(args, {
+		hasUI: answers.hasUI ?? true,
+		ui: {
+			notify: (message) => sink.push(message),
+			// `undefined` from input/select and `false` from confirm is exactly what pi's dialogs
+			// return when the user escapes — an unscripted wizard cancels rather than guessing.
+			input: async () => input.shift(),
+			select: async () => select.shift(),
+			confirm: async () => confirm.shift() ?? false,
+		},
+	});
 }
 
 /** The temp agent dir every test writes into (`PI_CODING_AGENT_DIR`). */
@@ -135,21 +148,53 @@ export const vendorDir = (id) => agentPath("custom-providers", id);
 export const FIXTURE_MODELS = JSON.parse(readFileSync(path.join(REPO_ROOT, "tests/fixtures/models.json"), "utf8"));
 
 /**
- * Write `<id>/provider.json` for the shipped defaults into the temp agent dir, plus the
- * fixture `models.json` when one exists for that vendor. A provider only exists when its
- * directory does; this is what `custom-providers init` + a user's table produce.
+ * The two vendors the tests exercise, as plain declarations. The extension ships no vendor
+ * knowledge at all (v0.5.0 deleted `sources.ts`): a provider exists because its directory does, so
+ * these are what `init` plus a hand-written table would leave behind.
+ */
+export const TEST_VENDORS = {
+	commandcode: {
+		name: "Command Code (GOAT)",
+		declaration: {
+			api: "openai-completions",
+			baseUrl: "https://api.commandcode.ai/provider/v1",
+			modelsPath: "/models",
+			apis: { "anthropic-messages": { baseUrl: "https://api.commandcode.ai/provider", modelsPath: "/v1/models" } },
+		},
+	},
+	scnet: {
+		name: "SCNet",
+		declaration: {
+			api: "openai-completions",
+			baseUrl: "https://api.scnet.cn/api/llm/v1",
+			modelsPath: "/models",
+			apis: { "anthropic-messages": { baseUrl: "https://api.scnet.cn/api/llm/anthropic", modelsPath: "/v1/models" } },
+		},
+	},
+};
+
+/**
+ * The credential each test vendor's `accounts.json` references. The names are the historical ones
+ * the tests already use (`$CMD_API_KEY`, `$SCNET_API_KEY`); nothing secret is stored either way.
+ */
+const TEST_KEY_VARS = { commandcode: "CMD_API_KEY", scnet: "SCNET_API_KEY" };
+
+/**
+ * Write `<id>/provider.json`, its fixture `models.json` and a credential, into the temp agent dir.
+ * A provider only exists when its directory does; `accounts.json` is the one home a credential has.
  */
 export async function seedDefaultProviders(...ids) {
-	const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
-	for (const id of ids.length > 0 ? ids : DEFAULTS.map((vendor) => vendor.id)) {
-		const shipped = DEFAULTS.find((vendor) => vendor.id === id);
-		if (!shipped) continue;
+	for (const id of ids.length > 0 ? ids : Object.keys(TEST_VENDORS)) {
+		const vendor = TEST_VENDORS[id];
+		if (!vendor) throw new Error(`unknown test vendor "${id}"`);
 		const dir = agentPath("custom-providers", id);
 		mkdirSync(dir, { recursive: true });
-		writeFileSync(path.join(dir, "provider.json"), `${JSON.stringify({ name: shipped.name, ...shipped.declaration }, null, "\t")}\n`);
+		writeFileSync(path.join(dir, "provider.json"), `${JSON.stringify({ name: vendor.name, ...vendor.declaration }, null, "\t")}\n`);
 		const models = FIXTURE_MODELS[id];
 		if (!models) throw new Error(`no tests/fixtures/models.json entry for "${id}"`);
 		writeFileSync(path.join(dir, "models.json"), `${JSON.stringify({ models }, null, "\t")}\n`);
+		const variable = TEST_KEY_VARS[id] ?? `${id.toUpperCase()}_KEY`;
+		writeFileSync(path.join(dir, "accounts.json"), `${JSON.stringify({ default: "main", main: { apiKey: `$${variable}`, authHeader: true } }, null, "\t")}\n`);
 	}
 }
 
@@ -162,17 +207,23 @@ export function stubPi() {
 	const events = new Map();
 	const commands = new Map();
 	const notifications = [];
+	/** Ids passed to `pi.unregisterProvider` — `rescan`'s only destructive path. */
+	const unregistered = [];
 	const notify = (message, level) => notifications.push({ message, level });
 	const pi = {
 		on: (event, handler) => events.set(event, handler),
 		registerCommand: (name, options) => commands.set(name, options),
 		registerProvider: (id, config) => providers.set(id, config),
+		unregisterProvider: (id) => {
+			unregistered.push(id);
+			providers.delete(id);
+		},
 		registerFlag: () => {},
 		registerShortcut: () => {},
 		registerTool: () => {},
 		getFlag: () => undefined,
 	};
-	return { pi, providers, events, commands, notifications, notify };
+	return { pi, providers, events, commands, notifications, unregistered, notify };
 }
 
 /** A complete model row. `cost` is the field pi dereferences on every request. */
@@ -194,7 +245,7 @@ export const testModel = (id, extra = {}) => ({
  */
 export async function startExtension() {
 	const factory = (await loadTs("extensions/custom-providers/index.ts")).default;
-	const { pi, providers, events, commands, notifications, notify } = stubPi();
+	const { pi, providers, events, commands, notifications, unregistered, notify } = stubPi();
 	await factory(pi);
 	/**
 	 * `session_start` refreshes live, so tests run it with fetch offline unless they stub it
@@ -208,5 +259,5 @@ export async function startExtension() {
 			},
 			() => events.get("session_start")?.({}, { hasUI: true, ui: { notify }, ...ctx }),
 		);
-	return { providers, events, commands, notifications, notify, sessionStart };
+	return { providers, events, commands, notifications, unregistered, notify, sessionStart };
 }

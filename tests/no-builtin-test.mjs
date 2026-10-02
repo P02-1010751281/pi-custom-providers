@@ -1,24 +1,21 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { agentPath, assert, loadTs, runCommand, seedDefaultProviders, startExtension, testModel, withFetch } from "./harness.mjs";
+import { agentPath, assert, loadTs, runCommand, seedDefaultProviders, startExtension, testModel, TEST_VENDORS, withFetch } from "./harness.mjs";
 
 /**
- * There are no built-in providers (design §8): the shipped `sources.ts` defaults seed a
- * directory, they are never registered on their own. No directory = no provider, and
- * `custom-providers init` writes the directory that makes one.
+ * There are no built-in providers and no shipped vendor knowledge (design §8, v0.5.0): a provider
+ * exists because `custom-providers/<id>/provider.json` does, and `init` writes that directory.
  */
-const { DEFAULTS } = await loadTs("extensions/custom-providers/sources.ts");
-
 // --- no directory, no provider -------------------------------------------------
 const empty = await startExtension();
 assert(empty.providers.size === 0, `no custom-providers directory registers nothing (got ${[...empty.providers.keys()].join(", ")})`);
 
-// --- a directory for a shipped id gets the seeded model table + default account --
+// --- a directory registers with what it declares, credential included ----------
 await seedDefaultProviders("commandcode");
 const seeded = await startExtension();
 assert(seeded.providers.has("commandcode"), "a directory registers the provider");
 assert(seeded.providers.get("commandcode").models.length > 0, "and gets the model table from its own models.json");
-assert(seeded.providers.get("commandcode").apiKey === "$CMD_API_KEY", "and the shipped default account");
-assert(seeded.providers.get("commandcode").api === DEFAULTS.find((vendor) => vendor.id === "commandcode").declaration.api, "and the shipped endpoint");
+assert(seeded.providers.get("commandcode").apiKey === "$CMD_API_KEY", "and the credential from its own accounts.json");
+assert(seeded.providers.get("commandcode").api === TEST_VENDORS.commandcode.declaration.api, "and the declared endpoint");
 
 // --- the extension ships no model table: provider.json alone registers no models --
 rmSync(agentPath("custom-providers", "commandcode", "models.json"));
@@ -43,27 +40,30 @@ await withFetch(async () => ({ ok: true, json: async () => ({ data: [] }) }), as
 	assert(restored.find((model) => model.id === "from-store").maxTokens === 321, "and the restored entry keeps the parameters pi persisted");
 });
 
-// --- init writes provider.json for a shipped id --------------------------------
+// --- init writes the directory, rescan makes it a provider -----------------------
 const notify = [];
 const ui = await startExtension();
 const run = (args) => runCommand(ui.commands, args, notify);
 
-const scnetFile = agentPath("custom-providers", "scnet", "provider.json");
-await run("init scnet");
+const scnetDir = agentPath("custom-providers", "scnet");
+const scnetFile = `${scnetDir}/provider.json`;
+await run("init scnet --url https://api.scnet.cn/api/llm/v1 --api openai-completions --models-path /models");
 assert(existsSync(scnetFile), "init writes the provider file");
 const written = JSON.parse(readFileSync(scnetFile, "utf8"));
-assert(written.api === "openai-completions" && written.baseUrl.includes("scnet"), "with the shipped declaration");
-assert(written.apis?.["anthropic-messages"]?.baseUrl, "including the second endpoint");
+assert(written.api === "openai-completions" && written.baseUrl === "https://api.scnet.cn/api/llm/v1", `with the declaration it was given (got ${JSON.stringify(written)})`);
+assert(written.modelsPath === "/models", "including the discovery path");
+assert(!existsSync(`${scnetDir}/accounts.json`), "and no accounts.json when no key was given");
 
-await run("init scnet");
+await run("init scnet --url https://api.scnet.cn/api/llm/v1 --api openai-completions");
 assert((notify.at(-1) ?? "").includes("exists"), "a second init refuses to overwrite without --force");
-// Regression: `sync` re-scans, so it sees a directory `init` wrote in this same session.
-await run("sync scnet");
-assert(!(notify.at(-1) ?? "").includes("No provider directory named"), `sync sees the directory init just wrote (got: ${notify.at(-1)})`);
-await run("init scnet --force");
-assert((notify.at(-1) ?? "").includes("wrote"), "--force overwrites");
-await run("init nope");
-assert((notify.at(-1) ?? "").includes("unknown"), "an unknown id is reported");
+await run("init scnet --url https://mirror.example/v1 --api openai-completions --force");
+assert(JSON.parse(readFileSync(scnetFile, "utf8")).baseUrl === "https://mirror.example/v1", "--force overwrites");
 
-console.log(`defaults: ${DEFAULTS.map((vendor) => vendor.id).join(", ")}`);
+// Registering is `rescan`'s job, not `init`'s: one mechanism for "disk changed → session changed".
+await run("status scnet");
+assert((notify.at(-1) ?? "").includes('Unknown provider "scnet"'), `init alone does not register the vendor (got ${notify.at(-1)})`);
+await run("rescan");
+assert(ui.providers.has("scnet"), "rescan registers it");
+
+console.log(`test vendors: ${Object.keys(TEST_VENDORS).join(", ")}`);
 console.log("OK");

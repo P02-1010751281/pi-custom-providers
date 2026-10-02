@@ -15,7 +15,8 @@ const write = (dir, name, contents) => {
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(`${dir}/${name}`, typeof contents === "string" ? contents : JSON.stringify(contents, null, "\t"));
 };
-const reset = (modelsJson = {}) => {
+// "No config" is `{providers: {}}`: pi requires the key and drops the whole file without it.
+const reset = (modelsJson = { providers: {} }) => {
 	writeFileSync(agentPath("models.json"), JSON.stringify(modelsJson));
 };
 
@@ -102,7 +103,7 @@ assert(demo.models[0].api === "anthropic-messages" && demo.models[0].baseUrl ===
 assert(demo.api === "openai-completions" && demo.baseUrl === "https://demo.example/v1", "the provider keeps the default endpoint");
 
 // A models.json patch is a patch: unnamed fields keep the base value (pi's own semantics).
-reset({ providers: { demo: { models: [{ id: "demo-model", maxTokens: 4096 }] } } });
+reset({ providers: { demo: { models: [{ id: "demo-model", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 4096 }] } } });
 const patched = (await startExtension()).providers.get("demo").models[0];
 assert(patched.maxTokens === 4096 && patched.contextWindow === 4096, "the user patch overrides one field and keeps the rest of the base entry");
 
@@ -128,19 +129,15 @@ assert(userLayer !== undefined, "an id the user declared in models.json needs no
 assert(userLayer.baseUrl === "https://mine.example/v1", `the user layer (3) redirects the default endpoint over the directory definition (2) (got ${userLayer.baseUrl})`);
 
 // A directory named after another vendor's alias would fight for the same configuration.
-reset();
-write(vendorDir("codecommand"), "provider.json", provider());
-const collided = await startExtension();
-await collided.sessionStart();
-assert(!collided.providers.has("codecommand"), "a directory colliding with an alias of a shipped vendor is skipped");
-assert(collided.notifications.map((entry) => entry.message).join(" | ").includes("collides with an alias"), "and the collision is reported");
+// (There are no shipped aliases any more: the directory name *is* the provider id, so the
+// collision guard and the `aliases` field are gone with `sources.ts`.)
 
-// A directory for a shipped id overrides what it speaks, keeping the shipped endpoints.
+// A directory with only a `provider.json` registers, with the endpoints it declares.
 reset();
 write(vendorDir("scnet"), "provider.json", provider({ baseUrl: "https://mirror.example/v1", modelsPath: "/models" }));
 const mirrored = await startExtension();
 await mirrored.sessionStart();
-assert(mirrored.providers.get("scnet").baseUrl === "https://mirror.example/v1", "a directory replaces the shipped default endpoint");
+assert(mirrored.providers.get("scnet").baseUrl === "https://mirror.example/v1", "the declaration is what the directory says it is");
 assert(mirrored.providers.get("scnet").models.length === 0, "a directory with only provider.json has no models (the extension ships no table)");
 assert(!mirrored.notifications.map((entry) => entry.message).join(" | ").includes("replaces the built-in"), "no built-in provider is ever announced");
 
@@ -171,7 +168,7 @@ await run("nope");
 assert(notify.at(-1).includes('Unknown provider "nope"') && notify.at(-1).includes("demo"), `an unknown id is reported with the known ones (got ${notify.at(-1)})`);
 
 await run("drift");
-assert(typeof notify.at(-1) === "string" && notify.at(-1).length > 0, "`drift` answers with one line");
+assert(notify.at(-1).includes('Unknown provider "drift"'), "`drift` is a provider id now, not a verb");
 
 // --- one problem, one line --------------------------------------------------------
 // The directory scan reports a problem with its location in front, while the provider's own

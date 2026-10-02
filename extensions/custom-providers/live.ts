@@ -152,6 +152,49 @@ export const vanishedByVendor = new Map<string, string[]>();
 export const lastErrors = new Map<string, string>();
 export const endpointKey = (vendorId: string, api: string): string => `${vendorId}\u0000${api}`;
 
+/** The one-line hint for a missing credential: the file, and the config layer that can carry it. */
+function credentialHint(entry: ProviderEntry): string {
+	return `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json or providers.${entry.id}.apiKey, or run /login ${entry.id}`;
+}
+
+/** What one endpoint's probe produced: the wire's rows, or the reason it was skipped. */
+export interface EndpointProbe {
+	api: string;
+	/** The rows the wire answered, when it answered. */
+	rows?: LiveModelRow[];
+	/** Why there are no rows (no `modelsPath`, no credential, HTTP error, ...). */
+	skipped?: string;
+	/** The answer was a valid, empty list (a quota-exhausted wire answers 200 + `[]`). */
+	empty?: boolean;
+}
+
+/**
+ * Probe one endpoint and record the outcome in `lastErrors`. A refresh round probes every endpoint
+ * of a vendor and merges the answers; `sync` probes the same way but applies only the endpoints
+ * that answered. Both go through here, so the request shape, its timeout and its bookkeeping
+ * exist once.
+ */
+export async function probeEndpoint(
+	entry: ProviderEntry,
+	layer: JsonObject,
+	endpoint: { api: string; baseUrl: string; modelsPath?: string; headers?: JsonObject },
+	options: { signal?: AbortSignal; contextKey?: string } = {},
+): Promise<EndpointProbe> {
+	const key = endpointKey(entry.vendor.id, endpoint.api);
+	try {
+		if (!endpoint.modelsPath) throw new Error("no modelsPath: no discovery for this endpoint");
+		const credential = discoveryCredential(entry, layer, options.contextKey);
+		if (!credential.key) throw new Error(credentialHint(entry));
+		const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, credential, options.signal);
+		lastErrors.delete(key);
+		return rows.length === 0 ? { api: endpoint.api, rows, empty: true } : { api: endpoint.api, rows };
+	} catch (error) {
+		const message = String(error);
+		lastErrors.set(key, `${endpoint.api}: ${message}`);
+		return { api: endpoint.api, skipped: message };
+	}
+}
+
 /** Every declared endpoint of a vendor: the default one plus each `apis.<api>`. */
 export function vendorEndpoints(vendor: Vendor): { api: string; baseUrl: string; modelsPath?: string; headers?: JsonObject }[] {
 	const { declaration } = vendor;
@@ -171,17 +214,15 @@ export async function refreshEntry(
 	layer: JsonObject,
 	builtin: BuiltinCatalog,
 	options: { allowFetch: boolean; contextKey?: string; signal?: AbortSignal; stored?: readonly JsonObject[] },
-): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[] }> {
+): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[]; endpoints: EndpointProbe[] }> {
 	const issues: LoadIssue[] = [];
 	const models = synthesizeModels(entry, layer, builtin, issues);
-	const credential = discoveryCredential(entry, layer, options.contextKey);
-	// Report the missing credential before any request, naming the file and the built-in
-	// variable so the fix is obvious (and never send the variable *name* as the token).
-	const keyHint = `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json, providers.${entry.id}.apiKey${entry.vendor.defaultAccount ? `, $${entry.vendor.defaultAccount.envVar}` : ""} or run /login ${entry.id}`;
 	const storedRows = (options.stored ?? []).filter((row) => isObject(row) && typeof row.id === "string");
 	let result = models;
 	let live = false;
 	const unknown: string[] = [];
+	/** Per-endpoint outcomes of this round, in probe order; `sync` applies only what answered. */
+	const endpoints: EndpointProbe[] = [];
 	// Vanished tracking: the union of every *answerable* endpoint's ids, and whether any of
 	// them failed or answered empty. An empty registry response is known to happen without
 	// meaning deletion (SCNet quota exhaustion returns 200 + `data: []`), so it suppresses the
@@ -206,27 +247,28 @@ export async function refreshEntry(
 			live = live || memo !== undefined;
 			continue;
 		}
-		try {
-			if (!credential.key) throw new Error(keyHint);
-			// The probe is per endpoint, but it only has to succeed once per process: the memo
-			// keeps the result for the cache-only round pi runs right after registration.
-			const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, credential, options.signal);
-			const applied = applyLiveModels(list, rows, endpoint.api);
+		// The probe is per endpoint, but it only has to succeed once per process: the memo keeps
+		// the result for the cache-only round pi runs right after registration.
+		const probe = await probeEndpoint(entry, layer, endpoint, {
+			...(options.signal ? { signal: options.signal } : {}),
+			...(options.contextKey ? { contextKey: options.contextKey } : {}),
+		});
+		endpoints.push(probe);
+		if (probe.rows) {
+			const applied = applyLiveModels(list, probe.rows, endpoint.api);
 			// Memoize unless the merged list is empty: an empty answer (a quota-exhausted wire
 			// answers 200 + `[]`) over an empty base must not shadow the persisted snapshot on
 			// the next round, while an empty answer over a known table is still worth keeping.
 			if (applied.models.length > 0) liveSnapshots.set(key, applied.models);
-			lastErrors.delete(key);
 			result = applied.models;
 			live = true;
 			unknown.push(...applied.unknown);
 			if (endpoint.modelsPath) {
 				attempted += 1;
-				if (rows.length === 0) emptyAnswer = true;
-				for (const row of rows) discoveredIds.add(row.id);
+				if (probe.empty) emptyAnswer = true;
+				for (const row of probe.rows) discoveredIds.add(row.id);
 			}
-		} catch (error) {
-			lastErrors.set(key, `${endpoint.api}: ${String(error)}`);
+		} else {
 			// A failed probe keeps the list it had — this process's memo, pi's snapshot, or the
 			// base table — and stays "live" when a memo is what it is serving.
 			result = list;
@@ -241,5 +283,5 @@ export async function refreshEntry(
 		vanished = models.filter((model) => !discoveredIds.has(model.id)).map((model) => model.id);
 		vanishedByVendor.set(entry.vendor.id, vanished);
 	}
-	return { models: result, live, unknown, vanished, issues };
+	return { models: result, live, unknown, vanished, issues, endpoints };
 }

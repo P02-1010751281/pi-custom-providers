@@ -22,7 +22,9 @@ writeFileSync(
 const base = (id) => testModel(id, { reasoning: true });
 const file = `${dir}/models.json`;
 writeFileSync(file, JSON.stringify({ models: [base("keep"), base("gone")] }));
-writeFileSync(agentPath("models.json"), "{}");
+// An empty `models.json` is not "no config": pi requires the `providers` key and drops the file
+// (schema error) when it is missing — so "no config" is written as an empty providers object.
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: {} }));
 process.env.DEMO_KEY = "test-key";
 writeFileSync(`${dir}/accounts.json`, JSON.stringify({ default: "main", main: { apiKey: "$DEMO_KEY" } }));
 
@@ -52,13 +54,15 @@ assert(!(await run("")).includes("gone"), "a failed sibling endpoint suppresses 
 assert(ids().join(",") === "keep,gone", "and nothing is dropped from the file");
 
 // --- a complete round reports the id, keeps it until --prune -------------------
-await withFetch(async () => ({ ok: true, json: async () => ({ data: [{ id: "keep" }, { id: "live" }] }) }), refresh);
+const live = async () => ({ ok: true, json: async () => ({ data: [{ id: "keep" }, { id: "live" }] }) });
+await withFetch(live, refresh);
 const status = await run("");
 assert(status.includes("gone") && status.includes("no longer returned by discovery"), `vanished id is reported (got ${status})`);
-const dry = await run("sync demo");
+// `sync` fetches for itself now, so its own round is what decides `--prune`.
+const dry = await withFetch(live, () => run("sync demo --dry-run"));
 assert(dry.includes("--prune") && dry.includes("gone"), `the dry run offers --prune (got ${dry})`);
 assert(ids().join(",") === "keep,gone", "a dry run does not drop the vanished id");
-const wrote = await run("sync demo --write --prune");
+const wrote = await withFetch(live, () => run("sync demo --prune"));
 assert(wrote.includes("wrote"), `the prune write is reported (got ${wrote})`);
 assert(ids().join(",") === "keep,live", `--prune drops the vanished id and keeps discovery's (got ${ids().join(",")})`);
 

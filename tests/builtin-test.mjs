@@ -127,7 +127,7 @@ const notices = [];
 await runCommand(commands, "", notices);
 const status = notices.at(-1) ?? "";
 const statusSegment = status.match(/commandcode[^;]*/)?.[0] ?? "";
-assert(status.includes("CMD_API_KEY"), `the status output names the missing variable (got: ${status})`);
+assert(status.includes("accounts.json") && status.includes("/login commandcode"), `the status output names where the credential belongs (got: ${status})`);
 assert(statusSegment.includes("refresh failed"), `the status output reports the failed refresh (got: ${statusSegment})`);
 
 // The session_start warning must also report it — a memoized live list must not hide a

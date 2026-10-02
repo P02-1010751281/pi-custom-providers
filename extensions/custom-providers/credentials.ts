@@ -10,19 +10,22 @@
  * this package passes the reference through — it never resolves it into a literal that pi might
  * then persist.
  *
- * Read-only: this package never writes it. `resolveAccounts` is the id policy that follows from
+ * Read and written here, and nowhere else: `resolveAccounts` is the id policy that follows from
  * the file (design §3.3 ②/§8) — which account registers as the base id, and the case where the
- * base id is deliberately suppressed because the user declared accounts but named none.
+ * base id is deliberately suppressed because the user declared accounts but named none — and
+ * `writeAccountsFile` is `init`'s writer, the package's third and last write outlet.
  *
  * Credential *selection* lives here too, not at the callers: `registrationCredential` (what
  * `pi.registerProvider` is handed) and `discoveryCredential` (what this package's own `/models`
  * probe sends, in pi's order). Both callers used to decide a part of it themselves, which is how
  * the probe's auth shape and the shape pi really sends could drift apart.
  */
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { configValueForPi, resolveConfigValue } from "./env.ts";
 import type { Account, LoadIssue } from "./types.ts";
-import { isObject, readJson, stringOr, type JsonObject } from "./util.ts";
+import { isObject, readJson, serializeJson, stringOr, writeTextAtomic, type JsonObject } from "./util.ts";
 
 /**
  * Credential keys this package accepts *only* in an account: meeting one in `provider.json` is a
@@ -31,8 +34,7 @@ import { isObject, readJson, stringOr, type JsonObject } from "./util.ts";
  * here credentials have exactly one home.
  *
  * `headers` is an account key *and* a legitimate endpoint key (at both `provider.json` levels),
- * so it is no displacement signal. `envVar` is how a *shipped default* account (`sources.ts`)
- * names its environment variable and is not a user's key at all.
+ * so it is no displacement signal.
  */
 export const CREDENTIAL_KEYS = new Set(["apiKey", "authHeader"]);
 
@@ -98,64 +100,46 @@ export function readAccountsFile(file: string, issues: LoadIssue[], label = file
  *   - accounts plus a `default` pointer that names one → that account is the base;
  *   - accounts but no usable pointer → the base id is *suppressed* (the accounts were
  *     declared explicitly);
- *   - a shipped default account (env var) → it becomes the base and the declared
- *     accounts are added as extras;
  *   - no accounts at all → the base id is still registered, without credentials, so
  *     `/login`, `--api-key` and stored credentials can still rescue it.
  */
 export function resolveAccounts(
 	accounts: readonly Account[],
 	pointer: string | undefined,
-	options: { defaultAccount?: Account & { envVar: string }; id?: string } = {},
+	options: { id?: string } = {},
 ): { accounts: Account[]; baseAccount?: Account; baseSuppressed: boolean; issues: LoadIssue[] } {
 	const issues: LoadIssue[] = [];
-	const fallback: Account | undefined = options.defaultAccount
-		? {
-				id: options.defaultAccount.id,
-				apiKey: options.defaultAccount.apiKey ?? `$${options.defaultAccount.envVar}`,
-				...(options.defaultAccount.authHeader !== undefined ? { authHeader: options.defaultAccount.authHeader } : {}),
-				...(options.defaultAccount.headers ? { headers: options.defaultAccount.headers } : {}),
-			}
-		: undefined;
-	if (accounts.length === 0) return { accounts: fallback ? [fallback] : [], ...(fallback ? { baseAccount: fallback } : {}), baseSuppressed: false, issues };
+	if (accounts.length === 0) return { accounts: [], baseSuppressed: false, issues };
 
 	const pointerAccount = pointer ? accounts.find((account) => account.id === pointer) : undefined;
 	if (pointer && !pointerAccount) issues.push({ level: "warning", message: `"default": "${pointer}" does not name an account` });
 	if (pointerAccount) return { accounts: [...accounts], baseAccount: pointerAccount, baseSuppressed: false, issues };
+	// Accounts were declared but none of them is the base one: the user is managing the ids
+	// explicitly, so do not also register an id they did not ask for.
 	const id = options.id ?? "this provider";
-	if (!fallback) {
-		// Accounts were declared but none of them is the base one: the user is managing the ids
-		// explicitly, so do not also register an id they did not ask for.
-		issues.push({
-			level: "warning",
-			message: `${pointer ? "" : 'no "default" account: '}${id} is not registered (custom-providers/${id}/accounts.json)${pointer ? `: "default" names no account` : ""}`,
-		});
-	}
-	return {
-		accounts: fallback ? [...accounts, fallback] : [...accounts],
-		...(fallback ? { baseAccount: fallback } : {}),
-		baseSuppressed: !fallback,
-		issues,
-	};
+	issues.push({
+		level: "warning",
+		message: `${pointer ? "" : 'no "default" account: '}${id} is not registered (custom-providers/${id}/accounts.json)${pointer ? `: "default" names no account` : ""}`,
+	});
+	return { accounts: [...accounts], baseSuppressed: true, issues };
 }
 
 /**
- * The two places an account can come from: this directory's `accounts.json` and the shipped
- * default account (`sources.ts`). Both functions below need nothing else from a vendor entry.
+ * The two places an account can come from: the vendor directory (one entry per account) and the
+ * credential pi itself resolved for this session. Both functions below need nothing else from a
+ * vendor entry.
  */
 type CredentialSource = {
 	id: string;
 	account?: Account;
-	vendor: { defaultAccount?: Account & { envVar: string } };
 };
 
 /**
- * The `authHeader` a provider asked for: the account's, else the shipped default's (a vendor fact
- * — a user account that does not mention it does not turn it off). `undefined` means nothing here
- * declared one, which leaves pi's own provider-level value in charge.
+ * The `authHeader` a provider asked for, from its account. `undefined` means nothing here declared
+ * one, which leaves pi's own provider-level value in charge.
  */
 function accountAuthHeader(entry: CredentialSource): boolean | undefined {
-	return entry.account?.authHeader ?? entry.vendor.defaultAccount?.authHeader;
+	return entry.account?.authHeader;
 }
 
 /** `readStoredCredential` returns whatever pi stores; only `{ key: string }` is a usable key. */
@@ -176,7 +160,7 @@ function storedKey(id: string): string | undefined {
  * `extension?.authHeader ?? config?.authHeader ?? false`).
  */
 export function registrationCredential(entry: CredentialSource): { apiKey?: string; authHeader?: boolean } {
-	const apiKey = configValueForPi(entry.account?.apiKey) ?? (entry.vendor.defaultAccount ? `$${entry.vendor.defaultAccount.envVar}` : undefined);
+	const apiKey = configValueForPi(entry.account?.apiKey);
 	const authHeader = accountAuthHeader(entry);
 	return { ...(apiKey ? { apiKey } : {}), ...(authHeader !== undefined ? { authHeader } : {}) };
 }
@@ -184,8 +168,8 @@ export function registrationCredential(entry: CredentialSource): { apiKey?: stri
 /**
  * The credential *this package's own* discovery request sends — pi has no API that answers "which
  * credential would you use for this provider?" — in pi's own order: a credential pi has stored
- * for it, the one pi is offering this session, the account's, the provider layer of pi's global
- * `models.json`, then the shipped default account's variable. The *shape* travels with it:
+ * for it, the one pi is offering this session, the account's, then the provider layer of pi's
+ * global `models.json`. The *shape* travels with it:
  * `authHeader` decides whether the key also goes out as `Authorization: Bearer`, so `live.ts`
  * builds the probe's headers from this one answer instead of deciding the shape itself.
  */
@@ -194,7 +178,35 @@ export function discoveryCredential(entry: CredentialSource, layer: JsonObject, 
 		storedKey(entry.id) ??
 		contextKey ??
 		resolveConfigValue(entry.account?.apiKey) ??
-		resolveConfigValue(stringOr(layer.apiKey)) ??
-		(entry.vendor.defaultAccount ? resolveConfigValue(`$${entry.vendor.defaultAccount.envVar}`) : undefined);
+		resolveConfigValue(stringOr(layer.apiKey));
 	return { ...(key ? { key } : {}), authHeader: accountAuthHeader(entry) ?? false };
+}
+
+/** The account id `init` writes, and the `default` pointer to it. */
+export const BASE_ACCOUNT_ID = "main";
+
+/**
+ * True when the stored text is a literal secret rather than a reference pi resolves at request
+ * time (`$VAR` / `!cmd` / a bare environment-variable name). `init` warns about these — the file
+ * is the one place a secret would sit in plain text — but never refuses one.
+ */
+export function isLiteralCredential(value: string): boolean {
+	return !value.startsWith("$") && !value.startsWith("!") && !/^[A-Z][A-Z0-9_]*$/.test(value);
+}
+
+/**
+ * Write `init`'s single-account `accounts.json`. The text is stored **verbatim**: it is a reference
+ * or a literal key, and resolving it here would persist a secret pi would then own. An existing
+ * file is never touched — it may hold several accounts, and a wizard must not silently reduce the
+ * user to one. Returns the line the command reports.
+ */
+export function writeAccountsFile(dir: string, apiKey: string, id: string): string {
+	const file = path.join(dir, "accounts.json");
+	if (existsSync(file)) return `${id}: accounts.json exists (left alone)`;
+	try {
+		writeTextAtomic(file, serializeJson({ default: BASE_ACCOUNT_ID, [BASE_ACCOUNT_ID]: { apiKey } }));
+		return `${id}: wrote accounts.json`;
+	} catch (error) {
+		return `${id}: ${String(error)}`;
+	}
 }
