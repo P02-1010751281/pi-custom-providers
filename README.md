@@ -1,8 +1,38 @@
 # custom-providers
 
-pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 pi provider，模型表由你的目录（`models.json`）或实时发现提供，配置词汇全部用 pi 自己的字段。
+给 pi 加上你自己的 LLM 网关（中转站、聚合站、自建代理）：**一个目录 = 一个 provider**，模型表由你提供或联网发现，配置只用 pi 自己的字段。
 
-安装：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.0`（镜像：`git:github.com/P02-1010751281/pi-custom-providers`；源码 `extensions/custom-providers/`）。v0.4.1 = 惯例继承不再看协议线（OpenAI 线上新发现的同族 id 也能继承 `thinkingLevelMap`），v0.4.0 = 移除出厂模型表（纯目录驱动：`init` 只写端点，模型靠 `models.json` 或发现），v0.3.0 = 未知新 id 的 A+B 惯例兜底 + 消失 id 报告，v0.2.4 = providers 只来自目录（无内置 id；旧装用 `/custom-providers init` 补目录），v0.2.3 = catalog 刷新 + 目录覆盖内置不再告警，v0.2.2 = 改名残留清理，v0.2.0 = 通用多协议引擎，v0.1.0 是旧版。本包无 `package.json`（pi 按约定目录 `extensions/` 自动发现），git 安装不依赖 npm；不要再加回。更新日志见 [`CHANGELOG.md`](CHANGELOG.md)。
+- 一个厂商的两个协议端点（OpenAI 线 + Anthropic 线）注册成**一个** provider —— pi 的模型 id 在 provider 内必须唯一，所以协议只能按**模型**选，这正是本包要补的那一块。
+- 模型参数（`contextWindow`/`maxTokens`/`cost`/`reasoning`…）写在你自己的 `<id>/models.json`，或由 `/models` 发现生成；仓库不附带任何厂商数据。
+- 凭据只放 `<id>/accounts.json`，支持环境变量、keyring、密码库、加密文件（都能用 `!command` 接）。
+- 只有一个命令：`/providers`（查看 / init / sync / rescan）。
+
+本包无 `package.json`，pi 按约定目录 `extensions/` 自动发现，git 安装不依赖 npm。
+
+## 安装
+
+```bash
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.0
+```
+
+GitHub 镜像把 host 换成 `git:github.com/P02-1010751281/pi-custom-providers`。版本历史见 [CHANGELOG.md](CHANGELOG.md)；升级前建议看一眼下面的「迁移」。
+
+**两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。日常用方式 A；本地改代码用方式 B（改完随后 `/reload`）：
+
+```bash
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.0                      # 方式 A
+rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B
+```
+
+## 快速开始
+
+1. **写端点声明** —— `/providers init my-relay --url https://relay.example/v1 --api openai-completions --models-path /models`
+   （有 UI 时走向导，缺什么问什么；`--key` 可以顺手把凭据写进 `accounts.json`）
+2. **给模型** —— `/providers sync my-relay` 抓 `/models` 生成一份 `models.json`，或手写这个文件把参数补齐（发现只给 id/名字/上下文，能力字段得自己写）
+3. **用** —— `/providers status` 看注册结果；模型随后就能在 pi 的模型选择器里选
+4. **手改过文件之后** —— `/providers rescan my-relay` 让当前会话看见（新目录、手改的 `provider.json`/`models.json`/`accounts.json`、删掉的目录）。只有**扩展代码**变了才需要 pi 的 `/reload`
+
+配置长什么样、字段怎么写，见下面的「配置」一节；升级到 v0.5.0 要先做哪几件事，见「从 v0.4.1 升级」。
 
 ## 为什么独立成包
 
@@ -10,20 +40,7 @@ pi extension：把订阅型中转站（Command Code / GOAT、SCNet）注册成 p
 - pi 要求每个注册模型带 `cost`；缺了会让 `calculateCost()` 在第一次上报用量时抛 `Cannot read properties of undefined (reading 'tiers')`，整轮任务中断。
 - 一个厂商常有**两个协议端点**服务同一批 id，而 pi 的文件层表达不了（一个 provider id 里同名的 `model.id` 只能有一份，且 `model.id` 就是请求体的 `model`），所以协议只能按模型选——这正是本扩展要补的那一块。
 
-## 安装与迁移
-
-旧版是单文件 `~/.pi/agent/extensions/subscription-providers.ts`（如果本机还留着，必须先删）：
-
-```bash
-rm -f ~/.pi/agent/extensions/subscription-providers.ts
-```
-
-**两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。本地开发用方式 B：
-
-```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.0   # 方式 A（GitHub 镜像把 host 换成 git:github.com/P02-1010751281/pi-custom-providers）
-rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B，随后 /reload
-```
+## 迁移
 
 ### 从 v0.4.1 升级（v0.5.0：命令面与「模型的家」）
 
@@ -35,11 +52,12 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 ### 从 v0.3.0 升级（v0.4.0：不再带模型表）
 
 - 仓库不再带模型表。**已经写了 `<id>/models.json` 的机器不受影响**；只有 `provider.json`、没写过模型表的机器升级后该 provider 会**暂时 0 模型**，直到联网发现成功（发现会自动补 id/名字/上下文）或你补一份 `models.json`。
-- `/custom-providers sync <id> --write` 可用发现结果生成一份，但它写的是**发现的原始事实**：发现不发能力字段、也**不推断 `api`**，所以 Command Code 的 Claude 类 id 要自己补 `api: "anthropic-messages"`（见 Providers 一节），否则会被打到默认的 OpenAI 端点。
+- `/custom-providers sync <id> --write`（v0.4.0 当时的命令名；现在是 `/providers sync <id>`）可用发现结果生成一份，但它写的是**发现的原始事实**：发现不发能力字段、也**不推断 `api`**，所以 Command Code 的 Claude 类 id 要自己补 `api: "anthropic-messages"`（见 Providers 一节），否则会被打到默认的 OpenAI 端点。
 - 出厂 vendor 的模型参数（`cost` / `maxTokens` / `reasoning` 等）不再由仓库提供；要固定下来就写进自己的 `models.json`。
 
 ### 从旧版升级（v0.1.0 → v4.0 引擎）
 
+- 先删掉更早的单文件版本（如果本机还留着，不删会和本包同时加载）：`rm -f ~/.pi/agent/extensions/subscription-providers.ts`
 - provider id 由 `codecommand` 改为 **`commandcode`**（域名拼写）。**旧写法 `providers.codecommand`（或 `codegoat`）已不再被读取**：pi 只按注册 id 解析 provider 块，本包不比它多读一份。旧块还会被 pi 当成另一个「只在 `models.json` 里声明」的 provider 注册进选择器（模型为空）。把键改成 `providers.commandcode` 即可。
 - 一个模型要换协议，写模型条目的 `api`。
 - `siblingId` / `anthropicBaseUrl` 这两个旧字段已删除；SCNet 的 Anthropic 端点现在是 `apis."anthropic-messages"`。
@@ -156,7 +174,7 @@ pi 在**注册时**就用它自己内置的模型表校验用户写的 `provider
 
 - 块里**只有 `api`** 不够：pi 报 `must specify "baseUrl", "headers", "compat", "modelOverrides", or "models"` 并拒该 provider。`api` 要和 `baseUrl` 一起写才能翻转默认协议。
 - 块里写 `models[]` 条目会被 pi 当成**新建自定义模型**校验：每条得能拿到 `api` 与 `baseUrl`——条目自己带，或同块给 provider 级 `api`+`baseUrl`（否则 `no "api" specified` / `"baseUrl" is required when defining custom models`，pi 拒掉**整个 provider**，不只是那条目）。pi 读这个数组**只校验、不应用**：实测对扩展注册的 id，`models[]` 条目（哪怕合法、哪怕本扩展注册了 0 个模型）**不会**进模型表，`modelOverrides[M]` **会**（只有无人注册的 config-only id 两者都生效）。
-- **模型内容只有一个家 = `<id>/models.json`**（`sync` 写它、发现喂它），所以本包**不读**第 3 层的 `models[]`：写了不会生效，命令里会点名（`providers.<id>.models[] is not read for a provider this extension registers (pi only validates it); models live in <id>/models.json and a per-model tweak belongs in modelOverrides`）。加模型/改模型 → 条目写进模型表；给已注册模型改显示名或数值 → 第 4 层 `modelOverrides[M]`（pi 自己最后应用，实测可用）。
+- **模型内容只有一个家 = `<id>/models.json`**（`sync` 写它、发现喂它），所以本包**不读**第 3 层的 `models[]`：写了不会生效，命令里会点名（`providers.<id>.models[] is not read for a provider this extension registers (pi only validates it); models live in <id>/models.json and a per-model tweak belongs in modelOverrides`）。
 
 本扩展会把这些被 pi 拒掉的块**在调用 pi 之前**报出来（含上面三句 pi 原文），一个坏块不会连带带走后面的 provider。
 
@@ -214,8 +232,11 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 
 ## 测试
 
+两个命令：
+
 ```bash
-node tests/run-all.mjs
+node tests/run-all.mjs      # 23 个套件，每套件独立进程 + 独立临时 PI_CODING_AGENT_DIR
+node tests/graph-test.mjs   # 模块依赖图：无环、全可达、每个相对 import 都存在、叶子无本地依赖
 ```
 
-23 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`directory-test`（目录扫描与校验、接管边界、三个载荷文件）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`credential-test`（发现探针用哪份凭据、auth 形态照 pi：协议默认 + `authHeader` 补 `Authorization: Bearer`，后者对着 pi 的 `composeModelProvider`、前者对着 Anthropic SDK 的真请求头断言）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`env-test`（值语法与 `!command` 的 shell 对照 pi 自己的解析器）、`pi-surface-test`（`models.json` 字段表对照 pi 的 `ModelDefinitionSchema`，并逐个字段读写往返）、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`command-test`（动词/旗标表解析与 `Usage:` 答案，注入法证明敏感）、`init-test`（向导三态 + `accounts.json` 写口保护）、`preflight-test`（把用户块交给 pi 前先预报告，钉在真 `ModelRuntime` 上）、`rescan-test`（新快照重注册 + `unregisterProvider` 撤销消失目录）、`compat-keys-test`（从 pi dist 复推 compat 读键表并断言相等）、`orphan-block-test`（没有任何目录/内置 id 对应的 `providers.<key>` 块点名；取不到内置目录则静默）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+覆盖：命令面与 `Usage:` 解析、预报告（对着真 `ModelRuntime` 注册）、目录/账号/凭据、发现与消失、pi 字段表与 compat 读键表、真 loader 加载。模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，不写 `~/.pi`。每个套件负责什么，看文件头的注释。
