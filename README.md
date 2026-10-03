@@ -286,7 +286,7 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 两个命令：
 
 ```bash
-node tests/run-all.mjs      # 24 个套件，每套件独立进程 + 独立临时 PI_CODING_AGENT_DIR
+node tests/run-all.mjs      # 25 个套件，每套件独立进程 + 独立临时 PI_CODING_AGENT_DIR
 node tests/graph-test.mjs   # 模块依赖图：无环、全可达、每个相对 import 都存在、叶子无本地依赖
 ```
 
