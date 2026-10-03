@@ -268,9 +268,11 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
     - `inputLimits` = `{maxRequestBytes, images:{resize:{maxWidth, maxHeight, maxBytes, jpegQuality}, maxPerMessage, maxPerRequest}}`。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；
   - ② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
-- 同一个新 id 的 `contextWindow`/`maxTokens`/`input` 还会看一下 pi 内置目录：**每家上架该 id 的内置 provider 都给同一个值**时才拿它（`contextWindow` 以线上回的为准）。
-  - 不一致就留兜底（`contextWindow` 128000、`maxTokens` 16384、`input` 仅 text）——同一个 id 在 pi 自己的目录里最多差 8 倍（Kimi-K3 的 max 从 131072 到 1048576），那些数字是各家的服务上限，不是模型事实。
-  - 填了哪些会在 `sync` 报告和 `status <id>` 里点名（`filled from pi's built-in catalog …`）。注意：SCNet 那 16 个热门 id 实测**没有一条** ctx/max 一致，所以这条路只修正了模态（`input`）。
+- 同一个新 id 的 `contextWindow`/`maxTokens`/`input` 会先看 pi 内置目录里**该模型厂商自己的条目**（`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`；日期快照也认基名，如 `DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`）。
+  - 厂商没上架这个 id（或该族根本没有厂商条目）时，才退回「**每家**上架该 id 的 provider 都给同一个值」的一致值；两者都没有则留兜底（`contextWindow` 128000、`maxTokens` 16384、`input` 仅 text）。
+  - **线**上自报的 `contextWindow` 是上限：厂商说 1M 而网关报 128k 时取 128k（ctx 写大了会让每个请求都超预算 400，不只是长对话）；`maxTokens` 也会被夹进最终窗口。
+  - 填了哪些、从哪来，会在 `sync` 报告与 `status <id>` 里点名：`filled from pi's built-in catalog: <id> (vendor moonshotai), <id> (every provider agrees)`。
+  - 实测覆盖率：SCNet 那 17 条里厂商条目覆盖 11 条（`deepseek` 自己的名单里没有 V4.x、`zai` 没有 GLM-5/5.1、`moonshotai` 没有 K2.5、`minimax` 没有 M2.5），余下靠一致值。
 - `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
 ## 故障排查

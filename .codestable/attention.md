@@ -88,10 +88,13 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
   - 发现不再返回的 id 由 `refreshEntry()` 在**该 vendor 所有可发现端点本轮都成功且非空**时算出（取各端点答案并集）并进 `problemLines()` 报告；
   - 默认**保留**，只有 `sync <id> --prune` 才从 `models.json` 删。
   - 未知新 id 的 `reasoning`/`thinkingLevelMap` **不从 pi 内置目录兜底**（已否决）：能力只信上游信息/探测结果。
-  - 但 `contextWindow`/`maxTokens`/`input` 可以取内置目录的**一致值**（`builtin.unanimous`，见 `builtin.ts`）：该 id 的**每家**内置 provider 都给出同一个值才取，不一致就留兜底。
-    - 理由是实测：同一个 id 在 pi 自己的目录里最多差 8 倍（Kimi-K3 的 max 从 131072 到 1048576，GLM-5.3 有 15 家、5 种上限）——数值是各家的服务上限，不是模型事实；多数票只对布尔能力成立。
-    - 实测代价：SCNet 那 16 个热门 id **没有一条** ctx/max 一致（只有 `input` 13/16 一致，且与你表里的策展值 13/13 相同）。
-    - 取到的值在 `sync` 报告与 `status <id>` 里点名（`filled from pi's built-in catalog …`），不静默；线上报的 ctx 优先于目录值。
+  - 但 `contextWindow`/`maxTokens`/`input` 会先看内置目录里**该模型厂商自己的条目**（`builtin.vendor` / `vendorFacts`）。
+    - 厂商 host 是显式政策表：`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`——pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
+    - 日期快照也认基名（`DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`），只用于这次回退，不动 `normalizeModelId`。
+    - 厂商条目缺该 id（或该族没有厂商 host）时退回 `builtin.unanimous`（**每家**上架该 id 的 provider 都给同一个值）；两者都没有则留兜底。
+    - **线上自报的 ctx 是上限**：厂商 1M 而网关报 128k 时取 128k——ctx 同时决定压缩点与 `maxTokens` 上限，写大了是每个请求都超预算 400，不只是长对话。`maxTokens` 雨夹进最终窗口。
+    - 取到的值在 `sync` 报告与 `status <id>` 里带来源点名（`<id> (vendor moonshotai)` / `<id> (every provider agrees)`），不静默。
+    - 实测覆盖率：SCNet 那 17 条里厂商条目只有 11 条（`deepseek` 名单无 V4.x、`zai` 无 GLM-5/5.1、`moonshotai` 无 K2.5、`minimax` 无 M2.5）。
   - 上游不给时走 `convention.ts` 惯例兜底：① 同族继承（基底表里第一条同族条目的 `reasoning`，anthropic 线连 `thinkingLevelMap` 一起继承）；
   - ② `CONVENTION_FAMILIES` 已知家族名单（精确匹配 `familyKey()`，anthropic 线补 `{xhigh,max}`，其它线不补 map）；
   - 两步不命中才 `reasoning:false`。
@@ -211,7 +214,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | `convention.ts` | 未知 id 能力惯例（A 同族继承 `reasoning` + `thinkingLevelMap`，与线无关；<br>B 无同族时合成的 `{xhigh,max}` 仅 anthropic 线） | — |
 | `config.ts` | pi 全局 `models.json`（第 3 层的读 + 预报告；第 4 层 `modelOverrides` 由 pi 应用） | 读 |
 | `env.ts` | `.env` + pi 值表达式 | 读 + 解析 |
-| `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较 + `unanimous` 一致值供给） | 读 |
+| `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较 + `vendor`/`unanimous` 供给） | 读 |
 | `endpoints.ts` | `<id>/provider.json`：端点表（读 + `init` 写） | 读 + 写 |
 | `model-table.ts` | `<id>/models.json`：模型基底表（读 + `sync` 的 diff/写） | 读 + 写 |
 | `credentials.ts` | `<id>/accounts.json`：凭据**引用**（只读）+ 账号 id 策略 `resolveAccounts` + 凭据选择（`registrationCredential` 给 pi、`discoveryCredential` 给自家探针） | 读 |
