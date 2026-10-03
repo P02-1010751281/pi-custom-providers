@@ -88,6 +88,10 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
   - 发现不再返回的 id 由 `refreshEntry()` 在**该 vendor 所有可发现端点本轮都成功且非空**时算出（取各端点答案并集）并进 `problemLines()` 报告；
   - 默认**保留**，只有 `sync <id> --prune` 才从 `models.json` 删。
   - 未知新 id 的 `reasoning`/`thinkingLevelMap` **不从 pi 内置目录兜底**（已否决）：能力只信上游信息/探测结果。
+  - 但 `contextWindow`/`maxTokens`/`input` 可以取内置目录的**一致值**（`builtin.unanimous`，见 `builtin.ts`）：该 id 的**每家**内置 provider 都给出同一个值才取，不一致就留兜底。
+    - 理由是实测：同一个 id 在 pi 自己的目录里最多差 8 倍（Kimi-K3 的 max 从 131072 到 1048576，GLM-5.3 有 15 家、5 种上限）——数值是各家的服务上限，不是模型事实；多数票只对布尔能力成立。
+    - 实测代价：SCNet 那 16 个热门 id **没有一条** ctx/max 一致（只有 `input` 13/16 一致，且与你表里的策展值 13/13 相同）。
+    - 取到的值在 `sync` 报告与 `status <id>` 里点名（`filled from pi's built-in catalog …`），不静默；线上报的 ctx 优先于目录值。
   - 上游不给时走 `convention.ts` 惯例兜底：① 同族继承（基底表里第一条同族条目的 `reasoning`，anthropic 线连 `thinkingLevelMap` 一起继承）；
   - ② `CONVENTION_FAMILIES` 已知家族名单（精确匹配 `familyKey()`，anthropic 线补 `{xhigh,max}`，其它线不补 map）；
   - 两步不命中才 `reasoning:false`。
@@ -167,7 +171,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 |
 | 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | auth 形态与合并细则（四条见下） |
 | 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 |
-| 7 | 写回（三条出口） | 阶段 5 的发现结果 / `init` 的声明与密钥 | `sync`：基底 ⊕ 发现 → diff → 写盘（`.bak`）→ 注册；<br>`init`：写 `provider.json`、`accounts.json`（已有则不动）→ 注册 |
+| 7 | 写回（三条出口） | 阶段 5 的发现结果 / `init` 的声明与密钥 | `sync`：基底 ⊕ 发现 → diff → 写盘（`.bak`）→ 注册；<br>`init`：写 `provider.json`、`accounts.json`（已有则不动）→ 跑一次 `sync`（写 `models.json`）→ 注册 |
 
 **各阶段的所有者（代码路径，2026-10-03 从表格「数据/变换所有者」列拉出；文字未改）**
 
@@ -207,7 +211,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | `convention.ts` | 未知 id 能力惯例（A 同族继承 `reasoning` + `thinkingLevelMap`，与线无关；<br>B 无同族时合成的 `{xhigh,max}` 仅 anthropic 线） | — |
 | `config.ts` | pi 全局 `models.json`（第 3 层的读 + 预报告；第 4 层 `modelOverrides` 由 pi 应用） | 读 |
 | `env.ts` | `.env` + pi 值表达式 | 读 + 解析 |
-| `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较） | 读 |
+| `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较 + `unanimous` 一致值供给） | 读 |
 | `endpoints.ts` | `<id>/provider.json`：端点表（读 + `init` 写） | 读 + 写 |
 | `model-table.ts` | `<id>/models.json`：模型基底表（读 + `sync` 的 diff/写） | 读 + 写 |
 | `credentials.ts` | `<id>/accounts.json`：凭据**引用**（只读）+ 账号 id 策略 `resolveAccounts` + 凭据选择（`registrationCredential` 给 pi、`discoveryCredential` 给自家探针） | 读 |
@@ -242,6 +246,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 **不适用处（不要硬凑）**：没有逐跳转发/路由表（一次性解析）；没有同层对等通信（provider 之间不交互）；没有重传/序号（靠「只增不删」而不是重传保可靠）；`status.ts` 不是一层，是带外管理面。
 
 **写盘动词自带应用**：「盘变了 → 会话变了」不再由 `rescan` 独占：`init`/`sync` 写完就用 `applyVendors`（`rescan` 的同一个实现）注册自己的结果，`rescan` 退回带外编辑。
+`init` 还自带一次发现：写完文件就调 `syncVendor`（同一个 `sync` 实现）抓一次 `/models` 写成 `models.json`，所以它是「一条命令把目录变成可用 provider」，同时把端点/凭据验了一次——探测是 `init` 唯一的网络动作，缺凭据在这里就是 warning。
 `sync` 全部端点因**缺凭据**被跳过时以 warning 点名那条解析不出的引用（`credentials.ts unresolvedReference`），并提示重启 pi / `/reload`——未设置的 `$VAR` 在 pi 的语法里是静默 `undefined`。
 
 **Demux 键与端口**：`<id>` → 账号 `<id>-<name>` → 模型 `id`；`apis` 表 = 同一主机（`baseUrl`）上的多个服务 ≡ 端口表（所以 Anthropic 线的 `baseUrl` 要短一截）；`modelsPath` = 服务上的资源路径；报告 8 行裁剪 = 显示层 MTU。

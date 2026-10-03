@@ -29,7 +29,7 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 
 ## 快速开始
 
-1. **写端点声明** —— `/providers init my-relay --url https://relay.example/v1 --api openai-completions --models-path /models`
+1. **写端点声明** —— `/providers init my-relay --url https://relay.example/v1 --api openai-completions --models-path /models`（写完自动抓一次 `/models` 写好模型表）
    （有 UI 时走向导，缺什么问什么；`--key` 可以顺手把凭据写进 `accounts.json`）
 2. **给模型** —— `/providers sync my-relay` 抓 `/models` 生成一份 `models.json`（写完即在本会话生效），或手写这个文件把参数补齐（发现只给 id/名字/上下文，能力字段得自己写）
 3. **用** —— `/providers status` 看注册结果；模型随后就能在 pi 的模型选择器里选
@@ -211,8 +211,8 @@ pi 在**注册时**就用它自己内置的模型表校验用户写的 `provider
 |---|---|---|
 | `/providers [<id>]` | 总览，或单个 provider 详情（协议分布、账号、校验问题、与 pi 内置目录的差异明细） | 否 |
 | `/providers files` | 扫描结果：每个目录的 id、来源、模型数、账号，被忽略的目录，文件校验问题 | 否 |
-| `/providers init [<id>]` | 有 UI 走向导（问缺的部分，key 直接收但会警告明文）；无 UI 必须给 `--url`/`--api`。写 `provider.json`，给了 key 且 `accounts.json` 不存在时写它 | `provider.json`、`accounts.json` |
-| `/providers sync [<id>] [--dry-run] [--prune]` | 联网抓 `/models` → 逐端点跳过失败/空答 → 写基底表 → **当场注册**；省略 id = 全部 vendor；`--prune` 必须带 id | `<id>/models.json` |
+| `/providers init [<id>]` | 有 UI 走向导（问缺的部分，key 直接收但会警告明文）；无 UI 必须给 `--url`/`--api`。写 `provider.json`，给了 key 且 `accounts.json` 不存在时写它；**然后自动跑一次 sync**（抓 `/models` 写 `models.json`）并注册 | `provider.json`、`accounts.json`、`<id>/models.json` |
+| `/providers sync [<id>] [--dry-run] [--prune]` | 联网抓 `/models` → 逐端点跳过失败/空答 → 写基底表 → **当场注册**；新 id 在内置目录**每家都一致**时拿它的 `contextWindow`/`maxTokens`/`input`；省略 id = 全部 vendor；`--prune` 必须带 id | `<id>/models.json` |
 | `/providers rescan [<id>] [--dry-run]` | 把**带外改动**应用到会话：重扫目录 + 用**新快照**重新注册（手改的文件、新目录，并撤销已删目录）；永不写盘、不联网 | 否 |
 
 `init` 的旗标：`--url <u> --api <a> [--models-path <p>] [--key <v>] [--force]`。
@@ -268,6 +268,9 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
     - `inputLimits` = `{maxRequestBytes, images:{resize:{maxWidth, maxHeight, maxBytes, jpegQuality}, maxPerMessage, maxPerRequest}}`。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；
   - ② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
+- 同一个新 id 的 `contextWindow`/`maxTokens`/`input` 还会看一下 pi 内置目录：**每家上架该 id 的内置 provider 都给同一个值**时才拿它（`contextWindow` 以线上回的为准）。
+  - 不一致就留兜底（`contextWindow` 128000、`maxTokens` 16384、`input` 仅 text）——同一个 id 在 pi 自己的目录里最多差 8 倍（Kimi-K3 的 max 从 131072 到 1048576），那些数字是各家的服务上限，不是模型事实。
+  - 填了哪些会在 `sync` 报告和 `status <id>` 里点名（`filled from pi's built-in catalog …`）。注意：SCNet 那 16 个热门 id 实测**没有一条** ctx/max 一致，所以这条路只修正了模态（`input`）。
 - `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
 ## 故障排查
