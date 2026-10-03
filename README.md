@@ -48,7 +48,8 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 
 - **命令改名**：`/custom-providers` 与 `/refresh-custom-models` 合并为单一 **`/providers`**（动词表驱动）；`drift` 不再是命令，并进 `status`（概览给计数、`status <id>` 给明细）。任何不匹配的动词/旗标都回 `Usage:`，不再静默忽略（旧版打字错的动词会被当成 provider id 回答）。
 - **出厂层删除**：不再有内置 vendor、内置默认账号、`envVar` 兜底。以前靠出厂默认拿凭据的目录（如 `scnet`、`commandcode`）升级后必须**自备 `accounts.json`**，否则该 provider 无凭据——症状是 pi 侧「not registered」，而不是报错。
-- **第 3 层不再提供模型内容**：模型只有一个家 = `<id>/models.json`（`sync`/发现写它）。`providers.<id>.models[]` 现在**不被读取**（pi 对扩展注册的 id 也只校验、不应用这个数组），写了会在 `/providers` 报告里点名；**加模型**写进模型表，**改已注册模型**（`name`/`maxTokens`/`contextWindow`/`compat`）用第 4 层 `modelOverrides[M]`。
+- **第 3 层不再提供模型内容**：模型只有一个家 = `<id>/models.json`（`sync`/发现写它）。`providers.<id>.models[]` 现在**不被读取**（pi 对扩展注册的 id 也只校验、不应用这个数组），写了会在 `/providers` 报告里点名；
+  - **加模型**写进模型表，**改已注册模型**（`name`/`maxTokens`/`contextWindow`/`compat`）用第 4 层 `modelOverrides[M]`。
 - **手改文件后**用 `/providers rescan` 让会话看见（新目录、手改的 `provider.json`/`models.json`/`accounts.json`、删掉的目录）；只有**扩展代码**变了才用 pi 的 `/reload`。
 
 ### 从 v0.3.0 升级（v0.4.0：不再带模型表）
@@ -77,11 +78,15 @@ SCNet 两条线服务同一批 id（19 个里重叠 18 个），注册成**一�
 
 ### 为什么 Anthropic 线的 baseUrl 要短一截
 
-pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后面拼 `/v1/messages`。所以 OpenAI 线的 baseUrl 带 `/v1`，Anthropic 线的不能带（否则路径变成 `/v1/v1/messages`）。实测（2026-09-18）：`POST /provider/v1/messages` 返回 403 `MODEL_NOT_IN_PLAN`（路由存在），`POST /provider/v1/v1/messages` 返回 404「not a registered API route」——旧写法下 codecommand 的 8 个 claude 模型全部打不通。
+pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后面拼 `/v1/messages`。所以 OpenAI 线的 baseUrl 带 `/v1`，Anthropic 线的不能带（否则路径变成 `/v1/v1/messages`）。
+
+实测（2026-09-18）：`POST /provider/v1/messages` 返回 403 `MODEL_NOT_IN_PLAN`（路由存在），`POST /provider/v1/v1/messages` 返回 404「not a registered API route」——旧写法下 codecommand 的 8 个 claude 模型全部打不通。
 
 ## 配置
 
-目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。**仓库不带任何出厂 vendor**（v0.5.0 删除了 `sources.ts`/`DEFAULTS`）：没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑 `/providers init <id> --url … --api …`（有 UI 时是向导，会问 id/端点/协议/发现路径，可直接填 key）写出端点声明，再自己放 `models.json`，或跑 `/providers sync <id>` 用实时发现生成一份（发现不推断协议：走非默认协议的 id 要自己补 `api`）。
+目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。**仓库不带任何出厂 vendor**（v0.5.0 删除了 `sources.ts`/`DEFAULTS`）：没有「内置 id」，也没有「目录 replace 内置」这回事。
+
+**仓库不含模型表**：新装机器先跑 `/providers init <id> --url … --api …`（有 UI 时是向导，会问 id/端点/协议/发现路径，可直接填 key）写出端点声明，再自己放 `models.json`，或跑 `/providers sync <id>` 用实时发现生成一份（发现不推断协议：走非默认协议的 id 要自己补 `api`）。
 
 ```
 ~/.pi/agent/custom-providers/
@@ -120,7 +125,9 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 | `apis` | 否 | 额外协议端点，键 = pi 的 api 值，值 = `{ baseUrl(必填), modelsPath?, headers? }`。省略 `modelsPath` = 继承 `provider.json.modelsPath`。 |
 | `override` | 否 | 允许接管 pi 已知 provider id（如自建 `anthropic` 代理）。不加则跳过并报告。 |
 
-`apiKey` / `authHeader` / `compat` / `models` / `modelOverrides` 写在这里会被**报告并忽略**，消息会指明它们该去哪：凭据只属 `accounts.json`；`compat` 是模型字段、`modelOverrides` 是逐条模型补丁，都属模型条目；`models` 整张表属本目录的 `models.json`（`sync` 是它唯一的写出口）。pi 全局 `models.json` 的 `providers.<id>` 与 `modelOverrides` 是**补丁层**（见分层表 3/4），不是第二个模型表之家。`oauth` 不在支持范围（报告后忽略）。
+`apiKey` / `authHeader` / `compat` / `models` / `modelOverrides` 写在这里会被**报告并忽略**，消息会指明它们该去哪：凭据只属 `accounts.json`；`compat` 是模型字段、`modelOverrides` 是逐条模型补丁，都属模型条目；`models` 整张表属本目录的 `models.json`（`sync` 是它唯一的写出口）。
+
+pi 全局 `models.json` 的 `providers.<id>` 与 `modelOverrides` 是**补丁层**（见分层表 3/4），不是第二个模型表之家。`oauth` 不在支持范围（报告后忽略）。
 
 ### `models.json`（可选）= 模型基底表
 
@@ -132,7 +139,9 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 ] }
 ```
 
-字段 = pi 的 `ModelDefinitionSchema` 全部字段（`id`/`name`/`api`/`baseUrl`/`reasoning`/`thinkingLevelMap`/`input`/`inputLimits`/`cost`/`promptCache`/`contextWindow`/`maxTokens`/`samplingParams`/`headers`/`compat`），没有自有字段；`cost` 里的 `tiers` 等 pi 认识的其它键原样带过。也接受纯数组简写。省略 `api` = 默认协议；写了 `apis` 里的协议就自动用该端点的 `baseUrl`。
+字段 = pi 的 `ModelDefinitionSchema` 全部字段（`id`/`name`/`api`/`baseUrl`/`reasoning`/`thinkingLevelMap`/`input`/`inputLimits`/`cost`/`promptCache`/`contextWindow`/`maxTokens`/`samplingParams`/`headers`/`compat`），没有自有字段；`cost` 里的 `tiers` 等 pi 认识的其它键原样带过。
+
+也接受纯数组简写。省略 `api` = 默认协议；写了 `apis` 里的协议就自动用该端点的 `baseUrl`。
 
 `compat` 另有一条检查：pi 的请求构造器**各读自己那一份键**（实测 `anthropic-messages` 读 13 个、`openai-completions` 读 27 个、`google-*` 一个都不读），写了目标协议不读的键 pi 照样收下、然后静默丢掉。本包用 pi 的读键表点名这类键（`status` 里的 `compat key "X" has no effect on <api>`），`modelOverrides[M].compat` 这一层也一并看。
 
@@ -175,7 +184,8 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 pi 在**注册时**就用它自己内置的模型表校验用户写的 `providers.<id>` 块，而本扩展的 provider 在 pi 侧没有内置基底（除非 `override` 了某个内置 id），所以：
 
 - 块里**只有 `api`** 不够：pi 报 `must specify "baseUrl", "headers", "compat", "modelOverrides", or "models"` 并拒该 provider。`api` 要和 `baseUrl` 一起写才能翻转默认协议。
-- 块里写 `models[]` 条目会被 pi 当成**新建自定义模型**校验：每条得能拿到 `api` 与 `baseUrl`——条目自己带，或同块给 provider 级 `api`+`baseUrl`（否则 `no "api" specified` / `"baseUrl" is required when defining custom models`，pi 拒掉**整个 provider**，不只是那条目）。pi 读这个数组**只校验、不应用**：实测对扩展注册的 id，`models[]` 条目（哪怕合法、哪怕本扩展注册了 0 个模型）**不会**进模型表，`modelOverrides[M]` **会**（只有无人注册的 config-only id 两者都生效）。
+- 块里写 `models[]` 条目会被 pi 当成**新建自定义模型**校验：每条得能拿到 `api` 与 `baseUrl`——条目自己带，或同块给 provider 级 `api`+`baseUrl`（否则 `no "api" specified` / `"baseUrl" is required when defining custom models`，pi 拒掉**整个 provider**，不只是那条目）。
+  - pi 读这个数组**只校验、不应用**：实测对扩展注册的 id，`models[]` 条目（哪怕合法、哪怕本扩展注册了 0 个模型）**不会**进模型表，`modelOverrides[M]` **会**（只有无人注册的 config-only id 两者都生效）。
 - **模型内容只有一个家 = `<id>/models.json`**（`sync` 写它、发现喂它），所以本包**不读**第 3 层的 `models[]`：写了不会生效，命令里会点名（`providers.<id>.models[] is not read for a provider this extension registers (pi only validates it); models live in <id>/models.json and a per-model tweak belongs in modelOverrides`）。
 
 本扩展会把这些被 pi 拒掉的块**在调用 pi 之前**报出来（含上面三句 pi 原文），一个坏块不会连带带走后面的 provider。
@@ -198,7 +208,9 @@ pi 在**注册时**就用它自己内置的模型表校验用户写的 `provider
 
 ## 密钥解析
 
-`accounts.json` 的 `apiKey` 支持 pi 的值语法：`$VAR` / `${VAR}` / `!command` / `$$` / `$!`，以及裸 `UPPER_SNAKE`（视为环境变量名，交给 pi 前会规范化为 `$VAR` —— pi 只插值 `$…`，裸字符串会被当字面量发出去）。发现请求用的凭据顺序与 pi 的请求侧一致：stored（`auth.json` / `--api-key` / `/login`）→ 账号 `apiKey` → 第 3 层 `providers.<id>.apiKey`。启动时读取 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐环境变量（已存在的不覆盖）。
+`accounts.json` 的 `apiKey` 支持 pi 的值语法：`$VAR` / `${VAR}` / `!command` / `$$` / `$!`，以及裸 `UPPER_SNAKE`（视为环境变量名，交给 pi 前会规范化为 `$VAR` —— pi 只插值 `$…`，裸字符串会被当字面量发出去）。
+
+发现请求用的凭据顺序与 pi 的请求侧一致：stored（`auth.json` / `--api-key` / `/login`）→ 账号 `apiKey` → 第 3 层 `providers.<id>.apiKey`。启动时读取 `~/.pi/agent/.env` 与 `~/.omp/agent/.env` 补齐环境变量（已存在的不覆盖）。
 
 `!command` 就是给秘密后端留的插座——本插件不绑定任何后端，任何能把 key 打到 stdout 的命令都行：
 
@@ -220,7 +232,11 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 - `base64 -d`：Linux ✓、Windows 的 Git Bash ✓；macOS 自带的 `base64` 是 BSD 版，解码头是 `-D`（新版也收 `-d`），拿不准就用上一行。
 - 更省事的做法是不内联：配置前先把 base64 解出来，写进 `.env` 用 `$VAR`，或直接写明 + `chmod 600`。
 
-`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。它跑在 **pi 的 shell** 里：Linux/macOS 上是 `sh -c`（Node 的默认 shell；Debian/Ubuntu 上就是 dash），Windows 上是 pi 找到的 Git Bash（没装 Git Bash 才回落平台的 `cmd.exe`）——本插件用 pi 同一个 `getShellConfig()` 起命令，所以刷新时与真正请求时看到的是同一个 shell，命令按 **POSIX sh** 写（Git Bash 也兼容 sh，但 `[[ ]]`/`<<<` 在 dash 上不成立）。无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
+`!command` 在发现刷新（本扩展）和请求（pi）时都会执行：10s 超时、stderr 被吞、非零退出 = 拿不到 key；pi 侧结果进程内缓存，**轮换 key 后需重启 pi**。
+
+它跑在 **pi 的 shell** 里：Linux/macOS 上是 `sh -c`（Node 的默认 shell；Debian/Ubuntu 上就是 dash），Windows 上是 pi 找到的 Git Bash（没装 Git Bash 才回落平台的 `cmd.exe`）——本插件用 pi 同一个 `getShellConfig()` 起命令，所以刷新时与真正请求时看到的是同一个 shell，命令按 **POSIX sh** 写（Git Bash 也兼容 sh，但 `[[ ]]`/`<<<` 在 dash 上不成立）。
+
+无人值守取密总需要本机已有可自动解开的本钱（keyring 登录态 / 无口令私钥 / agent 缓存），它防的是**误提交与误备份**，不是本机失陷。
 
 **凭据永远不进仓库**（私有仓库、镜像仓库同理）：`accounts.json` 与 `.env` 属用户层，仓库里只该出现 `provider.json` / `models.json`。别人装本插件用的是自己的 `~/.pi/agent/custom-providers/<id>/accounts.json`，与本项目互不相干。
 
@@ -229,7 +245,8 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 仓库**不带模型表**（v0.4.0 起）：基底 = 你的 `<id>/models.json`，没有它则该 provider 暂时没有模型，等发现或你补表。因此：
 
 - `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost`（含 `tiers`）/ `samplingParams` / `inputLimits` / `promptCache` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
-- 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
+- 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；
+  - ② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
 - `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
 ## 故障排查
