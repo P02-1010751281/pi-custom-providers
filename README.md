@@ -9,6 +9,8 @@
 
 本包无 `package.json`，pi 按约定目录 `extensions/` 自动发现，git 安装不依赖 npm。
 
+> 导航：[安装](#安装) · [快速开始](#快速开始) · [为什么独立成包](#为什么独立成包) · [迁移](#迁移) · [Providers](#providers) · [配置](#配置) · [配置优先级](#配置优先级4-层逐字段补丁) · [命令](#命令) · [密钥解析](#密钥解析) · [模型能力与模型表](#模型能力与模型表) · [故障排查](#故障排查) · [测试](#测试)
+
 ## 安装
 
 ```bash
@@ -77,7 +79,7 @@ SCNet 两条线服务同一批 id（19 个里重叠 18 个），注册成**一�
 
 pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后面拼 `/v1/messages`。所以 OpenAI 线的 baseUrl 带 `/v1`，Anthropic 线的不能带（否则路径变成 `/v1/v1/messages`）。实测（2026-09-18）：`POST /provider/v1/messages` 返回 403 `MODEL_NOT_IN_PLAN`（路由存在），`POST /provider/v1/v1/messages` 返回 404「not a registered API route」——旧写法下 codecommand 的 8 个 claude 模型全部打不通。
 
-## 配置：`~/.pi/agent/custom-providers/<id>/`
+## 配置
 
 目录是 provider 的**唯一来源**：没有 `provider.json` 的目录不算 vendor，没有目录就没有这个 provider。**仓库不带任何出厂 vendor**（v0.5.0 删除了 `sources.ts`/`DEFAULTS`）：没有「内置 id」，也没有「目录 replace 内置」这回事。**仓库不含模型表**：新装机器先跑 `/providers init <id> --url … --api …`（有 UI 时是向导，会问 id/端点/协议/发现路径，可直接填 key）写出端点声明，再自己放 `models.json`，或跑 `/providers sync <id>` 用实时发现生成一份（发现不推断协议：走非默认协议的 id 要自己补 `api`）。
 
@@ -229,6 +231,18 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 - `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost`（含 `tiers`）/ `samplingParams` / `inputLimits` / `promptCache` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
 - `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
+
+## 故障排查
+
+| 症状 | 先看哪里 |
+|---|---|
+| pi 的模型选择器里没有这个 provider | `/providers files` 看目录有没有被忽略（必须能解析 `provider.json`）；`/providers status` 看 error 行 |
+| provider 在，但一个模型都没有 | 该目录没有 `models.json`，发现也没成功：`/providers sync <id>`，或手写模型表 |
+| 请求报 401 / `No API key found for "<id>"` | 凭据：`<id>/accounts.json` 存在吗；`$VAR` 在 `~/.pi/agent/.env` 里有值吗（未设置的变量**静默**解析不出，不会报错） |
+| 模型数突然变少 | 不会因为上游返回空列表而变（空答案按「跳过」处理，不删不报）；看 `status` 的 drift 计数与「消失 id」段 |
+| 手改了 `models.json` 但会话里没变 | 盘变了不等于会话变了：`/providers rescan <id>`；只有**扩展代码**变了才 `/reload` |
+| 同一个 provider 出现两次 | 目录副本与 `pi install` 包安装同时存在，二选一（见「安装」） |
+| `/providers` 回了 `Usage:` | 动词或旗标写错了（文案由动词表生成）；不带参数是总览 |
 
 ## 测试
 
