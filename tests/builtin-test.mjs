@@ -1,6 +1,6 @@
-import { loadTs, assert, runCommand, seedDefaultProviders, stubPi, withFetch } from "./harness.mjs";
+import { loadTs, assert, runCommand, seedDefaultProviders, stubPi, withFetch, PI } from "./harness.mjs";
 
-const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift } = await loadTs("extensions/custom-providers/builtin.ts");
+const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift, unanimousFacts } = await loadTs("extensions/custom-providers/builtin.ts");
 
 // --- pi's built-in catalog is readable through the loader alias ---------------
 // pi maps `@earendil-works/pi-ai` to its compat entry; dist/index.js has no
@@ -10,6 +10,45 @@ assert(builtin.available, "pi built-in catalog is readable from an extension");
 assert(builtin.byId.size > 100, `built-in catalog is populated (got ${builtin.byId.size} ids)`);
 assert(normalizeModelId("zai-org/GLM-5.1") === normalizeModelId("glm-5.1"), "namespaced ids normalize to built-in ids");
 assert(normalizeModelId("claude-haiku-4-5-20251001") === normalizeModelId("claude-haiku-4-5"), "dated ids normalize to built-in ids");
+
+// --- `unanimous` is derived, not asserted: re-derive it from the same compat entry ----
+// The fill rule (design d') copies a number only when every built-in provider shipping the id
+// states the same one. The same model id spans 65536…1048576 output tokens across pi's own
+// catalog (baseten/opencode/moonshotai/…), so this is the only sound source for a synthesized
+// entry — and this differential is what keeps `byId`'s arbitrary first-wins row out of it.
+const raw = await import(`${PI}/node_modules/@earendil-works/pi-ai/dist/compat.js`);
+const expected = new Map();
+for (const provider of raw.getProviders()) {
+	for (const model of raw.getModels(provider) ?? []) {
+		const key = normalizeModelId(String(model.id));
+		if (!key) continue;
+		const entry = expected.get(key) ?? { context: new Set(), max: new Set(), input: new Map() };
+		if (typeof model.contextWindow === "number" && model.contextWindow > 0) entry.context.add(model.contextWindow);
+		if (typeof model.maxTokens === "number" && model.maxTokens > 0) entry.max.add(model.maxTokens);
+		const input = Array.isArray(model.input) ? model.input.map(String) : [];
+		if (input.length > 0) entry.input.set([...input].sort().join("|"), input);
+		expected.set(key, entry);
+	}
+}
+let agreed = 0;
+let contested = 0;
+for (const [key, entry] of expected) {
+	const contextWindow = entry.context.size === 1 ? [...entry.context][0] : undefined;
+	const maxTokens = entry.max.size === 1 ? [...entry.max][0] : undefined;
+	const input = entry.input.size === 1 ? [...entry.input.values()][0] : undefined;
+	const facts = unanimousFacts(key, builtin);
+	if (contextWindow === undefined && maxTokens === undefined && input === undefined) {
+		assert(facts === undefined, `${key}: hosts disagree, so there is no fact to fill from`);
+		contested += 1;
+		continue;
+	}
+	assert(facts, `${key}: agreement must be recorded as a fact`);
+	assert(facts.contextWindow === contextWindow && facts.maxTokens === maxTokens, `${key}: the numbers come only from agreement`);
+	assert(JSON.stringify(facts.input) === JSON.stringify(input), `${key}: the modalities come only from agreement`);
+	agreed += 1;
+}
+assert(agreed > 0 && contested > 0, `the catalog must exercise both outcomes (agreed ${agreed}, contested ${contested})`);
+assert(unanimousFacts("zzz-no-such-model", builtin) === undefined, "an id nobody ships has no facts");
 
 // --- absorption is a whitelist, limited to the Anthropic wire -----------------
 assert(absorbCompat({ id: "claude-opus-5", api: "anthropic-messages" }, builtin)?.supportsTemperature === false, "Opus 5 absorbs supportsTemperature: false");

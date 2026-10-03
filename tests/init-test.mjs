@@ -8,15 +8,21 @@
  * change, so `init` hands the user no follow-up command (`rescan` stays for out-of-band edits).
  */
 import { existsSync, readFileSync } from "node:fs";
-import { agentPath, assert, loadTs, runCommand, startExtension } from "./harness.mjs";
+import { agentPath, assert, loadTs, runCommand, startExtension, withFetch } from "./harness.mjs";
 
 const { readAccountsFile } = await loadTs("extensions/custom-providers/credentials.ts");
+const { loadBuiltinCatalog } = await loadTs("extensions/custom-providers/builtin.ts");
 const ext = await startExtension();
 const notify = [];
 const last = () => notify.at(-1) ?? "";
 const file = (id, name) => agentPath("custom-providers", id, name);
 const json = (id, name) => JSON.parse(readFileSync(file(id, name), "utf8"));
-const run = (args, answers) => runCommand(ext.commands, args, notify, answers);
+// `init` ends with the same discovery round `sync` runs, so every call here is offline: a test
+// must never depend on the network.
+const offline = async () => {
+	throw new Error("offline test");
+};
+const run = (args, answers) => withFetch(offline, () => runCommand(ext.commands, args, notify, answers));
 
 // --- the flag path (no dialogs needed) -------------------------------------------
 await run("init manual --url https://manual.example/v1 --api openai-completions --key $MANUAL_KEY");
@@ -62,5 +68,32 @@ assert(last().includes("unsupported api") && !existsSync(file("bad", "provider.j
 
 await run("init bad --url https://bad.example/v1 --api openai-completions --models-path /v1/models", { hasUI: false });
 assert(json("bad", "provider.json").modelsPath === "/v1/models", "a discovery path is written when given");
+
+// --- init ends by running sync: one verb from nothing to a usable provider -------
+// The endpoint and the credential are proven here, not on the user's first request, and the
+// written table is what the session registers — no follow-up `sync`.
+process.env.AUTO_KEY = "test-key";
+delete process.env.MISSING_KEY;
+const catalog = await loadBuiltinCatalog();
+// Derived, not hardcoded: only an id pi's own hosts agree on may be filled (see builtin-test.mjs).
+const settledId = [...catalog.unanimous.keys()].find((key) => catalog.unanimous.get(key).maxTokens !== undefined);
+assert(settledId, "the catalog carries an id whose hosts agree on the output cap for this case");
+await withFetch(
+	async () => ({ ok: true, json: async () => ({ data: [{ id: settledId }, { id: "zzz-auto-sync" }] }) }),
+	() => runCommand(ext.commands, "init auto --url https://auto.example/v1 --api openai-completions --models-path /models --key $AUTO_KEY", notify),
+);
+assert(existsSync(file("auto", "models.json")), "init fetches the live list");
+const autoModels = json("auto", "models.json").models;
+assert(autoModels.map((model) => model.id).sort().join(",") === [settledId, "zzz-auto-sync"].sort().join(","), `and writes it to the vendor's models.json (got ${autoModels.map((model) => model.id).join(",")})`);
+assert(autoModels.find((model) => model.id === settledId).maxTokens === catalog.unanimous.get(settledId).maxTokens, "a discovered id takes the built-in catalog's uncontested windows");
+assert(autoModels.find((model) => model.id === "zzz-auto-sync").maxTokens === 16384, "an id the catalog does not carry keeps the conservative fallback");
+assert(last().includes("registered auto in this session"), `init reports the registration (got ${last()})`);
+assert(ext.providers.get("auto").models.length === 2, "and the session carries the table without a rescan or a second sync");
+// A directory whose key does not resolve: init says so instead of registering an empty provider.
+delete process.env.AUTO_KEY;
+await run("init keyless --url https://keyless.example/v1 --api openai-completions --models-path /models --key $MISSING_KEY");
+assert(!existsSync(file("keyless", "models.json")), "no credential means no model table");
+assert(last().includes("$MISSING_KEY") && last().includes("no model table yet"), `and init names the unresolved reference (got ${last()})`);
+assert(ext.providers.has("keyless"), "while the provider itself is still registered");
 
 console.log("OK");

@@ -16,6 +16,8 @@ export interface ProviderStatus {
 	models: number;
 	live: boolean;
 	unknown: string[];
+	/** Ids synthesized from uncontested values in pi's built-in catalog, not from a curated entry. */
+	filled: string[];
 	/** Base ids the last complete discovery round no longer returned (kept, `sync --prune` drops). */
 	vanished: string[];
 	issues: LoadIssue[];

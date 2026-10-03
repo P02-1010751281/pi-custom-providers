@@ -122,5 +122,30 @@ assert(last().includes("demo") && last().includes("second"), `no id syncs every 
 await run("sync nope --dry-run");
 assert(last().includes("No provider directory"), `an unknown id is reported (got ${last()})`);
 
+// --- d': a discovered id is filled from the built-in catalog only where hosts agree ------
+// Both ids are derived from the catalog: the popular ones differ per host (GLM-5.3 is shipped by
+// 15 providers with five different output caps), so a hardcoded expectation would rot — and
+// would have hidden the real yield of the rule.
+const builtinApi = await loadTs("extensions/custom-providers/builtin.ts");
+const catalog = await builtinApi.loadBuiltinCatalog();
+const settledId = [...catalog.unanimous.keys()].find((key) => catalog.unanimous.get(key).contextWindow !== undefined && catalog.unanimous.get(key).maxTokens !== undefined);
+const contestedId = [...catalog.byId.keys()].find((key) => catalog.unanimous.get(key)?.maxTokens === undefined);
+assert(settledId && contestedId, "the catalog must offer an id whose hosts agree and one whose output cap they do not");
+const settledFacts = catalog.unanimous.get(settledId);
+const contestedFacts = catalog.unanimous.get(contestedId) ?? {};
+const disagreement = answered([{ id: settledId }, { id: contestedId }, { id: "zzz-unknown-id" }]);
+await run("sync demo --dry-run", disagreement);
+assert(last().includes("filled from pi's built-in catalog"), `a fill is reported, not silent (got ${last()})`);
+await run("sync demo", disagreement);
+const filledTable = JSON.parse(readFileSync(file, "utf8")).models;
+const settledRow = filledTable.find((model) => model.id === settledId);
+assert(settledRow.contextWindow === settledFacts.contextWindow && settledRow.maxTokens === settledFacts.maxTokens, `an agreed id is written with the catalog's windows (got ${settledRow.contextWindow}/${settledRow.maxTokens})`);
+const contestedRow = filledTable.find((model) => model.id === contestedId);
+assert(contestedRow.maxTokens === 16384, `a contested output cap keeps the conservative fallback (got ${contestedRow.maxTokens})`);
+assert(contestedRow.contextWindow === (contestedFacts.contextWindow ?? 128000), "a contested id takes only the fields its hosts agree on");
+const unknownRow = filledTable.find((model) => model.id === "zzz-unknown-id");
+assert(unknownRow.maxTokens === 16384 && unknownRow.contextWindow === 128000, "an id the catalog does not carry keeps both fallbacks");
+assert(last().includes("registered demo in this session"), "and the write still applies itself");
+
 console.log(`sync diff: +${diff.added.length} ~${diff.changed.length} -${diff.removed.length}`);
 console.log("OK");

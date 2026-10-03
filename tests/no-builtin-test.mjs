@@ -43,7 +43,12 @@ await withFetch(async () => ({ ok: true, json: async () => ({ data: [] }) }), as
 // --- init writes the directory and registers it; rescan is for out-of-band edits ---
 const notify = [];
 const ui = await startExtension();
-const run = (args) => runCommand(ui.commands, args, notify);
+// `init` ends with a discovery round, so it is offline here: these directories have no credential,
+// and a test must never depend on the network either way.
+const offline = async () => {
+	throw new Error("offline test");
+};
+const run = (args) => withFetch(offline, () => runCommand(ui.commands, args, notify));
 
 const scnetDir = agentPath("custom-providers", "scnet");
 const scnetFile = `${scnetDir}/provider.json`;

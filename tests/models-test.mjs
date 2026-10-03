@@ -60,7 +60,7 @@ assert(liveKimi.contextWindow === 777777 && liveKimi.name === "Kimi K3 (live)", 
 assert(liveKimi.api === undefined, "discovery never infers a protocol");
 const fresh = applied.models.find((model) => model.id === "brand-new-model");
 assert(fresh && fresh.cost && typeof fresh.cost.input === "number" && fresh.contextWindow === 500000, "an unknown live id is added with cost");
-assert(fresh.maxTokens === 16384, "an unknown live id gets a conservative maxTokens, never a guess from the registry");
+assert(fresh.maxTokens === 16384, "without a catalog an unknown live id gets the conservative maxTokens (the fill rule is below)");
 assert(applied.unknown.join(",") === "brand-new-model", "an unknown live id is reported");
 base[0].input.push("image");
 assert(!applied.models.find((model) => model.id === "Kimi-K3").input.includes("image"), "applyLiveModels returns copies, not the caller's objects");
@@ -86,6 +86,27 @@ assert(repaired[0].cost && typeof repaired[0].cost.input === "number" && repaire
 
 const hardened = api.applyLiveModels([{ id: "no-input", name: "n", reasoning: false, contextWindow: 1000, maxTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }], []);
 assert(Array.isArray(hardened.models[0].input), "a base entry without an input array still yields one (the raw sync re-read can produce such a row)");
+
+// --- d': an unseen id takes built-in values only where every provider agrees ------
+// A hand-made catalog keeps this hermetic: what is under test is the precedence, not pi's
+// current model list (builtin-test.mjs derives the real one).
+const fakeCatalog = (unanimous) => ({ byId: new Map(), votes: new Map(), unanimous, rejectsTemperature: new Set(), providers: new Set(), available: true });
+const facts = new Map([
+	["settledmodel", { contextWindow: 4242, maxTokens: 99, input: ["text", "image"] }],
+	["partialmodel", { maxTokens: 77 }],
+]);
+const withCatalog = api.applyLiveModels([], [{ id: "Settled-Model" }, { id: "Partial-Model" }, { id: "unknown-model" }], "openai-completions", fakeCatalog(facts));
+const settled = withCatalog.models.find((model) => model.id === "Settled-Model");
+assert(settled.contextWindow === 4242 && settled.maxTokens === 99 && settled.input.includes("image"), "an id every provider agrees on takes the catalog's windows and modalities");
+const partial = withCatalog.models.find((model) => model.id === "Partial-Model");
+assert(partial.maxTokens === 77 && partial.contextWindow === 128000 && !partial.input.includes("image"), "a partially agreed id takes only the agreed field and keeps the fallback for the rest");
+const unknownModel = withCatalog.models.find((model) => model.id === "unknown-model");
+assert(unknownModel.maxTokens === 16384 && unknownModel.contextWindow === 128000, "an id the catalog does not carry keeps the conservative fallback");
+assert(withCatalog.filled.join(",") === "Settled-Model,Partial-Model", `the round names the ids it filled (got ${withCatalog.filled.join(",")})`);
+const wireWins = api.applyLiveModels([], [{ id: "Settled-Model", context_length: 555 }], "openai-completions", fakeCatalog(facts));
+assert(wireWins.models[0].contextWindow === 555 && wireWins.models[0].maxTokens === 99, "the wire's own context window outranks the catalog's, which still supplies the output cap");
+const noCatalog = api.applyLiveModels([], [{ id: "Settled-Model" }], "openai-completions");
+assert(noCatalog.models[0].maxTokens === 16384 && noCatalog.filled.length === 0, "without a catalog nothing is filled");
 
 // --- models.json: absent vs broken ---------------------------------------------
 assert(cfg.readModelsConfig().issue === undefined, "a missing models.json is not an issue (settings can come from the environment)");

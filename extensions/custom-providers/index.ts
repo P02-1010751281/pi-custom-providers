@@ -85,13 +85,14 @@ function statusOf(
 	entry: ProviderEntry,
 	builtin: BuiltinCatalog,
 	defaultApi: string,
-	parts: { models: readonly ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[]; error?: string },
+	parts: { models: readonly ModelEntry[]; live: boolean; unknown: string[]; filled: string[]; vanished: string[]; issues: LoadIssue[]; error?: string },
 ): ProviderStatus {
 	return {
 		id: entry.id,
 		models: parts.models.length,
 		live: parts.live,
 		unknown: parts.unknown,
+		filled: parts.filled,
 		vanished: parts.vanished,
 		issues: [...parts.issues],
 		apis: apiSplit(parts.models, defaultApi, Object.keys(entry.vendor.declaration.apis).length > 0),
@@ -145,7 +146,7 @@ function registerEntry(
 
 	// The startup status: what this provider looks like before any network I/O, so the status
 	// command has something to report even if pi never runs a refresh in this session.
-	record(statusOf(entry, builtin, defaultApi, { models: resolved, live: false, unknown: [], vanished: vanishedByVendor.get(entry.vendor.id) ?? [], issues }));
+	record(statusOf(entry, builtin, defaultApi, { models: resolved, live: false, unknown: [], filled: [], vanished: vanishedByVendor.get(entry.vendor.id) ?? [], issues }));
 
 	const refresh = async (context: RefreshContext): Promise<CatalogModel[]> => {
 		const result = await refreshEntry(entry, patch, builtin, {
@@ -162,6 +163,7 @@ function registerEntry(
 				models: result.models,
 				live: result.live,
 				unknown: result.unknown,
+				filled: result.filled,
 				vanished: result.vanished,
 				issues: [...issues, ...result.issues],
 				...(errors.length > 0 ? { error: errors.join("; ") } : {}),
@@ -323,9 +325,12 @@ export default async function customProviders(pi: ExtensionAPI) {
 	 *
 	 * With a UI the wizard asks for whatever the flags did not answer; without one the flags are
 	 * the whole interface and anything missing is a `Usage:` error. It writes `provider.json` and
-	 * — only when a key was given and no `accounts.json` exists yet — `accounts.json`, then registers
-	 * the vendor: a verb that wrote the directory applies its own write. `rescan` stays for the
-	 * out-of-band case (files edited by hand, a directory added or deleted outside pi).
+	 * — only when a key was given and no `accounts.json` exists yet — `accounts.json`, then runs the
+	 * same discovery round `sync` runs (`syncVendor`) and registers the result. One verb takes a
+	 * directory from nothing to a usable provider: the probe also proves the endpoint and the
+	 * credential, and a missing credential is a warning here rather than an empty provider later.
+	 * `rescan` stays for the out-of-band case (files edited by hand, a directory added or deleted
+	 * outside pi).
 	 */
 	const runInit = async (notify: Notify, ctx: WizardContext, positionals: string[], flags: ReadonlySet<string>, values: ReadonlyMap<string, string>): Promise<void> => {
 		const ask = async (title: string, placeholder?: string): Promise<string | undefined> =>
@@ -351,6 +356,12 @@ export default async function customProviders(pi: ExtensionAPI) {
 			lines.push(writeAccountsFile(path.join(root, id), offered, id));
 			if (isLiteralCredential(offered)) lines.push(`${id}: the key is a literal, kept in the file as written (use $VAR or !cmd to keep it out of accounts.json)`);
 		}
+		// A freshly written directory has no model table: run the same round `sync` runs, so the
+		// provider is usable the moment `init` returns. The probe is init's only network call, and a
+		// missing credential surfaces here as a warning instead of as a provider that registers nothing.
+		const written = collectVendors(root, piProviderIds).vendors.find((candidate) => candidate.id === id);
+		const synced = written ? await syncVendor(written, new Set()) : undefined;
+		if (synced) lines.push(synced.text);
 		// The directory is on disk now: register it here instead of handing the user a command to run.
 		const applied = applyVendors(collectVendors(root, piProviderIds).vendors.filter((vendor) => vendor.id === id), id);
 		const status = statuses.get(id);
@@ -359,10 +370,10 @@ export default async function customProviders(pi: ExtensionAPI) {
 				? `${id}: written, but nothing registered (check the files)`
 				: status && status.models > 0
 					? `registered ${id} in this session (${status.models} models)`
-					: `registered ${id} in this session; no model table yet (\`sync ${id}\` fetches the live list)`,
+					: `registered ${id} in this session; no model table yet (\`sync ${id}\` retries the live list)`,
 		);
 		for (const failure of applied.failures) lines.push(`could not unregister "${failure.id}" (${failure.error}); run pi's /reload to drop it`);
-		notify(`init: ${toastLines(lines)}`, applied.failures.length > 0 ? "warning" : "info");
+		notify(`init: ${toastLines(lines)}`, applied.failures.length > 0 || synced?.warning ? "warning" : "info");
 	};
 
 	/**
@@ -405,9 +416,13 @@ export default async function customProviders(pi: ExtensionAPI) {
 		// The file is the base table: only the endpoints that answered may patch it, and the user's
 		// `models.json` layer is never an input (a sync must not bake an override into its base).
 		let models = vendor.models;
+		/** Ids this round synthesized from uncontested built-in values — reported, never silent. */
+		const filled = new Set<string>();
 		for (const probe of result.endpoints) {
 			if (!probe.rows || probe.empty) continue;
-			models = applyLiveModels(models, probe.rows, probe.api).models;
+			const applied = applyLiveModels(models, probe.rows, probe.api, builtin);
+			models = applied.models;
+			for (const id of applied.filled) filled.add(id);
 		}
 		const prune = flags.has("--prune");
 		if (prune && result.vanished.length > 0) {
@@ -419,6 +434,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 		const diff = diffBaseTable(vendor.id, file, merged, vendor.models);
 		const report = [
 			...summarizeDiff(diff),
+			...(filled.size > 0 ? [`filled from pi's built-in catalog (every provider agrees): ${[...filled].join(", ")}`] : []),
 			...(!prune && result.vanished.length > 0 ? [`vanished (kept, pass --prune to drop): ${result.vanished.join(", ")}`] : []),
 			...notes.map((note) => `skipped ${note}`),
 		];
@@ -493,6 +509,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 				`accounts: ${status.accounts.length > 0 ? status.accounts.join(", ") : "none"}`,
 				...(status.error ? [`error: ${status.error}`] : []),
 				...status.unknown.map((id) => `new: ${id}`),
+			...(status.filled.length > 0 ? [`new ids filled from pi's built-in catalog (every provider agrees): ${toastLines(status.filled)}`] : []),
 				...(drift.length > 0 ? [`built-in catalog (reported, not applied): ${toastLines(drift, 8)}`] : []),
 				...[...new Set(status.issues.map((issue) => `${issue.level}: ${issue.message}`))],
 			];

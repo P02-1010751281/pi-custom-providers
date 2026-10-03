@@ -9,6 +9,7 @@
  * loaded extension instance (the test harness re-imports for a clean slate).
  */
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
+import { unanimousFacts, type BuiltinCatalog } from "./builtin.ts";
 import { conventionCapability } from "./convention.ts";
 import { discoveryCredential, unresolvedReference } from "./credentials.ts";
 import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
@@ -67,13 +68,21 @@ function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_lengt
 /**
  * Apply discovery to a model list: the id set, display name and context window only. Every
  * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
- * a curated model to pi's defaults. An id the base table has never seen takes its capability
- * from the naming convention in `convention.ts` (same-family inheritance, then a known-family
- * list); curated parameters only ever come from the base table.
+ * a curated model to pi's defaults. An id the base table has never seen has no curated entry to
+ * protect, so it is synthesized: `reasoning` from the naming convention in `convention.ts`, and
+ * `contextWindow` / `maxTokens` / `input` from pi's built-in catalog when *every* built-in
+ * provider shipping that id agrees on them (`unanimousFacts`). A disagreement means those numbers
+ * are a host's serving limits, not a model fact — one id spans 65536…1048576 output tokens across
+ * pi's own catalog — so the entry keeps the conservative fallback instead of copying one host's
+ * numbers (a gateway that caps lower answers 400 for an over-large `maxTokens`). A context window
+ * the wire itself reported outranks the catalog: only this gateway's answer describes this
+ * gateway. Curated parameters still only ever come from the base table.
  */
-export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string): { models: ModelEntry[]; unknown: string[] } {
+export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string, builtin?: BuiltinCatalog): { models: ModelEntry[]; unknown: string[]; filled: string[] } {
 	const byId = cloneById(models);
 	const unknown: string[] = [];
+	/** Ids that took at least one catalog value — reported, so a fill is never invisible. */
+	const filled: string[] = [];
 	for (const row of rows) {
 		const known = byId.get(row.id);
 		if (known) {
@@ -82,18 +91,23 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 		}
 		unknown.push(row.id);
 		const convention = conventionCapability(models, row.id, api);
+		const facts = builtin ? unanimousFacts(row.id, builtin) : undefined;
+		const wireContext = numberOr(row.context_length ?? row.contextWindow);
+		// Counted only when a catalog value is actually used: a fact the wire outranks is not a fill.
+		const contextFromCatalog = wireContext === undefined && facts?.contextWindow !== undefined;
+		if (facts && (contextFromCatalog || facts.maxTokens !== undefined || facts.input !== undefined)) filled.push(row.id);
 		byId.set(row.id, {
 			id: row.id,
 			name: stringOr(row.name) ?? row.id,
 			reasoning: convention?.reasoning ?? false,
 			...(convention?.thinkingLevelMap ? { thinkingLevelMap: convention.thinkingLevelMap } : {}),
-			input: ["text"],
-			contextWindow: numberOr(row.context_length ?? row.contextWindow) ?? FALLBACK_CONTEXT_WINDOW,
-			maxTokens: FALLBACK_MAX_TOKENS,
+			input: facts?.input ? [...facts.input] : ["text"],
+			contextWindow: wireContext ?? facts?.contextWindow ?? FALLBACK_CONTEXT_WINDOW,
+			maxTokens: facts?.maxTokens ?? FALLBACK_MAX_TOKENS,
 			cost: { ...ZERO_COST },
 		});
 	}
-	return { models: [...byId.values()], unknown };
+	return { models: [...byId.values()], unknown, filled };
 }
 
 /**
@@ -238,13 +252,15 @@ export async function refreshEntry(
 	layer: JsonObject,
 	builtin: BuiltinCatalog,
 	options: { allowFetch: boolean; contextKey?: string; signal?: AbortSignal; stored?: readonly JsonObject[] },
-): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; vanished: string[]; issues: LoadIssue[]; endpoints: EndpointProbe[] }> {
+): Promise<{ models: ModelEntry[]; live: boolean; unknown: string[]; filled: string[]; vanished: string[]; issues: LoadIssue[]; endpoints: EndpointProbe[] }> {
 	const issues: LoadIssue[] = [];
 	const models = synthesizeModels(entry, layer, builtin, issues);
 	const storedRows = (options.stored ?? []).filter((row) => isObject(row) && typeof row.id === "string");
 	let result = models;
 	let live = false;
 	const unknown: string[] = [];
+	/** Ids that took uncontested values from pi's built-in catalog this round. */
+	const filled: string[] = [];
 	/** Per-endpoint outcomes of this round, in probe order; `sync` applies only what answered. */
 	const endpoints: EndpointProbe[] = [];
 	// Vanished tracking: the union of every *answerable* endpoint's ids, and whether any of
@@ -279,7 +295,7 @@ export async function refreshEntry(
 		});
 		endpoints.push(probe);
 		if (probe.rows) {
-			const applied = applyLiveModels(list, probe.rows, endpoint.api);
+			const applied = applyLiveModels(list, probe.rows, endpoint.api, builtin);
 			// Memoize unless the merged list is empty: an empty answer (a quota-exhausted wire
 			// answers 200 + `[]`) over an empty base must not shadow the persisted snapshot on
 			// the next round, while an empty answer over a known table is still worth keeping.
@@ -287,6 +303,7 @@ export async function refreshEntry(
 			result = applied.models;
 			live = true;
 			unknown.push(...applied.unknown);
+			filled.push(...applied.filled);
 			if (endpoint.modelsPath) {
 				attempted += 1;
 				if (probe.empty) emptyAnswer = true;
@@ -307,5 +324,5 @@ export async function refreshEntry(
 		vanished = models.filter((model) => !discoveredIds.has(model.id)).map((model) => model.id);
 		vanishedByVendor.set(entry.vendor.id, vanished);
 	}
-	return { models: result, live, unknown, vanished, issues, endpoints };
+	return { models: result, live, unknown, filled, vanished, issues, endpoints };
 }

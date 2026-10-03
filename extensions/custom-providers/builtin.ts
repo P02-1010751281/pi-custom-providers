@@ -5,7 +5,7 @@
  * exports `getProviders()` / `getModels(providerId)` on top of `dist/index.js`. That
  * gives this package a second, independently maintained source of model metadata.
  *
- * It is used for two things, both deliberately narrow:
+ * It is used for three things, all deliberately narrow:
  *
  *   1. `absorbCompat` — copy a whitelist of fields that only ever *remove* request
  *      surface. Today that is `supportsTemperature: false` (pi's wording: "Claude
@@ -22,6 +22,12 @@
  *      field over the providers shipping the same id, so a lone third-party host
  *      cannot flip a model (design decision 18's majority rule, kept for reporting
  *      after the shipped model table was removed).
+ *   3. `unanimousFacts` — synthesize the fields of an id the base table has never seen,
+ *      but only from values *every* built-in provider shipping it agrees on. A
+ *      disagreement means the numbers are a host's serving limits, not a model fact
+ *      (one id spans 65536…1048576 output tokens across pi's own catalog), so nothing
+ *      is copied and the entry keeps the conservative fallback. The base table stays
+ *      the only place where a *choice* is written.
  *
  * A pi build that lacks the alias or those exports degrades to an empty catalog:
  * nothing is absorbed, nothing is reported, nothing throws.
@@ -48,6 +54,17 @@ export interface BuiltinModelInfo {
 	maxTokens: number;
 }
 
+/**
+ * Facts every built-in entry for one normalized id agrees on. A key is present only when *all*
+ * providers shipping the id state the same value — the numbers describe a host's serving limits,
+ * so agreement is the weakest point at which copying one is not a guess.
+ */
+export interface UnanimousFacts {
+	contextWindow?: number;
+	maxTokens?: number;
+	input?: readonly string[];
+}
+
 export interface BuiltinCatalog {
 	/** Normalized id -> the first built-in entry seen for it. */
 	byId: ReadonlyMap<string, BuiltinModelInfo>;
@@ -56,6 +73,11 @@ export interface BuiltinCatalog {
 	 * model facts, so the majority decides and the provider order stops mattering.
 	 */
 	votes: ReadonlyMap<string, CapabilityVotes>;
+	/**
+	 * Normalized id -> the values every provider shipping it agrees on (absent keys = contested).
+	 * This is what a discovered id may be synthesized from; `byId`'s first-wins numbers may not.
+	 */
+	unanimous: ReadonlyMap<string, UnanimousFacts>;
 	/**
 	 * Normalized ids for which *any* built-in entry says `supportsTemperature: false`.
 	 * Aggregated across providers because the rejection is a model property; "false
@@ -71,6 +93,7 @@ export interface BuiltinCatalog {
 export const EMPTY_BUILTIN_CATALOG: BuiltinCatalog = {
 	byId: new Map(),
 	votes: new Map(),
+	unanimous: new Map(),
 	rejectsTemperature: new Set(),
 	providers: new Set(),
 	available: false,
@@ -100,6 +123,8 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 		if (typeof piAi.getProviders !== "function" || typeof piAi.getModels !== "function") return EMPTY_BUILTIN_CATALOG;
 		const byId = new Map<string, BuiltinModelInfo>();
 		const votes = new Map<string, { reasoning: [number, number]; image: [number, number] }>();
+		/** Per id: the distinct values seen, so agreement can be read off after the walk. */
+		const seen = new Map<string, { context: Set<number>; max: Set<number>; input: Map<string, readonly string[]> }>();
 		const rejectsTemperature = new Set<string>();
 		for (const raw of piAi.getProviders()) {
 			const provider = String(raw);
@@ -107,6 +132,12 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 				if (!model || typeof model.id !== "string") continue;
 				const key = normalizeModelId(model.id);
 				if (!key) continue;
+				const fields = seen.get(key) ?? { context: new Set<number>(), max: new Set<number>(), input: new Map<string, readonly string[]>() };
+				if (typeof model.contextWindow === "number" && model.contextWindow > 0) fields.context.add(model.contextWindow);
+				if (typeof model.maxTokens === "number" && model.maxTokens > 0) fields.max.add(model.maxTokens);
+				const input = Array.isArray(model.input) ? model.input.map(String) : [];
+				if (input.length > 0) fields.input.set([...input].sort().join("\u0000"), input);
+				seen.set(key, fields);
 				if (!byId.has(key)) {
 					byId.set(key, {
 						provider,
@@ -124,10 +155,26 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 				if (model.compat?.supportsTemperature === false) rejectsTemperature.add(key);
 			}
 		}
-		return { byId, votes, rejectsTemperature, providers: new Set(piAi.getProviders().map(String)), available: byId.size > 0 };
+		const unanimous = new Map<string, UnanimousFacts>();
+		for (const [key, fields] of seen) {
+			const facts: UnanimousFacts = {};
+			if (fields.context.size === 1) facts.contextWindow = [...fields.context][0];
+			if (fields.max.size === 1) facts.maxTokens = [...fields.max][0];
+			if (fields.input.size === 1) facts.input = [...fields.input.values()][0];
+			if (facts.contextWindow !== undefined || facts.maxTokens !== undefined || facts.input !== undefined) unanimous.set(key, facts);
+		}
+		return { byId, votes, unanimous, rejectsTemperature, providers: new Set(piAi.getProviders().map(String)), available: byId.size > 0 };
 	} catch {
 		return EMPTY_BUILTIN_CATALOG;
 	}
+}
+
+/**
+ * The uncontested facts for one model id — `undefined` when its hosts disagree (or nobody ships
+ * it), which is the only case in which a discovered id may take catalog values.
+ */
+export function unanimousFacts(id: string, catalog: BuiltinCatalog): UnanimousFacts | undefined {
+	return catalog.unanimous.get(normalizeModelId(id));
 }
 
 /**
