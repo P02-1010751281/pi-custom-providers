@@ -76,11 +76,30 @@ for (const [what, block] of [
 	assert(!ext.providers.get("demo").models.some((model) => model.id === "m1"), "and nothing from the discarded file is applied");
 }
 
+// --- what pi applies from a user block for a provider an *extension* registered ---------------
+// Measured 2026-10-03 against the real runtime: an extension-registered id keeps the extension's
+// model list. The user's `models[]` entries are validated (they need `api`+`baseUrl` — a model
+// entry is a *definition* to pi) but never applied, not even when the extension registered zero
+// models; `modelOverrides` on the other hand is applied on top. So for our providers the patch
+// door pi actually opens is `modelOverrides`, while `models[]` reaches the list only through this
+// package's own read (design open question: that read is a mechanism pi does not run).
+{
+	const cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+	const row = (id, name, maxTokens) => ({ id, name, api: "openai-completions", baseUrl: "https://x.example/v1", reasoning: false, input: ["text"], contextWindow: 100000, maxTokens, cost });
+	writeModels({ providers: { demo: { models: [row("m-new", "USER-NEW", 100)], modelOverrides: { "m-new": { maxTokens: 4242 }, m1: { maxTokens: 4242 } } } } });
+	const runtime = await ModelRuntime.create({ modelsPath: modelsFile, modelsStore: new InMemoryCodingAgentModelsStore(), allowModelNetwork: false, refreshOnCreate: false });
+	runtime.registerProvider("demo", { name: "demo", baseUrl: "https://demo.example/v1", api: "openai-completions", models: [row("m1", "OURS", 200)] });
+	const table = runtime.getModels("demo") ?? [];
+	assert(!table.some((model) => model.id === "m-new"), "pi does not apply a user models[] entry to an extension-registered provider");
+	assert(table.some((model) => model.id === "m1" && model.maxTokens === 4242), "but it does apply modelOverrides to the registered model");
+	assert(runtime.getModel("demo", "m-new") === undefined, "so a model only declared there does not exist for pi");
+}
+
 // --- a legitimate block is applied, unchanged (the report must not fire on good input) ----
 {
 	const { ext, status } = await load({ providers: { demo: { models: [{ id: "m1", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 7 }] } } });
 	assert(ext.providers.has("demo"), "a legal block registers the provider");
-	assert(ext.providers.get("demo").models.some((model) => model.id === "m1" && model.maxTokens === 7), "and its model patch is applied");
+	assert(ext.providers.get("demo").models.some((model) => model.id === "m1" && model.maxTokens === 7), "and this package reads it as a patch — pi itself would not apply it (case above)");
 	assert(!status.includes("discards") && !status.includes("must specify"), `with nothing reported (got ${status})`);
 }
 
