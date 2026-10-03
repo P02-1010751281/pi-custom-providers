@@ -25,6 +25,13 @@ pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B，随后 /reload
 ```
 
+### 从 v0.4.1 升级（v0.5.0：命令面与「模型的家」）
+
+- **命令改名**：`/custom-providers` 与 `/refresh-custom-models` 合并为单一 **`/providers`**（动词表驱动）；`drift` 不再是命令，并进 `status`（概览给计数、`status <id>` 给明细）。任何不匹配的动词/旗标都回 `Usage:`，不再静默忽略（旧版打字错的动词会被当成 provider id 回答）。
+- **出厂层删除**：不再有内置 vendor、内置默认账号、`envVar` 兜底。以前靠出厂默认拿凭据的目录（如 `scnet`、`commandcode`）升级后必须**自备 `accounts.json`**，否则该 provider 无凭据——症状是 pi 侧「not registered」，而不是报错。
+- **第 3 层不再提供模型内容**：模型只有一个家 = `<id>/models.json`（`sync`/发现写它）。`providers.<id>.models[]` 现在**不被读取**（pi 对扩展注册的 id 也只校验、不应用这个数组），写了会在 `/providers` 报告里点名；**加模型**写进模型表，**改已注册模型**（`name`/`maxTokens`/`contextWindow`/`compat`）用第 4 层 `modelOverrides[M]`。
+- **手改文件后**用 `/providers rescan` 让会话看见（新目录、手改的 `provider.json`/`models.json`/`accounts.json`、删掉的目录）；只有**扩展代码**变了才用 pi 的 `/reload`。
+
 ### 从 v0.3.0 升级（v0.4.0：不再带模型表）
 
 - 仓库不再带模型表。**已经写了 `<id>/models.json` 的机器不受影响**；只有 `provider.json`、没写过模型表的机器升级后该 provider 会**暂时 0 模型**，直到联网发现成功（发现会自动补 id/名字/上下文）或你补一份 `models.json`。
@@ -38,6 +45,8 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 - `siblingId` / `anthropicBaseUrl` 这两个旧字段已删除；SCNet 的 Anthropic 端点现在是 `apis."anthropic-messages"`。
 
 ## Providers
+
+下表是**本机（owner）`~/.pi/agent/custom-providers/` 当前的目录**，只是示例——仓库不附带任何 vendor，新装的扩展里一个都没有（见下节）。
 
 | provider id | 默认协议 | 默认端点 | 其它端点 | 密钥变量 |
 |---|---|---|---|---|
@@ -201,7 +210,7 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 
 - `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost`（含 `tiers`）/ `samplingParams` / `inputLimits` / `promptCache` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
-- `/custom-providers drift` 仍把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
+- `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
 ## 测试
 
@@ -209,4 +218,4 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 node tests/run-all.mjs
 ```
 
-17 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`directory-test`（目录扫描与校验、接管边界、三个载荷文件）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`credential-test`（发现探针用哪份凭据、auth 形态照 pi：协议默认 + `authHeader` 补 `Authorization: Bearer`，后者对着 pi 的 `composeModelProvider`、前者对着 Anthropic SDK 的真请求头断言）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`env-test`（值语法与 `!command` 的 shell 对照 pi 自己的解析器）、`pi-surface-test`（`models.json` 字段表对照 pi 的 `ModelDefinitionSchema`，并逐个字段读写往返）、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。
+23 个用例：`apis-test`（协议选择 / 内置协议表与 pi 注册表一致）、`directory-test`（目录扫描与校验、接管边界、三个载荷文件）、`accounts-test`（账号展开、凭据回落、id 撞车跳过）、`credential-test`（发现探针用哪份凭据、auth 形态照 pi：协议默认 + `authHeader` 补 `Authorization: Bearer`，后者对着 pi 的 `composeModelProvider`、前者对着 Anthropic SDK 的真请求头断言）、`no-builtin-test`（没有目录就没有 provider、`init` 写盘、只有 `provider.json` = 无模型）、`sync-test`（差异、`.bak`、round-trip）、`vanished-test`（消失 id 报告、失败/空答案抑制、`--prune` 才删）、`convention-test`（同族继承 + 已知家族名单）、`responses-test`（用 pi 自己的实现验证 `POST <baseUrl>/responses`）、`builtin-test`、`env-test`（值语法与 `!command` 的 shell 对照 pi 自己的解析器）、`pi-surface-test`（`models.json` 字段表对照 pi 的 `ModelDefinitionSchema`，并逐个字段读写往返）、`graph-test`（模块依赖图：无环、无孤儿、每个本地 import 都存在）、`models-test`（fixture 模型表结构 + `calculateCost` 崩点 + 纯 helper）、`pi-native-test`（真 `ModelRuntime`：`registerProvider → refresh → publish`，全程离线）、`command-test`（动词/旗标表解析与 `Usage:` 答案，注入法证明敏感）、`init-test`（向导三态 + `accounts.json` 写口保护）、`preflight-test`（把用户块交给 pi 前先预报告，钉在真 `ModelRuntime` 上）、`rescan-test`（新快照重注册 + `unregisterProvider` 撤销消失目录）、`compat-keys-test`（从 pi dist 复推 compat 读键表并断言相等）、`orphan-block-test`（没有任何目录/内置 id 对应的 `providers.<key>` 块点名；取不到内置目录则静默）、`smoke`、`loadtest`（pi 真实 loader 加载无错）。测试的模型表来自 `tests/fixtures/models.json`；测试通过 pi 自己的 jiti loader 加载 TS，`PI_CODING_AGENT_DIR` 指向临时目录，不写 `~/.pi`。

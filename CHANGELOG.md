@@ -20,17 +20,17 @@
 
 ### 测试
 
-- 21 个用例全绿；`graph-test` 17 模块、无环、全可达。新增 `command-test`、`init-test`、`preflight-test`、`rescan-test`。关键路径用注入法证明敏感：静默忽略外来旗标 → `command-test` 红；去掉 `unregisterProvider` → `rescan-test` 红；去掉 accounts 文件保护 → `init-test` 红。
+- 23 个用例全绿；`graph-test` 16 模块、无环、全可达。新增 `command-test`、`init-test`、`preflight-test`、`rescan-test`、`compat-keys-test`、`orphan-block-test`。关键路径用注入法证明敏感：静默忽略外来旗标 → `command-test` 红；去掉 `unregisterProvider` → `rescan-test` 红；去掉 accounts 文件保护 → `init-test` 红。
 
 ### 报告
 
 - **第 3 层不再提供模型内容（破坏性，2026-10-03）**：模型只有一个家 = `<id>/models.json`（`sync`/发现写它）。`providers.<id>.models[]` 过去被本包当补丁读（条目覆盖同名模型、新 id 建模型），现在**不读**并在命令里报告（pi 对扩展注册的 id 也只校验不应用这个数组）；补丁改走第 4 层 `modelOverrides[M]`，新模型写进模型表。`config.ts` 的 `applyModelPatch` 随之删除（本包不再有第二个 override applier）。
 - **§10 #18 的报告半边：`providers` 里没有目录、也不是 pi 内置 id 的 key 会被点名**（`config.ts orphanProviderBlocks`）：那些块是 config-only id，pi 自己注册、本扩展永不读取，别名旧 key 与打错的 id 都落在这一类。以前静默无效，现在 `providers.<key>: no directory for this id … nothing here reads this block`。新测试 `orphan-block-test.mjs`（注册 id / 账号 id / pi 内置 id 三种不报，旧 key 与错字两种报；注入法证明敏感）。取不到 pi 内置目录（老 pi 构建）时**不下结论、保持静默**，同 `drift` 口径。
-- **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、`providers.<id>.models[]`、provider 级 `compat` 与 `modelOverrides[M].compat`；实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
+- **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、provider 级 `compat` 与 `modelOverrides[M].compat`；实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
 
 ### 差分（v0.4.1 → v0.5.0，模型合成）
 
-对「目录 + 基底表 + 端点 + 第 3/4 层」7 个场景，注册结果只有 4 处差异，逐条可归因（配方与 runner 见 `.codestable/audits/2026-10-03-v0.4.1-v0.5.0-model-synthesis-differential.md`）：出厂默认账号消失（`scnet`/`commandcode` 无 `accounts.json` ⇒ `authHeader`/`envVar` 不再隐含，**升级动作：给这些目录写 `accounts.json`**）、旧 key 别名块不再生效（#18 B′）、pi 会拒的 `models[]` 补丁块改为报错并跳过该 provider（#22/#23；旧版是桩掩盖了 pi 的抛错）、其余（协议 stamping / 端点解析 / 基底合成 / provider 级 compat 折算 / 多账号 / `modelOverrides`）完全一致。
+对「目录 + 基底表 + 端点 + 第 3/4 层」8 个场景，注册结果 5 处差异，逐条可归因（配方与 runner 见 `.codestable/audits/2026-10-03-v0.4.1-v0.5.0-model-synthesis-differential.md`）：出厂默认账号消失（`scnet`/`commandcode` 无 `accounts.json` ⇒ `authHeader`/`envVar` 不再隐含，**升级动作：给这些目录写 `accounts.json`**）、旧 key 别名块不再生效（#18 B′）、pi 会拒的 `models[]` 补丁块改为报错并跳过该 provider（#22/#23；旧版是桩掩盖了 pi 的抛错）、第 3 层 `models[]` 补丁不再生效（场景 S8：注册 id 下的**合法** `models[]` 条目过去被本包当补丁应用，现在条目留在表外并报警告）、其余（协议 stamping / 端点解析 / 基底合成 / provider 级 compat 折算 / 多账号 / `modelOverrides`）完全一致。
 
 ## v0.4.1 — 2026-10-02
 

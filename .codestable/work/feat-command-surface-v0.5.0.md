@@ -153,7 +153,7 @@
 
 ## 实现进度（2026-10-02，本会话）
 
-**已落地**（21 用例全绿 + graph-test 17 模块）：
+**已落地**（当时 21 用例全绿 + graph-test 17 模块；此后增至 23 用例 / 16 模块）：
 - 命令面：`/providers` 唯一命令 + `verbs.ts` 动词/旗标表 + `Usage:` 生成；`drift` 并入 `status`（概览计数 + 单 provider 明细）。
 - `sync` 新流程（默认联网、逐端点跳过、省略 id = 全部、`--dry-run`、`--prune` 需 id）+ `rescan`（重扫 + 新快照重注册 + `unregisterProvider` 撤销消失目录）。
 - `init` 向导 + 参数路径；`accounts.json` 第三写口（`credentials.ts writeAccountsFile`）。
