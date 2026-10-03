@@ -110,7 +110,7 @@
 - ✅ **#22/#23 并入 v0.5.0**（owner 批准）：补预先报告 + 三处注册调用点（`:225/:237/:387`）加 try/catch，逐步测试先行；catch 不得混淆 `registerEntry` 的两种「没成功」（返回 `undefined` = 被拒；抛错 = pi 拒绝），也不得丢掉能用的 `refresh`。
 - 🔁 **#15 需重开**（2026-10-02）：前提“上游会忽略它”**不成立** —— `compat` 不是发给上游的字段，而是 **pi 请求构造器的开关**（每个协议实现只读自己认识的键，实测表：`anthropic-messages` 读 13 个、`openai-completions` 读 27 个，被 ≥2 个协议读的键有 9 个：`supportsStrictMode`/`supportsMidConvoSystemMessages`/`supportsLongCacheRetention`/`supportsDeveloperRole`/`supportsOpenAIGrammarTools`/`supportsAdditionalTools`/`supportsToolSearch`/`sendSessionAffinityHeaders`/`sessionAffinityFormat`）。判据应改成“**该键是否被目标 api 的实现读**”：不被读 ⇒ 永不上线（零影响）；被读（含跨族但落在交集里的）⇒ 它真改请求体，可能上游 400。三个选项：(a) 不报（现状）；(b) **报「对 <api> 无作用的 compat 键」**（用 pi 的实现表当判据，`pi-surface-test` 同法钉住，零误报）；(c) 报“跨族”（要自造族表，交集处会误报）。→ **建议 (b)**。
 - 📝 **#24 的正确说法**（原表里写得不全，实测源码）：`models.json` 的 schema 里 `oauth` **只能是字面量 `"radius"`**（`model-config.js`：`Type.Optional(Type.Literal("radius"))`）。① 不装 oauth 方法（`composeOAuthAuth` 只看 extension/base）—— 只有这一半是「inert」；② `config.oauth && !config.baseUrl` → **pi 抛** `"baseUrl" is required when "oauth" is set`（会打到我们的注册循环，同 #22/#23 一路）；③ 它会**满足** pi 的「非空块」检查（空块才抛）；④ `oauth: "radius"` 时 `applyModelsJson` 把 baseUrl 优先级翻成 `model.baseUrl`（对我们无可见影响：用户层的 baseUrl 已被我们写进 provider 级 `baseUrl` 并落到模型上）；⑤ 其它取值 = 类型错 → pi **整份丢弃** `models.json`（§10 #21 的行为，比 inert 严重）。⇒ 待定：这四条报告到底补不补（#14/#18 建议补，#24 按上式写清）。
-- 📝 **#14 的建议**：老体系的「默认接线 + 选线优先级（含 messages/responses 偏好）」就是 v4.0 删掉的 7 级链（`wireSelectionFor`/`siblingId`/`anthropicBaseUrl`，v1 doc:224「没有优先级链、没有 tie-break」），所以旧 `wire` **无法机械映射**成新 `api`（链已不存在）。本机实测无 `wire` 键、无用户 ⇒ 建议不进命令报告，只在 README 的迁移段写一行。
+- 📝 **#14 的建议**：老体系的「默认接线 + 选线优先级（含 messages/responses 偏好）」就是 v4.0 删掉的 7 级链（`wireSelectionFor`/`siblingId`/`anthropicBaseUrl`（那份 v1 设计已随 CodeStable v2 迁移删除）），所以旧 `wire` **无法机械映射**成新 `api`（链已不存在）。本机实测无 `wire` 键、无用户 ⇒ 建议不进命令报告，只在 README 的迁移段写一行。
 - 📝 **#18 的处理选项**（待定）：(A) 只报告「别名下的 `modelOverrides` 不生效，改写到 `<id>` 下」——判据仅“`providers.<alias>.modelOverrides` 存在”；(B) 我们代它应用——等于复刻 pi 的 `applyModelOverride` 语义（第二份实现，本仓库最忌），且要定义与 pi canonical 层的顺序；(C) 别名只用于读、README 明写哪些字段生效。→ **建议 (A)**。
 - 📝 **#24 的处理选项**（待定）：把 `oauth` 当成 config 层的「不适用键」，与 README:94 已有的 `provider.json` 不适用键清单同形；报告文案要盖住四点（唯一合法值 `radius` / 对我们不装 oauth / 缺 `baseUrl` 则 pi 抛 / 其它值整份丢文件）。与 #22/#23 一起构成 config 层检查的两块（pi 会抛的预报告；对我们不生效的报告）。→ **建议做**。
 - 📝 **`--offline` 命名被推（owner）**：字面像“整机离线”，实际只是“跳过 fetch 用本进程 memo”。三个选项：(A) 改名 `--no-fetch`；(B) **删掉该模式**——`sync` 默认联网，**任一可发现端点抓取失败就不写盘只报错**（不静默降级），这样“冷 memo 假阴性”与“把抖动写进表”一起没了，也不再需要旗标；(C) 回到先前的 `sync --fetch`（默认本地）。→ **建议 (B)**（更少旗标，且“不影响”原则一致：扩不了就别改表）。
@@ -128,7 +128,7 @@
 - 无设计级未决项。开工与发版各须 owner 点头。
 
 **迁移（v1 → v2）**
-- 老 v1 doc：`.codestable/features/2026-09-18-generic-wire-engine/`（547 行，v2 规矩下只读）。
+- 老 v1 设计（泛化引擎，547 行）随 CodeStable v2 迁移一并删除，git 历史可查。
 - 口径：老 doc 只留历史；**live 事实按归属搬进 v2**（`attention.md` / `README.md`），老目录不删（git 留痕）。
 - **已执行（2026-10-02）**：
   - 搬 `attention.md` 新节 **「pi 各协议的 baseUrl 拼接（实测）」**（v1 §2.4 的 10 行协议表 —— 此前 attention 只有 anthropic 一条）。

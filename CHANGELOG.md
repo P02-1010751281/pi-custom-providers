@@ -2,7 +2,7 @@
 
 版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。
 
-## v0.5.0 — 未发布（tag 待 owner 点头）
+## v0.5.0 — 2026-10-03
 
 ### 命令面（破坏性）
 

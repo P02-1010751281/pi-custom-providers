@@ -17,7 +17,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
-- **已发版状态（2026-10-02）**：v0.4.1 = 惯例继承不再看协议线（A 步同族继承在任何线上都发生；B 步仍只给 anthropic 线）。tag `v0.4.1` 已推双远端，`~/.pi` 的 pin 改为 `@v0.4.1`；README 的安装行与本文一致，更新日志见 `CHANGELOG.md`。
+- **已发版状态（2026-10-03）**：**v0.5.0** = 命令面收成单一 `/providers`（动词/旗标表驱动）+ 删出厂层 + 第 3 层不再提供模型内容（破坏性三条见 README 的 v0.4.1 升级段；`CHANGELOG.md` 是权威）。tag `v0.5.0` 已推双远端，`~/.pi` 的 pin = `@v0.5.0`；README 的安装行与本文一致。上一版 v0.4.1 = 惯例继承不再看协议线。
 
 ## 已知技术债（明确未做，不是遗漏）
 
@@ -66,7 +66,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（16 文件 / ~2835 行：v0.5.0 删掉 `sources.ts`、加入 `verbs.ts`）：**目录是能力单位（一目录一功能）；文件 = 一个数据单元（它的读/写/词汇）或一段变换**（阶段是顺序，一段可以消费多个单元）。这条判据已四次落地：编排器拆出四个模块（13 文件）、`<id>/models.json` 的读写从两个文件合并（13→12）、三个载荷各自成文件而目录留作装配（12→15）、`config.ts` 拆出 `apis.ts` 并把端点落法交还端点单元（15→16）。可机械判定：① 某文件拥有第二个数据单元 ⇒ 拆；② 某数据单元有两个读者/写者 ⇒ 合；③ 出现第二个**独立能力** ⇒ 那是同级扩展 `extensions/<name>/index.ts`，不是本目录的子目录。**不用文件数/行数当触发线**（目录不会因为文件多而变成另一种东西）。
 - **层序不靠目录承载**：层序的真相是依赖图（`graph-test`）+「分层与接口」那张表。给层开子目录＝同一事实的第二份副本，会和依赖图漂移。触发条件（到那时也优先拆能力）：文件 >20、或某一层自身 ≥5 个文件、或出现第二个能力。
 - `tests/` **必须保持扁平**：`run-all.mjs` 是 `readdirSync` 单层扫描（不递归），放进子目录的测试会静默不被执行。`tests/fixtures/` 是数据不是测试（当前唯一的子目录）。
-- `.codestable/reference/`（12 份框架文档）与 `.codestable/gates/` 由 CodeStable 插件管理（`.codestable/runtime-manifest.json` 的 `managed_paths`，`updated_by: codestable-runtime-sync`）：**手改会被下次同步覆盖**，项目自己的文档是 `attention.md` 与 `features/<epic>/`。
+- `.codestable/` 已是 CodeStable **v2** 形态（2026-10-03 迁移）：项目自己的知识只有 `attention.md`（每次必读）、`lessons/`（一条一文件，`cs-keep` 写入）、`work/`（活动中的跨会话任务，完成即清）。v1 的分发机制（`reference/`、`gates/`、`runtime-manifest.json`）与只放 `.gitkeep` 的空壳目录（`roadmap/`/`features/`/`issues/`/`refactors/`/`goals/`/`compound/`/`brainstorms/`/`feedback/`/`requirements/`）**已删除**（含 547 行的 v1 泛化引擎设计，git 历史可查）；`audits/` 保留为 v0.4.1→v0.5.0 的证据档、只读。新工作不再产生 v1 形态产物（阶段文档、checklist、goal 包）；`requirements/` 未被指定为 canonical，不再维护。
 - 模块依赖图**无环**且每个模块都能从 `index.ts` 到达，由 `tests/graph-test.mjs` 守护（含 type-only 回边：`util.ts` 是叶子，`JsonObject` 这类共享类型放叶子模块才不会成环）。
 - `.agents/`（记忆、会话日志、技能）整体 gitignored，不进仓库、不进 tag。
 
