@@ -24,7 +24,7 @@
 
 ### 报告
 
-- **§10 #18 的报告半边：`providers` 里没有目录、也不是 pi 内置 id 的 key 会被点名**（`config.ts orphanProviderBlocks`）：那些块是 config-only id，pi 自己注册、本扩展永不读取，别名旧 key 与打错的 id 都落在这一类。以前静默无效，现在 `providers.<key>: no directory for this id … nothing here reads this block`。新测试 `orphan-block-test.mjs`（注册 id / 账号 id / pi 内置 id 三种不报，旧 key 与错字两种报；注入法证明敏感）。
+- **§10 #18 的报告半边：`providers` 里没有目录、也不是 pi 内置 id 的 key 会被点名**（`config.ts orphanProviderBlocks`）：那些块是 config-only id，pi 自己注册、本扩展永不读取，别名旧 key 与打错的 id 都落在这一类。以前静默无效，现在 `providers.<key>: no directory for this id … nothing here reads this block`。新测试 `orphan-block-test.mjs`（注册 id / 账号 id / pi 内置 id 三种不报，旧 key 与错字两种报；注入法证明敏感）。取不到 pi 内置目录（老 pi 构建）时**不下结论、保持静默**，同 `drift` 口径。
 - **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、`providers.<id>.models[]`、provider 级 `compat` 与 `modelOverrides[M].compat`；实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
 
 ### 差分（v0.4.1 → v0.5.0，模型合成）
