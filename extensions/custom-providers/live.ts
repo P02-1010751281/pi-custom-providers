@@ -10,7 +10,7 @@
  */
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
 import { conventionCapability } from "./convention.ts";
-import { discoveryCredential } from "./credentials.ts";
+import { discoveryCredential, unresolvedReference } from "./credentials.ts";
 import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
 import type { LiveModelRow, LoadIssue, Vendor } from "./types.ts";
 import { isObject, numberOr, stringOr, type JsonObject } from "./util.ts";
@@ -152,10 +152,32 @@ export const vanishedByVendor = new Map<string, string[]>();
 export const lastErrors = new Map<string, string>();
 export const endpointKey = (vendorId: string, api: string): string => `${vendorId}\u0000${api}`;
 
-/** The one-line hint for a missing credential: the file, and the config layer that can carry it. */
-function credentialHint(entry: ProviderEntry): string {
-	return `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json or providers.${entry.id}.apiKey, or run /login ${entry.id}`;
+/**
+ * The one-line hint for a missing credential: the file, the config layer that can carry it, and —
+ * when the stored text is a reference — the name that resolved to nothing. A `$VAR` added to
+ * `~/.pi/agent/.env` after the extension loaded stays invisible to this process until a restart or
+ * `/reload`, and that silent `undefined` is otherwise indistinguishable from a missing account.
+ */
+function credentialHint(entry: ProviderEntry, layer: JsonObject): string {
+	const base = `no API key: set it in custom-providers/${entry.vendor.id}/accounts.json or providers.${entry.id}.apiKey, or run /login ${entry.id}`;
+	const unresolved = unresolvedReference(stringOr(entry.account?.apiKey) ?? stringOr(layer.apiKey));
+	return unresolved
+		? `${base} — ${unresolved} resolves to nothing in this process (a variable added to .env after pi started needs a restart or /reload)`
+		: base;
 }
+
+/**
+ * A probe failure that knows *why* it failed. `sync` warns about a missing credential while an
+ * unreachable wire stays a plain note, so the two cannot be told apart by matching on a string.
+ */
+export class ProbeError extends Error {
+	constructor(message: string, readonly reason: "no-credential" | "no-models-path") {
+		super(message);
+	}
+}
+
+/** Why a probe returned no rows: the wire answered and had none (`empty`), or this is the reason. */
+export type ProbeReason = "no-credential" | "no-models-path" | "fetch";
 
 /** What one endpoint's probe produced: the wire's rows, or the reason it was skipped. */
 export interface EndpointProbe {
@@ -166,6 +188,8 @@ export interface EndpointProbe {
 	skipped?: string;
 	/** The answer was a valid, empty list (a quota-exhausted wire answers 200 + `[]`). */
 	empty?: boolean;
+	/** `undefined` when the wire answered; otherwise why it did not. */
+	reason?: ProbeReason;
 }
 
 /**
@@ -182,16 +206,16 @@ export async function probeEndpoint(
 ): Promise<EndpointProbe> {
 	const key = endpointKey(entry.vendor.id, endpoint.api);
 	try {
-		if (!endpoint.modelsPath) throw new Error("no modelsPath: no discovery for this endpoint");
+		if (!endpoint.modelsPath) throw new ProbeError("no modelsPath: no discovery for this endpoint", "no-models-path");
 		const credential = discoveryCredential(entry, layer, options.contextKey);
-		if (!credential.key) throw new Error(credentialHint(entry));
+		if (!credential.key) throw new ProbeError(credentialHint(entry, layer), "no-credential");
 		const rows = await discover(endpoint, mergeHeaders(endpoint.headers, entry.account?.headers) ?? {}, credential, options.signal);
 		lastErrors.delete(key);
 		return rows.length === 0 ? { api: endpoint.api, rows, empty: true } : { api: endpoint.api, rows };
 	} catch (error) {
 		const message = String(error);
 		lastErrors.set(key, `${endpoint.api}: ${message}`);
-		return { api: endpoint.api, skipped: message };
+		return { api: endpoint.api, skipped: message, reason: error instanceof ProbeError ? error.reason : "fetch" };
 	}
 }
 

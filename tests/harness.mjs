@@ -111,7 +111,8 @@ export async function withFetch(stub, fn) {
 
 /**
  * Invoke the `providers` command, collecting its `notify` lines into `sink` (a plain array of
- * message strings — tests assert on the text, never on the level).
+ * message strings — tests assert on the text, never on the level). Pass `answers.levels` (an array)
+ * to also record each line's level, for the one claim that *is* about the level.
  */
 export function runCommand(commands, args, sink, answers = {}) {
 	const input = [...(answers.input ?? [])];
@@ -120,7 +121,10 @@ export function runCommand(commands, args, sink, answers = {}) {
 	return commands.get("providers").handler(args, {
 		hasUI: answers.hasUI ?? true,
 		ui: {
-			notify: (message) => sink.push(message),
+			notify: (message, level = "info") => {
+				sink.push(message);
+				answers.levels?.push(level);
+			},
 			// `undefined` from input/select and `false` from confirm is exactly what pi's dialogs
 			// return when the user escapes — an unscripted wizard cancels rather than guessing.
 			input: async () => input.shift(),

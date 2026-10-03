@@ -1,5 +1,6 @@
 /**
- * `sync` — fetch every endpoint, merge what answered into the vendor's base table, write it.
+ * `sync` — fetch every endpoint, merge what answered into the vendor's base table, write it, and
+ * register what it wrote in this session.
  *
  * This is the package's only writer of user data (`<id>/models.json`), and `--dry-run` is the one
  * thing that refuses to write. What it writes is the *base* table: the user's `providers.<id>`
@@ -44,8 +45,8 @@ const offline = async () => {
 };
 const ext = await startExtension();
 const notify = [];
-const run = (args, stub = answered([{ id: "a", name: "A (live)", context_length: 5000 }, { id: "discovered" }])) =>
-	withFetch(stub, () => runCommand(ext.commands, args, notify));
+const run = (args, stub = answered([{ id: "a", name: "A (live)", context_length: 5000 }, { id: "discovered" }]), answers = {}) =>
+	withFetch(stub, () => runCommand(ext.commands, args, notify, answers));
 const last = () => notify.at(-1);
 
 const before = readFileSync(file, "utf8");
@@ -69,6 +70,17 @@ assert(readFileSync(file, "utf8") === before, "no answer means no write");
 assert(last().includes("no endpoint answered"), `and that is said out loud (got ${last()})`);
 assert(!existsSync(`${file}.bak`), "not even a backup");
 
+// A directory that looks configured but whose key does not resolve: the skip is a warning that
+// names the reference, not a note — an unset `$VAR` is otherwise a silent `undefined`.
+const levels = [];
+delete process.env.DEMO_KEY;
+await run("sync demo", offline, { levels });
+assert(last().includes("no API key") && last().includes("$DEMO_KEY"), `a missing credential names the reference (got ${last()})`);
+assert(last().includes("restart or /reload"), `and says why a variable in .env may not be there (got ${last()})`);
+assert(levels.at(-1) === "warning", `and is a warning, not a note (got ${levels.at(-1)})`);
+assert(readFileSync(file, "utf8") === before, "still no write");
+process.env.DEMO_KEY = "test-key";
+
 // The write path.
 await run("sync demo");
 const after = JSON.parse(readFileSync(file, "utf8"));
@@ -79,7 +91,9 @@ assert(after.models.find((model) => model.id === "a").contextWindow === 5000 && 
 assert(after.models.find((model) => model.id === "discovered")?.cost?.input === 0, "a discovered id is written with cost (pi requires it)");
 assert(after.models.find((model) => model.id === "discovered").baseUrl === undefined, "and without a derived baseUrl (that is a registration-time product)");
 assert(existsSync(`${file}.bak`), "a .bak of the previous file is written");
-assert(last().includes("wrote") && last().includes("/providers rescan demo"), `the write points at the command that applies it (got ${last()})`);
+assert(last().includes("wrote") && last().includes("registered demo in this session"), `the write says it applied itself (got ${last()})`);
+assert(ext.providers.get("demo").models.length === 3, "and the session carries the new table without a rescan");
+assert(ext.providers.get("demo").models.some((model) => model.id === "discovered"), "including the id discovery introduced");
 
 // The written file loads back as the same model set.
 const reloaded = await startExtension();

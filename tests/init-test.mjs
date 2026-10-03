@@ -4,8 +4,8 @@
  *
  * The credential is stored **verbatim**: it is a reference as often as it is a literal, and
  * resolving it here would persist a secret pi would then own. It is never echoed in the report.
- * Registering the vendor is `rescan`'s job, never `init`'s (one mechanism for "disk changed →
- * session changed").
+ * The vendor is registered as part of the write: a verb that changes the directory applies its own
+ * change, so `init` hands the user no follow-up command (`rescan` stays for out-of-band edits).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { agentPath, assert, loadTs, runCommand, startExtension } from "./harness.mjs";

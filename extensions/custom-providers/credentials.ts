@@ -182,6 +182,22 @@ export function discoveryCredential(entry: CredentialSource, layer: JsonObject, 
 	return { ...(key ? { key } : {}), authHeader: accountAuthHeader(entry) ?? false };
 }
 
+/**
+ * The *reference* inside a stored credential, without resolving it: the text of `$VAR` / `${VAR}` /
+ * a bare environment-variable name, and nothing for a literal or a `!command`.
+ *
+ * A caller uses this to name which variable came up empty when a credential fails to resolve —
+ * pi's grammar turns an unset `$VAR` into a silent `undefined`, which is otherwise
+ * indistinguishable from "no account at all". A literal is never named: it is present by
+ * definition, and echoing it would put a secret in a report.
+ */
+export function unresolvedReference(value: string | undefined): string | undefined {
+	const text = value?.trim();
+	if (!text) return undefined;
+	const named = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(text) ?? /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(text) ?? /^([A-Z][A-Z0-9_]*)$/.exec(text);
+	return named ? text : undefined;
+}
+
 /** The account id `init` writes, and the `default` pointer to it. */
 export const BASE_ACCOUNT_ID = "main";
 

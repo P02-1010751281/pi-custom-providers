@@ -3,8 +3,9 @@
  *
  * The registry entry list is a load-time snapshot, so a hand-edited `models.json` (or a new or
  * deleted directory) used to stay invisible until pi's `/reload`. `rescan` re-reads the directory
- * and re-registers from a *fresh* snapshot, and it is the one verb that never writes disk:
- * `files` looks, `sync` writes files, `rescan` moves the session.
+ * and re-registers from a *fresh* snapshot, and it is the one verb that never writes disk and
+ * never probes: `files` looks, `sync` writes and applies, `init` writes and registers,
+ * `rescan` moves the session to whatever the directory holds now.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { assert, runCommand, startExtension, testModel, vendorDir } from "./harness.mjs";

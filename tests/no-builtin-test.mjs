@@ -40,7 +40,7 @@ await withFetch(async () => ({ ok: true, json: async () => ({ data: [] }) }), as
 	assert(restored.find((model) => model.id === "from-store").maxTokens === 321, "and the restored entry keeps the parameters pi persisted");
 });
 
-// --- init writes the directory, rescan makes it a provider -----------------------
+// --- init writes the directory and registers it; rescan is for out-of-band edits ---
 const notify = [];
 const ui = await startExtension();
 const run = (args) => runCommand(ui.commands, args, notify);
@@ -59,11 +59,12 @@ assert((notify.at(-1) ?? "").includes("exists"), "a second init refuses to overw
 await run("init scnet --url https://mirror.example/v1 --api openai-completions --force");
 assert(JSON.parse(readFileSync(scnetFile, "utf8")).baseUrl === "https://mirror.example/v1", "--force overwrites");
 
-// Registering is `rescan`'s job, not `init`'s: one mechanism for "disk changed → session changed".
+// `init` applies its own write: no rescan step between the file and the session.
 await run("status scnet");
-assert((notify.at(-1) ?? "").includes('Unknown provider "scnet"'), `init alone does not register the vendor (got ${notify.at(-1)})`);
+assert((notify.at(-1) ?? "").startsWith("scnet: 0 models"), `init registers the vendor it wrote (got ${notify.at(-1)})`);
+assert(ui.providers.has("scnet"), "and pi carries it without a rescan");
 await run("rescan");
-assert(ui.providers.has("scnet"), "rescan registers it");
+assert(ui.providers.has("scnet"), "a later rescan leaves it registered");
 
 console.log(`test vendors: ${Object.keys(TEST_VENDORS).join(", ")}`);
 console.log("OK");
