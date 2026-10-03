@@ -1,6 +1,6 @@
 # 更新日志
 
-版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。
+版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。历史例外：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样。
 
 ## v0.5.0 — 2026-10-03
 

@@ -245,6 +245,7 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 仓库**不带模型表**（v0.4.0 起）：基底 = 你的 `<id>/models.json`，没有它则该 provider 暂时没有模型，等发现或你补表。因此：
 
 - `reasoning` / `input` / `thinkingLevelMap` / `maxTokens` / `contextWindow` / `cost`（含 `tiers`）/ `samplingParams` / `inputLimits` / `promptCache` 都以 **`models.json` 里写的为准**；实时 `/models` 从不生成能力字段（它基本不发）。
+  - 字段形状照 pi 的 `ModelDefinitionSchema`（`id` 必填）：`input` = `text`/`image`；`cost` = `{input, output, cacheRead, cacheWrite, tiers:[{inputTokensAbove, …同四项}]}`；`promptCache` = `{short, long}`；`inputLimits` = `{maxRequestBytes, images:{resize:{maxWidth, maxHeight, maxBytes, jpegQuality}, maxPerMessage, maxPerRequest}}`；`thinkingLevelMap` 的键是 `off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`，值是字符串或 `null`。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；
   - ② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
 - `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。

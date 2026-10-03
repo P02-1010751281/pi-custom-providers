@@ -14,34 +14,21 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ## 版本号与发版规则（semver）
 
-发布 tag 用 `vMAJOR.MINOR.PATCH`，严格按 semver（2026-09-30 起生效，推翻此前「只有引擎换代才升 minor」的旧实践）：
+发布 tag 用 `vMAJOR.MINOR.PATCH`，严格按 semver（0.x 阶段 feature 与破坏性变更都升 MINOR）：
 
 - **新增 feature → MINOR**（如 v0.2.4 → v0.3.0）。
 - **破坏性变更（`feat!` / `BREAKING CHANGE`）→ MINOR**（0.x 阶段；1.0 之后改升 MAJOR）。
 - **bug fix / 文档 / chore → PATCH**（如 v0.4.0 → v0.4.1）。
-- **历史例外**：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样，不改写历史。8 个 tag 里仅此一例，生效日起全部合规。
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
-- **已发版状态（2026-10-03）**：**v0.5.0** = 命令面收成单一 `/providers`（动词/旗标表驱动）+ 删出厂层 + 第 3 层不再提供模型内容（破坏性三条见 README 的 v0.4.1 升级段；`CHANGELOG.md` 是权威）。tag `v0.5.0` 已推双远端，`~/.pi` 的 pin = `@v0.5.0`；README 的安装行与本文一致。上一版 v0.4.1 = 惯例继承不再看协议线。
+- **当前已发版 = `v0.5.0`**（命令面收成单一 `/providers` + 删出厂层 + 第 3 层不再提供模型内容；破坏性三条见 README 迁移段，逐条变更以 `CHANGELOG.md` 为准）。tag 已推双远端，`~/.pi` 的 pin = `@v0.5.0`，README 安装行与本文一致。
 
 ## 已知技术债（明确未做，不是遗漏）
 
-- 当前没有待办项（2026-10-01 清零）：`index.ts` 编排器已拆分（见「路径与目录约定」）、测试脚手架合并到 `harness.mjs`、账号撞 id 检查已实现（见「引擎行为（多协议引擎 v4.0）」）。
+- 当前没有待办项（2026-10-01 清零）；闭合记录见 `audits/2026-10-04-history-and-closures.md`。
 
-- **已闭合（2026-10-01，第二轮审计 F1–F12）**：① `samplingParams`/`inputLimits`/`promptCache`/`cost.tiers` 只被接受、不被读（现全部读写往返）；
-  - ② `envVar` 被三处说成用户键却无处可写（v0.5.0 起只属 `accounts.json`；`envVar` 不再出现在任何合法位置）；
-  - ③ `config.ts` 手抄第二份 JSON 读（现走 `util.readJson`，为此加了 `label`）；
-  - ④ 同一问题报两遍（读侧改相对名 + `problemLines` 去重）；
-  - ⑤ `!command` 用平台 shell，而 pi 在 Windows 用 Git Bash（现直接用 pi 的 `getShellConfig()`）；
-  - ⑥ `publish` 桩（现可选）；
-  - ⑦ `config.ts` 三合一（拆出 `apis.ts`，端点落法交还 `endpoints.ts`，类型交还 `types.ts`）；
-  - ⑧ 模型字段表与值语法无 pin（现由 `pi-surface-test`/`env-test` 对着 pi 自己的 schema 与解析器断言）；
-  - ⑨ **F12**：发现探针的凭据优先级写在 `live.ts`、auth 形态按协议自定，而 pi 按 provider 的 `authHeader` 定 → 两者可能分岔（现一并收进 `credentials.ts` 的 `discoveryCredential`，探针发 pi 会发的头：协议默认 + `authHeader` 补 `Authorization: Bearer`；`credential-test.mjs` 守；形态对着 pi 的 `composeModelProvider` 与 Anthropic SDK 的真请求头断言）；
-  - ⑩ `provider.json` 里写 pi 的 `models`/`modelOverrides` 只得一句通用 unknown（现点名指向本目录的 `models.json`——模型表只有这一个家，pi 全局 `models.json` 的第 3/4 层是补丁层）。
 
-- **已闭合（2026-09-30）**：`<id>/models.json` 曾被两个文件拥有（`provider-files.ts` 校验读、`sync-models.ts` 裸读/diff/写），`sync` 一条命令解析两次、两套规则。现在读写同处 `model-table.ts`（`d10b467` 合并、`f1bfcc0` 按载荷拆开），`runSync` 用本次命令重扫得到的 `vendor.models` 当磁盘基底表，一条命令只解析一次；`readBaseTable` 已删除。
-- **层序约束（2026-09-30）**：模块只 import 同层或更低层，`graph-test` 守无环与可达（层表见「分层与接口」）。
 
 ## 项目碎片知识
 
@@ -66,18 +53,18 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 **各测试文件的职责与纪律**
 
 - 测试通过 pi 自己的 jiti loader 加载 TS（见 `tests/harness.mjs`），不写 `~/.pi`；`PI_PKG` 可指定 pi 安装目录。
-- `tests/harness.mjs` 在导入被测代码前把 `PI_CODING_AGENT_DIR` 指向临时目录：不这样会被 `getAgentDir()` 带回你真实的 `~/.pi/agent/models.json`，断言会随本机配置变化（曾因此把 scnet 的 `compat` 覆盖进测试）。
+- `tests/harness.mjs` 在导入被测代码前把 `PI_CODING_AGENT_DIR` 指向临时目录：不这样会被 `getAgentDir()` 带回你真实的 `~/.pi/agent/models.json`，断言会随本机配置变化。
 
 - `models-test.mjs` 校验 `tests/fixtures/models.json`（仓库里唯一的模型数据）并调用 pi-ai 的 `calculateCost()`，是「模型缺 `cost` 就崩」的回归防线。
 - 测试用的模型表来自 `tests/fixtures/models.json`：`seedDefaultProviders()` 把它写成各 vendor 目录的 `models.json`。仓库本身不带模型表。
 - `tests/pi-native-test.mjs` 用 pi 真正的 `ModelRuntime` 跑 `registerProvider → refresh → publish`，全程打桩 `fetch` + 内存 store；改动 `refreshModels`/持久化时先跑它。
 
-- 测试里**不要留着真 `fetch`**：一旦某段走了真网络，断言就随网速/代理时好时坏（曾出现“同一测试三次跑两样”）。每个改 `globalThis.fetch` 的段落都要在 `finally` 里恢复。`harness.mjs` 的 `sessionStart()` 已内置「离线 fetch」包装（`session_start` 会发真请求）；想测在线刷新就自己打桩后直接调 `provider.refreshModels({allowNetwork:true,...})`。
+- 测试里**不要留着真 `fetch`**：一旦某段走了真网络，断言就随网速/代理时好时坏。每个改 `globalThis.fetch` 的段落都要在 `finally` 里恢复。`harness.mjs` 的 `sessionStart()` 已内置「离线 fetch」包装（`session_start` 会发真请求）；想测在线刷新就自己打桩后直接调 `provider.refreshModels({allowNetwork:true,...})`。
 - `harness.mjs` 的 `startExtension()` 是唯一入口：写 `agentPath("models.json")` / `agentPath("custom-providers", "<id>", ...)` 之后再调它。jiti 的 `moduleCache:false` 让每次 `loadTs` 都是新实例，所以「发现结果 memo」要在**同一个** `startExtension()` 返回值上触发（`ext.providers.get(id).refreshModels(...)`），另起一个实例看不到。
 
 ### 发现与写盘陷阱
 
-- 仓库**不带模型表**（v0.4.0 起）：基底 = `<id>/models.json`；没有它则该 provider 注册 0 个模型，等发现或用户补表。生成器 `scripts/refresh-catalog.mjs` 与 `catalog.ts` 已删除。
+- 仓库**不带模型表**：基底 = `<id>/models.json`；没有它则该 provider 注册 0 个模型，等发现或用户补表。
 
 - **空列表 ≠ 目录漂移（2026-09-19 实测，本机 raw curl，非扩展）**：SCNet token plan 配额耗尽时，chat/completions 与 anthropic messages 都返回 **HTTP 429** `Token Plan quota has been exceeded`（两条线一致）；
   - 同一时刻 `GET /api/llm/v1/models` 与 `GET /api/llm/anthropic/v1/models` 仍返回 **HTTP 200 + 空数组**（`{"object":"list","data":[]}` / `{"data":[],"has_more":false,...}`），不是 401/429。
@@ -127,7 +114,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 **扁平化判据**
 
-- `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（16 文件 / ~2835 行：v0.5.0 删掉 `sources.ts`、加入 `verbs.ts`）：**目录是能力单位（一目录一功能）；
+- `extensions/custom-providers/` **扁平放置，不在扩展内再分层**（16 文件 / ~2835 行）：**目录是能力单位（一目录一功能）；
   - 文件 = 一个数据单元（它的读/写/词汇）或一段变换**（阶段是顺序，一段可以消费多个单元）。
   - 这条判据已四次落地：编排器拆出四个模块（13 文件）、`<id>/models.json` 的读写从两个文件合并（13→12）、三个载荷各自成文件而目录留作装配（12→15）、`config.ts` 拆出 `apis.ts` 并把端点落法交还端点单元（15→16）。
   - 可机械判定：① 某文件拥有第二个数据单元 ⇒ 拆；
@@ -139,11 +126,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 **`.codestable/` 知识布局（v2）**
 
-- `.codestable/` 已是 CodeStable **v2** 形态（2026-10-03 迁移）：项目自己的知识只有 `attention.md`（每次必读）、`lessons/`（一条一文件，`cs-keep` 写入）、`work/`（活动中的跨会话任务，完成即清）。
-  - v1 的分发机制（`reference/`、`gates/`、`runtime-manifest.json`）与只放 `.gitkeep` 的空壳目录（`roadmap/`/`features/`/`issues/`/`refactors/`/`goals/`/`compound/`/`brainstorms/`/`feedback/`/`requirements/`）**已删除**（含 547 行的 v1 泛化引擎设计，git 历史可查）；
-  - `audits/` 保留为只读历史（证据档 + 已完成 feat 的设计存档，如 `2026-10-02-command-surface-v0.5.0-design.md`），`work/` 只放进行中的任务。
-  - 新工作不再产生 v1 形态产物（阶段文档、checklist、goal 包）；
-  - `requirements/` 未被指定为 canonical，不再维护。
+- `.codestable/` = CodeStable **v2** 形态：项目自己的知识只有 `attention.md`（每次必读）、`lessons/`（一条一文件，`cs-keep` 写入）、`work/`（活动中的跨会话任务，完成即清）、`audits/`（只读历史：证据档 + 已完成的 feat 设计存档）。
 
 **依赖图与本地目录**
 
@@ -186,7 +169,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | `status.ts` | 报告文本 | 变换 |
 | `index.ts` | **编排**：上表的顺序 + 全部 7 个入口 | — |
 
-已知取舍（不是遗漏）：`<id>/models.json` 只被 `model-table.ts` 解析一次/命令；`runSync` 用本次命令重新扫描得到的 `vendor.models` 作为「磁盘上的基底表」，不再另读一遍（2026-09-30 合并前是两次、两套规则）。
+已知取舍（不是遗漏）：`<id>/models.json` 只被 `model-table.ts` 解析一次/命令；`runSync` 用本次命令重新扫描得到的 `vendor.models` 作为「磁盘上的基底表」，不再另读一遍。
 
 ### 分层与接口（TCP/IP 视角，2026-09-30）
 
@@ -268,9 +251,17 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 - **坑（实现时先被测试拦住）**：把模型移到非默认协议时，必须给它打上该线的 `api`。基底表里的模型本身不带 `api`，只贴 `baseUrl` 会导致 pi 用 provider 级 `api`——**对正确的主机说错协议**（打到 Anthropic 端点发 chat/completions）。规则：非默认协议时同时贴 `api` 与 `baseUrl`。
 
-- **compat 的归属按模型**：provider 级 `compat` 由我们折到该 provider 的模型上；只想给某一条线，就写在 `models.json` 的模型条目里（v4.0 起不再有“按线分 provider”这回事）。
+- **compat 的归属按模型**：provider 级 `compat` 由我们折到该 provider 的模型上；只想给某一条线，就写在 `models.json` 的模型条目里。
 
 ### pi 的字段与 schema
+
+**pi 的三张配置 schema（`dist/core/model-config.js`，2026-10-04 复推）**
+
+- `ProviderConfigSchema`（`providers.<id>` 块，10 字段）：`name`、`baseUrl`、`apiKey`、`api`、`oauth`（只能是字面量 `"radius"`）、`headers`、`compat`、`authHeader`、`models[]`（= `ModelDefinitionSchema` 的数组）、`modelOverrides`（= `Record<modelId, ModelOverrideSchema>`）。
+- `ModelDefinitionSchema`（`models[]` 条目与 `<id>/models.json` 条目，15 字段）：`id`（必填）、`name`、`api`、`baseUrl`、`reasoning`、`thinkingLevelMap`、`input`、`inputLimits`、`cost`、`promptCache`、`contextWindow`、`maxTokens`、`samplingParams`、`headers`、`compat`；与 `model-table.ts` 的 `MODEL_KEYS` 同集，`pi-surface-test.mjs` 双向对照。
+- `ModelOverrideSchema`（12 字段）：上表去掉 `id`/`api`/`baseUrl`（改不了模型身份与端点），`cost` 只收 `input`/`output`/`cacheRead`/`cacheWrite`/`tiers`。
+- 子形状：`input` = `("text"|"image")[]`；`cost` = `{input, output, cacheRead, cacheWrite, tiers?: [{inputTokensAbove, input, output, cacheRead, cacheWrite}]}`；`promptCache` = `{short?, long?}`（都 > 0）；`inputLimits` = `{maxRequestBytes?, images?: {resize?: {maxWidth?, maxHeight?, maxBytes?, jpegQuality?}, maxPerMessage?, maxPerRequest?}}`；`thinkingLevelMap` = `{off?, minimal?, low?, medium?, high?, xhigh?, max?}`，值为字符串或 `null`。
+- `compat` 是三族开放对象 schema 的并集（`anthropic-messages` 10 键 / `openai-completions` 22 / `openai-responses` 6），未知键一律通过校验；三族的键全部落在本包读键表内，读键表另有 schema 未声明但实现会读的键（`thinkingTokenBudgetField`、`zaiToolStream`、`supportsToolSearch` 等）——判据表见「端点、协议与请求路径」。
 
 - pi 的 `calculateCost()` / `provider-composer` 直接读 `model.cost.tiers`，注册模型必须带 `cost`，否则整轮报 `Cannot read properties of undefined (reading 'tiers')`。基底表 reader 现在保留 `cost` 里除四个费率外的其它键（`tiers` 等）并按原顺序写回，所以用户的计费分层不会被 `sync` 静默丢掉。
 
@@ -284,7 +275,7 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 - **坑**：pi 只认**模型级** compat。
   - `applyExtension()`（`provider-composer.js`）用扩展给的模型定义重建每个模型，provider 级 `compat` 被丢弃；
   - 而 `models.json` 的 provider 级 `compat` 是在这之前被 `applyModelsJson()` 合并到内置模型表上的，随后也被同一个重建行为覆盖掉。
-  - 所以对扩展注册的 provider，`models.json` 里写的 compat / `models[]` 都得我们自己再贴一遍（`providers.ts` 的 `synthesizeModels()`、`endpoints.ts` 的 `resolveModelEndpoint()`；v0.5.0 前还有 `config.ts` 的 `applyModelPatch()`，已删）。
+  - 所以对扩展注册的 provider，`models.json` 里写的 compat / `models[]` 都得我们自己再贴一遍（`providers.ts` 的 `synthesizeModels()`、`endpoints.ts` 的 `resolveModelEndpoint()`）。
   - 不对应的后果是“看起来配了、其实无效”。
 
 - pi **没有 provider 别名机制**：`model-resolver.js` 里的 alias 只是“无日期模型 id 优先”，与 provider 无关；provider 身份就是 id。provider 级设置只有 `models.json` 的 `name`/`baseUrl`/`api`/`apiKey`/`headers`/`authHeader`/`compat`/`models[]`/`modelOverrides`/`oauth`，加上扩展侧的 `streamSimple`/`refreshModels`。
@@ -311,7 +302,7 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 - `refreshModels` 只有在凭据能解析（`resolveRefreshCredential`）时才会跑联网阶段；没配 key 时不会发网请求。`context.credential` 只在 `type === "api_key"` 时有 `key`。
 
-- **缺凭据不会在注册时抛错**（本机实测，修正早先推断）：`composeModelProvider` 里那句 `no authentication method configured` 实际几乎不可达（`composeApiKeyAuth` 在「无 key 且无 oauth」时仍返回对象而非 `undefined`）。
+- **缺凭据不会在注册时抛错**（本机实测）：`composeModelProvider` 里那句 `no authentication method configured` 实际几乎不可达（`composeApiKeyAuth` 在「无 key 且无 oauth」时仍返回对象而非 `undefined`）。
   - 真实后果：该 provider 的模型**不进可用快照**（`configuredProviders` 不含它 → picker 里看不到，实测 `getAvailableSnapshot()` = 0）；
   - 请求时 `authHeader: true` 报 `No API key found for "<id>"`，`authHeader: false` 则**不带 `Authorization` 静默发出**（网关 401）。
   - 所以「无凭据的账号不注册 + 启动时报告」是扩展主动选择，不是 pi 逼的。
@@ -320,13 +311,12 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 - **坑**：omp 的 provider 字段不是 pi 的字段。`disableStrictTools` / `replayUnsignedThinking`（来自 `~/.omp/agent/models.yml`）在整个 pi 包里没有任何读取点，抄进扩展只是死配置；写 provider 选项前先在 `$PI/dist` 里 grep 字段名。
 
-- **坑**：UPPER_SNAKE 的明文值一律当**环境变量名**。`resolveApiKey` 旧实现变量未设置时会 `return value`，把变量名当密钥发出去（表现为莫名 401）。`apiKeyConfig` 与 `resolveApiKey` 必须保持同一判定。
+- **坑**：UPPER_SNAKE 的明文值一律当**环境变量名**（变量未设置时不得把变量名本身当密钥发出去）。`apiKeyConfig` 与 `resolveApiKey` 必须保持同一判定。
 
 ### 模型快照残留（`models-store.json`）
 
-- `models-store.json` 里可能残留旧的（错误的）`baseUrl`：实测扩展注册的模型优先，脏快照不影响请求路径，下一次 `pi update --models` 会写回正确值（`session_start` 的刷新不写盘，因为走的是 `allowNetwork:false` 的 `registerProvider` 离线轮）。
+- `models-store.json` 的脏快照无害：实测扩展注册的模型优先，残留的旧 `baseUrl` 不影响请求路径，下一次 `pi update --models` 会写回正确值（`session_start` 的刷新走 `allowNetwork:false` 的 `registerProvider` 离线轮，不写盘）。残留条目（如合并前留下的 `scnet-anthropic`）没有读取方，pi 也不会自动清。
 
-- `models-store.json` 里可能残留旧的 `scnet-anthropic` 条目：合并后没有任何读取方（新持久化只写 `scnet`），无害，pi 也不会自动清（2026-10-03 实测本机已无该条目）。
 
 ### 上游站实测与验证手段（Command Code / SCNet）
 
@@ -339,7 +329,7 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
   - 两种视图都还挂着已不在实时注册表的 `gpt-6-astra` 和旧 id `claude-haiku-4-5`；flight 另缺 `deepseek/deepseek-v4-flash`。
   - 因此能力页只能当**弱证据**：以实时注册表/实测为准。
 
-- `claude-sonnet-5` 的 vision 三源冲突：能力页 flight `false`、能力页表格 `true`、上游 Anthropic 目录 `true`。仓库不再固化该值（v0.4.0）；要用就在自己的 `models.json` 里定并实测。
+- `claude-sonnet-5` 的 vision 三源冲突：能力页 flight `false`、能力页表格 `true`、上游 Anthropic 目录 `true`。仓库不固化该值；要用就在自己的 `models.json` 里定并实测。
 
 - `commandcode` 的实时注册表在部分网络下首次请求 TLS/http2 失败（实测报 `http2ErrorCode: 2`）：手写探测脚本要退避重试；运行期发现失败只保留上一次快照并报告。
 
@@ -353,7 +343,6 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 - **设计：同一 vendor 的两条线注册成一个 provider**（`provider.json` 的 `apis` 声明额外端点，键就是 pi 的 `api` 值）。理由：两条线服务同一批 id，一个 provider id 内同名 id 只能有一份；协议按**模型**选（模型表条目的 `api`；默认协议来自 `provider.json.api` 或第 3 层 `providers.<id>.api`）。代价：凭据变成 provider 级（一条 key）、**不可能按请求换线**。想保留“一条线一个 provider + 随时切换”就得给第二条线单开一个目录，两种形态只能选一个。
 
-- **（已删机制，仅存档）** provider 级 `models[]` 里声明的模型曾必须并入该 provider 的**每一条**协议线（否则用户选了另一条线也挪不过去）。v0.5.0 起本包**不读**这个数组（模型只来自 `<id>/models.json`），这条规则随读取层一起消失。
 
 ### 接管面（pi 侧，实测）
 
@@ -375,17 +364,10 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 - **pi 对「扩展注册的 id」只校验、不应用用户块里的 `models[]`（实测 2026-10-03，真 `ModelRuntime`）**：扩展注册后，该 provider 的模型表**就是扩展给出的那份**——用户 `providers.<id>.models[]` 的条目（即便自带 `api`+`baseUrl` 的合法定义）**不会**出现在模型表里，**扩展到 0 个模型时也一样**；
   - `modelOverrides[M]` 则**会**应用在被注册的模型上（实测 `maxTokens` 被改写、其余保持扩展值）。
   - 对照：同一个块若该 id **无人注册**（config-only），`models[]` 与 `modelOverrides` **都**会应用（实测出现 `m-new` 且 `maxTokens=4242`）。
-  - ⇒ 对我们的 provider，「新模型」的正门是 `<id>/models.json`（或 discovery），「给已有模型打补丁」的正门是 `modelOverrides`；
-  - 而本包把 `models[]` 当补丁读是**全宇宙唯一**让那些条目生效的路径（pi 自己不执行）。
-  - **决定（owner 2026-10-03 修正）：本包不再读这个数组**——模型内容只有一个家（`<id>/models.json`），第 3 层不是它的第二个家；
-  - 出现非空 `models[]` 即报警告（`discard → warn`），README 与 CHANGELOG 同步。
-  - 三条都在 `preflight-test.mjs` 里钉在真 runtime 上。
-
-- **决定（owner 2026-10-03，先保留后修正为不读）**：`providers.<id>.models[]` 不再被读（`synthesizeModels` 只吃目录模型表；`config.ts applyModelPatch` 删除），出现非空数组时报告「`is not read for a provider this extension registers`」。
-  - 理由：模型内容只有一个家；
-  - 且 pi 对该数组只校验不应用，我们读它就是在替 pi 执行一个 pi 不执行的机制。
-  - 合法性仍按 pi 的规则预报告（四个实测块：块级 `api`+`baseUrl` 让裸条目合法、只给 `baseUrl` 或都不给 pi 抛；三例钉在 `preflight-test.mjs`）。
-  - 差分会看见一处：注册 id 下的合法 `models[]` 补丁从「被应用」变为「不生效」（审计文档 S8）。
+  - ⇒ 对我们的 provider，「新模型」的正门是 `<id>/models.json`（或 discovery），「给已有模型打补丁」的正门是 `modelOverrides`；模型内容只有一个家，第 3 层不是它的第二个家——pi 自己不会执行这些条目，本包读它就是在替 pi 跑一个 pi 不跑的机制。
+  - **本包不读这个数组**：`synthesizeModels` 只吃目录模型表；出现非空 `models[]` 即报告 `is not read for a provider this extension registers`（`discard → warn`），README 与 CHANGELOG 同步。
+  - 合法性仍按 pi 的规则预报告（四个实测块：块级 `api`+`baseUrl` 让裸条目合法、只给 `baseUrl` 或都不给 pi 抛；三例钉在 `preflight-test.mjs`）；注册 id 下的合法 `models[]` 补丁从「被应用」变为「不生效」这一处差异见审计 S8。
+  - `preflight-test.mjs` 把上面三条钉在真 pi runtime 上。
 
 **`modelOverrides` 与「模型别名」的 schema 事实**
 
@@ -401,9 +383,8 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 - pi 只按**注册 id** 解析 `providers.<id>` 整块（`baseUrl`/`apiKey`/`headers`/`api`/`models[]`/`modelOverrides`…；`modelOverrides` 是块内字段、键为 model id，应用时机在扩展注册之后，是最高层）。
   - **别名 key 下的块不是本 provider 的配置**：pi 把那个 id 当成另一个 config-only provider 注册。
-  - 本包曾把别名块当第 3 层读（漂移），v0.5.0 已删：`providerLayerFor(id, config)` 只查 `providers[id]`；
-  - 旧键由用户改名（README 迁移段），不代它兜底。
-  - **但删除读取不等于可以静默**：`providers` 里那些既没有目录、（也不是 pi 内置 id 的）key 现在会被 `config.ts orphanProviderBlocks()` 点名（`providers.<key>: no directory for this id and no pi built-in provider; nothing here reads this block`）——它们是「看起来配了、其实无效」的同一类。
+  - 本包不读别名 key 下的块：`providerLayerFor(id, config)` 只查 `providers[id]`；旧键由用户改名（README 迁移段），不代它兜底。
+  - 读不到也要说话：`providers` 里那些既没有目录、（也不是 pi 内置 id 的）key 会被 `config.ts orphanProviderBlocks()` 点名（`providers.<key>: no directory for this id and no pi built-in provider; nothing here reads this block`）——它们属于「看起来配了、其实无效」那一类。
   - 判据只用本包能看见的两个集合（我们注册的 id + pi 内置 id），别的扩展注册的 id 在集合外，所以文案只说「这里没有读者」。
   - **pi 内置目录取不到时（`builtin.available === false`，如老 pi 构建没有 `getProviders`）整条检查静默**：分不出内置 id 与孤儿就不下结论，免得把用户给 pi 自带 provider 配的块报成孤儿——与 `drift` 同一口径（`orphan-block-test.mjs` 两个方向都钉住）。
 
@@ -417,9 +398,9 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
   - pi 自己的 `models-store.json` 快照由 pi 落盘。
   - 扩展永不写 **pi 全局**的 `models.json`。
 
-**出厂默认账号的升级（本机 2026-10-03 已完成）**
+**本机 scnet 的凭据**
 
-- **出厂默认账号的升级动作（本机 2026-10-03 已完成）**：`~/.pi/agent/custom-providers/scnet/accounts.json` = `{"default":"scnet","scnet":{"apiKey":"$SCNET_API_KEY","authHeader":true}}`（等价于被删掉的 `{id: scnet, envVar: SCNET_API_KEY, authHeader: true}`；文件在 `~/.pi` 仓库里被 gitignore）。
+- **`~/.pi/agent/custom-providers/scnet/accounts.json`** = `{"default":"scnet","scnet":{"apiKey":"$SCNET_API_KEY","authHeader":true}}`（本机实配；`authHeader: true` = 除了协议默认头再补 `Authorization: Bearer`；该文件在 `~/.pi` 仓库里被 gitignore）。
   - 实测它确实被厂商接受：同一个 `GET /models`，**错误 key → HTTP 401**，本机 key → **HTTP 200**（两条线都 200 但 `data` 为空 = 账号/配额状态，见 `pi-provider-empty-live-models-trap`）。
   - 据此 `sync scnet --dry-run` 复测：两个端点都判「empty answer (skipped)」、报告点名、**零写盘**（目录指纹不变、无 `.bak`）——空列表没有能力驱动 `vanished`/`--prune`。
 
@@ -428,9 +409,8 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 - 报告一律走 `ctx.ui.notify` 并裁剪（8 行 + `(+N more)`）；扩展**不写 stderr**。
 - **账号 id 撞车**（`providers.ts collectEntries`）：`<id>-<account>` 若已被另一个 provider 占用（另一目录的 id 或 pi 内置 id），该账号跳过并报告，其余账号与基账号不受影响（`collectEntries` 先占住「pi 已有 id + 所有目录 vendor id」再逐个分配）。
   - 用户 `models.json` 里声明的 `providers.<id>-<name>` **不**算占位——那是该账号自己的配置块（`providerLayerFor(entry.id, …)`），列进去会把多账号覆盖一刀切掉（`tests/accounts-test.mjs` 守两侧）。
-  - v0.5.0 删掉的只有「目录名撞出厂 `aliases`」那条守卫（出厂两厂已不存在，`aliases` 字段随之删除）。
 
-**没有出厂知识：两个版本节点**
+**没有出厂知识**
 
-- **没有内置 provider，也没有出厂 vendor 知识（v0.5.0）**：`sources.ts`/`DEFAULTS`/`defaultAccount`/`envVar` 全部删除，装配里不再有任何 vendor 表；`collectVendors(root, piProviderIds)` 的输入只有目录。`/providers init <id> --url <u> --api <a> [--models-path <p>] [--key <v>]`（有 UI 时为向导）写出端点声明。命中 **pi 自带** provider id 仍需 `"override": true`。
-- **不带模型表（v0.4.0）**：出厂 vendor 不再有模型表；目录只有 `provider.json` 时注册 0 个模型。模型来自 `<id>/models.json`（用户表）或实时发现（`sync` 可把发现写回基底）。`builtin.ts` 的 `capabilityAuthority`/`builtinLevelMap` 随生成器一起删除，多数票逻辑只剩 `summarizeDrift` 内联使用。
+- **没有内置 provider、也没有出厂 vendor 知识**：装配里没有任何 vendor 表，`collectVendors(root, piProviderIds)` 的输入只有目录。`/providers init <id> --url <u> --api <a> [--models-path <p>] [--key <v>]`（有 UI 时为向导）写出端点声明；命中 **pi 自带** provider id 仍需 `"override": true`。
+- **不带模型表**：目录只有 `provider.json` 时注册 0 个模型；模型来自 `<id>/models.json`（用户表）或实时发现（`sync` 可把发现写回基底）。多数票逻辑只在 `summarizeDrift` 内联使用。
