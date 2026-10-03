@@ -1,5 +1,9 @@
 # feat-command-surface-v0.5.0 — 命令面收口（v0.5.0）
 
+> **存档（2026-10-03）**：v0.5.0 已发布，本文件从 `.codestable/work/` 移入 `audits/` 作只读历史。
+> 文中的「当前状态 / 用例数 / `/reload` 生效」等口径是**设计当时**的说法；实现以代码、`CHANGELOG.md` 与 `README.md` 为准
+> （其后两次修正：`rescan` 取代「改盘后 `/reload`」的日常路径；`providers.<id>.models[]` 由「保留读取」改为「不读并报告」）。
+
 创建：2026-10-02 ｜ 类型：feat ｜ 状态：设计已定，未开工
 
 ## 目标
