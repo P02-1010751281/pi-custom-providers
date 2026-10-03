@@ -134,7 +134,7 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 |---|---|---|
 | 1 | 基底模型表（`<id>/models.json`） | 模型 |
 | 2 | `provider.json`（默认协议 + 端点 + `apis` + headers） | provider |
-| 3 | pi 全局 `models.json` 的 `providers.<id>`（provider 字段 + `models[]` 逐条补丁） | provider + 模型 |
+| 3 | pi 全局 `models.json` 的 `providers.<id>`（provider 字段；`models[]` 不是模型的家） | provider |
 | 4 | pi 全局 `models.json` 的 `modelOverrides[M]` | 模型（pi 自己最后应用） |
 
 每一层都是补丁：写了就赢，没写往下掉。唯一例外是 `baseUrl`，按 pi 原义 `config.baseUrl ?? model.baseUrl` —— 第 3 层的 provider 级 `baseUrl` 只重定向「自己没有端点的模型」。
@@ -146,9 +146,8 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
 pi 在**注册时**就用它自己内置的模型表校验用户写的 `providers.<id>` 块，而本扩展的 provider 在 pi 侧没有内置基底（除非 `override` 了某个内置 id），所以：
 
 - 块里**只有 `api`** 不够：pi 报 `must specify "baseUrl", "headers", "compat", "modelOverrides", or "models"` 并拒该 provider。`api` 要和 `baseUrl` 一起写才能翻转默认协议。
-- 块里写 `models[]` 条目会被 pi 当成**新建自定义模型**校验：每条得能拿到 `api` 与 `baseUrl`——条目自己带，**或同块给 provider 级 `api`+`baseUrl`**（实测 `{api, baseUrl, models:[{id, maxTokens}]}` 这种**短补丁是合法的**；两条都缺 → `no "api" specified` / `"baseUrl" is required when defining custom models`，pi 拒掉**整个 provider**，不只是那条目）。pi 自己**不应用**这个数组（见下一条）。
-- **但本扩展读它**——这是本包与 pi 的唯一有意分歧（2026-10-03 实测后决定保留）：对我们注册的 provider，`providers.<id>.models[]` 的条目被本包当作**第 3 层补丁先应用**（`id` 命中基底表 → 条目里的键覆盖该模型；`id` 是新的 → 建一个带兜底窗口/成本的模型），再把结果交给 pi 注册。实测 pi 对同一份字节只**校验**：`models[]` 的条目（哪怕合法、哪怕本扩展注册了 0 个模型）**不会**进模型表，`modelOverrides[M]` **会**；而无人注册的 config-only id 两者都生效。
-- 所以三条正门各管一段：**新模型**写 `<id>/models.json`（或靠 `sync` 发现）；**短补丁/新条目**可以在第 3 层 `models[]` 写（同块记得给 `api`+`baseUrl`，否则整个 provider 被 pi 拒）；**给已注册模型改显示名/数值**用第 4 层 `modelOverrides[M]`（pi 最后应用它，实测可用）。
+- 块里写 `models[]` 条目会被 pi 当成**新建自定义模型**校验：每条得能拿到 `api` 与 `baseUrl`——条目自己带，或同块给 provider 级 `api`+`baseUrl`（否则 `no "api" specified` / `"baseUrl" is required when defining custom models`，pi 拒掉**整个 provider**，不只是那条目）。pi 读这个数组**只校验、不应用**：实测对扩展注册的 id，`models[]` 条目（哪怕合法、哪怕本扩展注册了 0 个模型）**不会**进模型表，`modelOverrides[M]` **会**（只有无人注册的 config-only id 两者都生效）。
+- **模型内容只有一个家 = `<id>/models.json`**（`sync` 写它、发现喂它），所以本包**不读**第 3 层的 `models[]`：写了不会生效，命令里会点名（`providers.<id>.models[] is not read for a provider this extension registers (pi only validates it); models live in <id>/models.json and a per-model tweak belongs in modelOverrides`）。加模型/改模型 → 条目写进模型表；给已注册模型改显示名或数值 → 第 4 层 `modelOverrides[M]`（pi 自己最后应用，实测可用）。
 
 本扩展会把这些被 pi 拒掉的块**在调用 pi 之前**报出来（含上面三句 pi 原文），一个坏块不会连带带走后面的 provider。
 
