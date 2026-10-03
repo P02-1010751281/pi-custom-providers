@@ -75,6 +75,25 @@ function stripSnapshot(key: string): string {
 	return match[1];
 }
 
+/**
+ * Tails that name a *serving profile* of one model rather than another model. Measured across
+ * pi's built-in entries, a `-fast` variant states the same `contextWindow`/`maxTokens` as its base
+ * in 31 of 34 same-host pairs — the three exceptions are one off-by-one (1048572 vs 1048573) and
+ * two rows whose `maxTokens` equals `contextWindow`; no maker host in the catalog ships the tail
+ * itself, so it only ever fires for a reseller's id. Other tails stay out on the same measurement:
+ * `-flash` agrees in 11 of 20 pairs, `-turbo` 1 of 5, `-thinking` 2 of 5, and `-max`/`-pro`/`-mini`
+ * name genuinely different models.
+ */
+const SAME_MODEL_TAILS = ["fast"];
+
+/** The base id for a serving-profile tail (`glm52fast` -> `glm52`), or the key unchanged. */
+function stripSameModelTail(key: string): string {
+	for (const tail of SAME_MODEL_TAILS) {
+		if (key.length > tail.length && key.endsWith(tail)) return key.slice(0, -tail.length);
+	}
+	return key;
+}
+
 /** pi's compat flags this package is willing to absorb (see the module doc). */
 export interface CatalogCompat {
 	supportsTemperature?: boolean;
@@ -218,6 +237,15 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 	}
 }
 
+/** The fillable facts of one built-in entry — an absent key stays absent. */
+function factsOf(info: BuiltinModelInfo): UnanimousFacts {
+	return {
+		...(info.contextWindow > 0 ? { contextWindow: info.contextWindow } : {}),
+		...(info.maxTokens > 0 ? { maxTokens: info.maxTokens } : {}),
+		...(info.input.length > 0 ? { input: info.input } : {}),
+	};
+}
+
 /**
  * The model maker's own facts for one id — `undefined` when pi's catalog ships no vendor entry for
  * its family (or the vendor does not list that model), which is when `unanimousFacts` takes over.
@@ -227,12 +255,24 @@ export function vendorFacts(id: string, catalog: BuiltinCatalog): (UnanimousFact
 	const key = normalizeModelId(id);
 	const info = catalog.vendor.get(key) ?? catalog.vendor.get(stripSnapshot(key));
 	if (!info) return undefined;
-	return {
-		provider: info.provider,
-		...(info.contextWindow > 0 ? { contextWindow: info.contextWindow } : {}),
-		...(info.maxTokens > 0 ? { maxTokens: info.maxTokens } : {}),
-		...(info.input.length > 0 ? { input: info.input } : {}),
-	};
+	return { provider: info.provider, ...factsOf(info) };
+}
+
+/**
+ * The maker's entry for the *base* model when an id only adds a serving-profile tail and the maker
+ * does not list the tailed id itself (`GLM-5.2-Fast` -> zai's `glm-5.2`): one model, two serving
+ * profiles, and rate and throughput are not fields we fill. `undefined` when the exact id already
+ * has a vendor entry (so this never overrides a direct hit) or when its base has none either.
+ * `baseId` is the catalog's own spelling of the base model, for the report.
+ */
+export function vendorBaseFacts(id: string, catalog: BuiltinCatalog): (UnanimousFacts & { provider: string; baseId: string }) | undefined {
+	const key = normalizeModelId(id);
+	if (catalog.vendor.has(key) || catalog.vendor.has(stripSnapshot(key))) return undefined;
+	const base = stripSameModelTail(stripSnapshot(key));
+	if (base === key) return undefined;
+	const info = catalog.vendor.get(base);
+	if (!info) return undefined;
+	return { provider: info.provider, baseId: info.id, ...factsOf(info) };
 }
 
 /**

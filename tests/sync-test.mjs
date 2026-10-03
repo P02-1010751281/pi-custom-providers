@@ -163,5 +163,19 @@ const cappedRow = JSON.parse(readFileSync(file, "utf8")).models.find((model) => 
 assert(cappedRow.contextWindow === ceiling, `the wire's own window caps the vendor's spec (got ${cappedRow.contextWindow}, vendor said ${cappedHere.contextWindow})`);
 assert(cappedRow.maxTokens === ceiling, `and the output cap is clamped into the window that survived (got ${cappedRow.maxTokens}, vendor said ${cappedHere.maxTokens})`);
 
+// 厂商没上架的「服务档」尾缀（`-fast`）落到基名，并写进表；id 从真实目录派生，不写死。
+const tailKey = [...catalog.vendor.keys()].find((key) => {
+	const mine = catalog.vendor.get(key);
+	if (!mine || mine.contextWindow <= 0 || mine.maxTokens <= 0) return false;
+	const tailed = catalog.unanimous.get(`${key}fast`);
+	return !catalog.vendor.has(`${key}fast`) && tailed?.contextWindow === undefined && tailed?.maxTokens === undefined;
+});
+assert(tailKey, "the catalog has a vendor model whose -fast variant nobody ships (the base-retry case)");
+await run("sync demo", answered([{ id: `${tailKey}fast` }]));
+const tailBase = catalog.vendor.get(tailKey);
+const tailRow = JSON.parse(readFileSync(file, "utf8")).models.find((model) => model.id === `${tailKey}fast`);
+assert(tailRow.contextWindow === tailBase.contextWindow && tailRow.maxTokens === tailBase.maxTokens, `a serving-profile tail takes its base model's numbers (got ${tailRow.contextWindow}/${tailRow.maxTokens}, base ${tailBase.contextWindow}/${tailBase.maxTokens})`);
+assert(last().includes(`${tailKey}fast (vendor ${tailBase.provider} via ${tailBase.id})`), `the report names the base it borrowed (got ${last()})`);
+
 console.log(`sync diff: +${diff.added.length} ~${diff.changed.length} -${diff.removed.length}`);
 console.log("OK");

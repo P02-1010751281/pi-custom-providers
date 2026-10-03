@@ -1,6 +1,6 @@
 import { loadTs, assert, runCommand, seedDefaultProviders, stubPi, withFetch, PI } from "./harness.mjs";
 
-const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift, unanimousFacts, vendorFacts } = await loadTs("extensions/custom-providers/builtin.ts");
+const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift, unanimousFacts, vendorBaseFacts, vendorFacts } = await loadTs("extensions/custom-providers/builtin.ts");
 
 // --- pi's built-in catalog is readable through the loader alias ---------------
 // pi maps `@earendil-works/pi-ai` to its compat entry; dist/index.js has no
@@ -73,6 +73,25 @@ for (const [id, provider, vendorId, hostRe] of vendorCases) {
 assert(vendorFacts("MiniMax-M2.5", builtin) === undefined, "a plan reselling another maker's model is not that model's vendor");
 assert(vendorFacts("GLM-5.1", builtin) === undefined, "a maker that does not list the id yields no vendor fact");
 assert(vendorFacts("zzz-no-such-model", builtin) === undefined, "an id nobody ships has no vendor fact");
+
+// --- 服务档尾缀：厂商没上架 `-fast` 时回退到基名（同型号的另一档，不是另一型号）-----------
+// 实测：同 host 内 base 与 `-fast` 变体的 ctx/max 在 34 对里 31 对相同；厂商名单里 0 条 `-fast`。
+for (const [id, provider, baseId] of [
+	["GLM-5.2-Fast", "zai", "glm-5.2"],
+	["Kimi-K2.6-Fast", "moonshotai", "kimi-k2.6"],
+]) {
+	const mine = vendorBaseFacts(id, builtin);
+	const base = vendorFacts(baseId, builtin);
+	assert(mine && base, `${id}: the tailed id has no vendor entry of its own while its base does (got ${mine?.provider})`);
+	assert(mine.provider === provider && mine.baseId === baseId, `${id}: it names the base the maker actually lists (got ${mine.provider} via ${mine.baseId})`);
+	assert(mine.contextWindow === base.contextWindow && mine.maxTokens === base.maxTokens, `${id}: the numbers are the base model's own (got ${mine.contextWindow}/${mine.maxTokens})`);
+	assert(JSON.stringify(mine.input) === JSON.stringify(base.input), `${id}: the modalities are the base model's own`);
+}
+assert(vendorBaseFacts("GLM-5.2-Flash", builtin) === undefined, "a tail that names another model is not a serving profile (-flash agrees in 11 of 20 same-host pairs)");
+assert(vendorBaseFacts("GLM-5.3-Flash", builtin) === undefined, "an exact vendor hit is never re-pointed at a base (zai lists glm-5.3-flash itself)");
+assert(vendorBaseFacts("GLM-5.2", builtin) === undefined, "an id without a tail has nothing to retry");
+assert(vendorBaseFacts("Kimi-K2.5-Fast", builtin) === undefined, "a tail whose base the maker does not list either yields nothing");
+assert(vendorBaseFacts("GLM-5.2-Fast-0813", builtin)?.baseId === "glm-5.2", "a dated serving-profile id retries to the base (the two renames compose)");
 
 // --- absorption is a whitelist, limited to the Anthropic wire -----------------
 assert(absorbCompat({ id: "claude-opus-5", api: "anthropic-messages" }, builtin)?.supportsTemperature === false, "Opus 5 absorbs supportsTemperature: false");

@@ -113,6 +113,20 @@ assert(specWins.models[0].contextWindow === 4242, "a larger wire window does not
 const noCatalog = api.applyLiveModels([], [{ id: "Vendor-Model" }], "openai-completions");
 assert(noCatalog.models[0].maxTokens === 16384 && noCatalog.filled.length === 0, "without a catalog nothing is filled");
 
+// --- 服务档尾缀：`-fast` 回退到基名，且只在两个精确来源都没有该字段时 -----------
+const tailVendor = new Map([["basemodel", { provider: "maker", id: "base-model", reasoning: false, input: ["text"], contextWindow: 9000, maxTokens: 500 }]]);
+const tailed = api.applyLiveModels([], [{ id: "Base-Model-Fast" }], "openai-completions", fakeCatalog(tailVendor, new Map()));
+assert(tailed.models[0].contextWindow === 9000 && tailed.models[0].maxTokens === 500, "a serving-profile tail the maker does not list takes its base model's numbers");
+assert(tailed.filled.join(", ") === "Base-Model-Fast (vendor maker via base-model)", `the report names the base it borrowed from (got ${tailed.filled.join(", ")})`);
+const exactBeatsBase = api.applyLiveModels([], [{ id: "Base-Model-Fast" }], "openai-completions", fakeCatalog(tailVendor, new Map([["basemodelfast", { contextWindow: 111, maxTokens: 22 }]])));
+assert(exactBeatsBase.models[0].contextWindow === 111 && exactBeatsBase.models[0].maxTokens === 22, "the id's own agreed values beat its base model's spec");
+assert(exactBeatsBase.filled.join(", ") === "Base-Model-Fast (every provider agrees)", `and the report says so (got ${exactBeatsBase.filled.join(", ")})`);
+const partial = api.applyLiveModels([], [{ id: "Base-Model-Fast" }], "openai-completions", fakeCatalog(tailVendor, new Map([["basemodelfast", { input: ["text", "image"] }]])));
+assert(partial.models[0].contextWindow === 9000 && partial.models[0].maxTokens === 500 && partial.models[0].input.includes("image"), "a field the exact sources lack falls to the base while the others stay exact");
+assert(partial.filled.join(", ") === "Base-Model-Fast (vendor maker via base-model)", "and the numbers' source is the one reported");
+const noBase = api.applyLiveModels([], [{ id: "Other-Model-Fast" }], "openai-completions", fakeCatalog(tailVendor, new Map()));
+assert(noBase.models[0].contextWindow === 128000 && noBase.filled.length === 0, "a tail whose base nobody lists keeps the fallback");
+
 // --- models.json: absent vs broken ---------------------------------------------
 assert(cfg.readModelsConfig().issue === undefined, "a missing models.json is not an issue (settings can come from the environment)");
 writeFileSync(modelsJson, "{ not json");

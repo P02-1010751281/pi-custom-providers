@@ -9,7 +9,7 @@
  * loaded extension instance (the test harness re-imports for a clean slate).
  */
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
-import { unanimousFacts, vendorFacts, type BuiltinCatalog, type UnanimousFacts } from "./builtin.ts";
+import { unanimousFacts, vendorBaseFacts, vendorFacts, type BuiltinCatalog, type UnanimousFacts } from "./builtin.ts";
 import { conventionCapability } from "./convention.ts";
 import { discoveryCredential, unresolvedReference } from "./credentials.ts";
 import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
@@ -72,7 +72,9 @@ function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_lengt
  * protect, so it is synthesized: `reasoning` from the naming convention in `convention.ts`, and
  * `contextWindow` / `maxTokens` / `input` from pi's built-in catalog — the model maker's own entry
  * first (`vendorFacts`), then the values every provider shipping the id agrees on
- * (`unanimousFacts`). A context window the wire itself reported caps both: a gateway's budget is
+ * (`unanimousFacts`), then — for a serving-profile tail the maker does not list
+ * (`GLM-5.2-Fast` -> `glm-5.2`, `vendorBaseFacts`) — its base model's entry. A context window the
+ * wire itself reported caps all of them: a gateway's budget is
  * harder than the model's spec, and an over-large `contextWindow` would make *every* request
  * exceed it, not just a long one. `maxTokens` is capped to the window that ends up in the entry.
  * Curated parameters still only ever come from the base table.
@@ -92,18 +94,36 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 		const convention = conventionCapability(models, row.id, api);
 		const vendor = builtin ? vendorFacts(row.id, builtin) : undefined;
 		const agreed = builtin ? unanimousFacts(row.id, builtin) : undefined;
+		// 厂商没上架这个 id 时，`-fast` 这类「同型号的另一种服务档」回退到基名（`GLM-5.2-Fast` -> zai 的 `glm-5.2`）；
+		// 每个字段都只在两个精确来源都没有它时才读这里，所以精确命中永远优先。
+		const kin = builtin && !vendor ? vendorBaseFacts(row.id, builtin) : undefined;
 		const wireContext = numberOr(row.context_length ?? row.contextWindow);
 		// 厂商 spec 优先，探测到的窗口只能压低它：网关自己的预算比模型能力更硬。
-		const specContext = vendor?.contextWindow ?? agreed?.contextWindow;
-		const specMax = vendor?.maxTokens ?? agreed?.maxTokens;
-		const catalogInput = vendor?.input ?? agreed?.input;
+		const specContext = vendor?.contextWindow ?? agreed?.contextWindow ?? kin?.contextWindow;
+		const specMax = vendor?.maxTokens ?? agreed?.maxTokens ?? kin?.maxTokens;
+		const catalogInput = vendor?.input ?? agreed?.input ?? kin?.input;
 		const ctxSource = specContext === undefined ? "wire" : wireContext === undefined ? "catalog" : wireContext <= specContext ? "wire" : "catalog";
 		const contextWindow = ctxSource === "wire" ? wireContext ?? FALLBACK_CONTEXT_WINDOW : (specContext as number);
 		const maxTokens = Math.min(specMax ?? FALLBACK_MAX_TOKENS, contextWindow);
 		// Only a value that reached the entry counts as a fill, and the entry names where it came from.
-		const used = (facts: UnanimousFacts | undefined) => facts !== undefined && ((ctxSource === "catalog" && facts.contextWindow !== undefined) || facts.maxTokens !== undefined || facts.input !== undefined);
-		const vendorUsed = used(vendor);
-		const source = vendorUsed ? `vendor ${(vendor as { provider: string }).provider}` : used(agreed) ? "every provider agrees" : undefined;
+		/** Which source a value would come from, in the order the entry prefers sources. */
+		const fromOf = (field: "contextWindow" | "maxTokens" | "input") => (vendor?.[field] !== undefined ? "vendor" : agreed?.[field] !== undefined ? "agree" : kin?.[field] !== undefined ? "base" : undefined);
+		const label = (from: string | undefined) =>
+			from === "vendor"
+				? `vendor ${(vendor as { provider: string }).provider}`
+				: from === "agree"
+					? "every provider agrees"
+					: from === "base"
+						? `vendor ${(kin as { provider: string; baseId: string }).provider} via ${(kin as { baseId: string }).baseId}`
+						: undefined;
+		// The numbers decide the entry, so the report names where *they* came from; `input` earns a
+		// mention only when it was the whole fill.
+		const numbers = [
+			...new Set(
+				[ctxSource === "catalog" ? fromOf("contextWindow") : undefined, specMax !== undefined ? fromOf("maxTokens") : undefined].filter((from): from is string => from !== undefined),
+			),
+		];
+		const source = numbers.length > 0 ? numbers.map(label).join(" + ") : catalogInput !== undefined ? label(fromOf("input")) : undefined;
 		if (source) filled.push(`${row.id} (${source})`);
 		byId.set(row.id, {
 			id: row.id,
