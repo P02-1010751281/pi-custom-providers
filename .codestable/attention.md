@@ -265,8 +265,9 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 - **compat 是「每协议各读自己那份键」，不是发给上游的字段**（2026-10-02 重测）：`compat` 只被 pi 各协议实现的请求构造器读（`pi-ai/dist/api/<id>.js` 及其 import 的 helper），
   运行时 schema 不设成员白名单 —— `ProviderCompatSchema = Union([OpenAICompletionsCompatSchema, OpenAIResponsesCompatSchema, AnthropicMessagesCompatSchema])`，
   三个都是开放对象 ⇒ 任何未知键**通过校验、随后被静默丢弃**。
-  - 实测读键数：`anthropic-messages` 13、`openai-completions` 27、`openai-responses` 10、`openai-codex-responses`/`azure-openai-responses` 各 6、`mistral-conversations` 1、
-    `bedrock-converse-stream` 1、`google-generative-ai`/`google-vertex`/`pi-messages` 0；
+  - 实测读键数（`tests/compat-keys-test.mjs` 逐条核对）：`anthropic-messages` 13、`openai-completions` 27、`openai-responses` 10、
+    `openai-codex-responses` 6、`azure-openai-responses` 6、`mistral-conversations` 1、`bedrock-converse-stream` 1、
+    `google-generative-ai` 0、`google-vertex` 0、`pi-messages` 0；
   - 被 ≥2 个协议读的键 9 个。
   - ⇒ 判据是「目标 api 的实现读不读它」，**表与读键判据的唯一家在 `apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`**（从 pi dist 重推），`tests/compat-keys-test.mjs` 用它自己那套扫描复推同一张表并断言相等 —— pi 换版加/删键会红，而不是让报告说谎。
   - 报告点在 `providers.ts synthesizeModels`（聚合到每协议一行，`status` 里显示），覆盖底座表条目、`providers.<id>.models[]` 条目、provider 级 `compat`、以及 pi 最高层 `modelOverrides[M].compat`；
