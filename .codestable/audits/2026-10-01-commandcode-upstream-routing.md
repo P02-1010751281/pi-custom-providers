@@ -7,9 +7,9 @@
 
 | 通道 | 判定强度 | 服务这些模型（本表实测） |
 |---|---|---|
-| **OpenRouter** | 直证（响应+文档+公开 API） | `stealth/space-bunny-alpha`（上游供应商 **Stealth**）、`google/gemini-3.7-flash`、`inclusionai/ling-3.0-flash-sante:free`、`MiniMaxAI/MiniMax-M2.7`、`thinkingmachines/inkling`、`thinkingmachines/inkling-small` |
-| **Vercel AI Gateway** | 强指纹推断 | `gen_` 成功：`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-luna`、`xai/grok-4.5/4.6/4.7`、`Qwen/Qwen3.8-27B`、`moonshotai/Kimi-K2.6`、`Kimi-K2.7-Code-Highspeed`、`stepfun/Step-3.7-Flash`、`stepfun/Step-5-Preview`、`zai-org/GLM-5.2-Fast`；同签名：`deepseek/deepseek-v4.1-flash-fast`、`deepseek/deepseek-v4-pro`、`deepseek/deepseek-v4-flash-vision-exp` |
-| **Novita AI** | 直证（URL 泄漏 + 官方文档） | `deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4-flash`、`deepseek/deepseek-v4-flash-fast`、`moonshotai/Kimi-K3`、`zai-org/GLM-5.3`、`z-ai/glm-5.3-flash`、`inclusionai/ling-3.1-flash:free`、`tencent/hy3-paid` |
+| **OpenRouter** | 直证（响应+文档+公开 API） | 见下方「服务模型清单」 |
+| **Vercel AI Gateway** | 强指纹推断 | 见下方「服务模型清单」 |
+| **Novita AI** | 直证（URL 泄漏 + 官方文档） | 见下方「服务模型清单」 |
 | **阿里 DashScope / 百炼** | 强指纹 | `Qwen/Qwen3.6-Plus`、`Qwen/Qwen3.6-Max-Preview`、`3.7-Flash/Max/Plus`、`3.8-Flash/Max/Max-0902/Omni-Flash`、`moonshotai/Kimi-K2.7-Code`、`zai-org/GLM-5.2` |
 | **Anthropic 原生** | 直证（id 形状 + usage 形状） | `claude-*`（只走 `/messages`；其中多数被计划门挡住） |
 | **Gemini 原生** | 直证（报错文案） | `google/gemini-3.8-flash` |
@@ -21,6 +21,18 @@
 | 未定名签名 | — | `tencent/hy4-preview`（成功，id 为带横线 UUID） |
 
 > **拆分（2026-10-03，owner 指示）**：「未定名签名」这一格原有 6 组签名，拆成 6 行；前两列（通道 / 判定强度）按行重复，原来的「、」分隔符变成行界，各组文字逐字未改。
+> 同日又把两处长格拉到表下清单：「结论速览」第 3 列的三条通道服务模型、第 2 节指纹表第 4 列的错误信封；格内留指针，清单里文字逐字未改。
+
+**服务模型清单**（2026-10-03 从「结论速览」第 3 列拉出；文字未改）
+
+- **OpenRouter**：`stealth/space-bunny-alpha`（上游供应商 **Stealth**）、`google/gemini-3.7-flash`、`inclusionai/ling-3.0-flash-sante:free`、`MiniMaxAI/MiniMax-M2.7`、
+  `thinkingmachines/inkling`、`thinkingmachines/inkling-small`
+- **Vercel AI Gateway**：
+  - `gen_` 成功：`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-luna`、`xai/grok-4.5/4.6/4.7`、`Qwen/Qwen3.8-27B`、`moonshotai/Kimi-K2.6`、`Kimi-K2.7-Code-Highspeed`、
+    `stepfun/Step-3.7-Flash`、`stepfun/Step-5-Preview`、`zai-org/GLM-5.2-Fast`
+  - 同签名：`deepseek/deepseek-v4.1-flash-fast`、`deepseek/deepseek-v4-pro`、`deepseek/deepseek-v4-flash-vision-exp`
+- **Novita AI**：`deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4-flash`、`deepseek/deepseek-v4-flash-fast`、`moonshotai/Kimi-K3`、`zai-org/GLM-5.3`、`z-ai/glm-5.3-flash`、
+  `inclusionai/ling-3.1-flash:free`、`tencent/hy3-paid`
 
 ## 1. 探测方法与坑
 
@@ -64,11 +76,20 @@ curl -s -X POST https://api.commandcode.ai/provider/v1/responses \
 
 | 通道 | 响应 id 形状 | usage 指纹 | 错误信封 / 校验行为 |
 |---|---|---|---|
-| OpenRouter | `gen-<unix>-<rand>` | `prompt_tokens_details{cached_tokens, cache_write_tokens, audio_tokens, video_tokens}` | `"This endpoint's maximum context length is … use the context-compression plugin"`；`"No available providers match the 'only' filter: …, Available providers are: …"`；响应体带 `provider`、`native_finish_reason` |
-| Vercel AI Gateway | `gen_<ULID>` | `prompt_tokens_details{audio_tokens, cached_tokens, video_tokens}` + 顶层 `cache_creation_input_tokens` | **网关自己**拦参数：`"Too big: expected number to be <=2"`（temperature），`"Invalid max_tokens value, the valid range of max_tokens is [1, N]"`；超限 `max_tokens` 时**不报错而是夹取** |
-| Novita AI | 32 位 hex（`hex32`） | 全套字段（含 `cache_write_tokens`、`image_tokens`、`cache_read_input_tokens`）⇒ 与 OpenRouter 那一栏重叠，**不可作判据** | `{"code":400,"reason":"INVALID_REQUEST_BODY","message":"max_tokens (current value: N) must be between 0 and M ","metadata":{}}`（**M 后有尾空格**）；`"model features vision not support"` |
-| 阿里 DashScope | `chatcmpl-<uuid>` + `request_id` | 标准 OpenAI 形状 | `{"error":{"message":"<400> InternalError.Algo.InvalidParameter: Temperature should be in [0.0, 2.0)","code":"invalid_parameter_error"}}` |
-| Anthropic 原生 | `msg_01…` | `input_tokens/output_tokens/cache_creation_input_tokens/cache_read_input_tokens` | Anthropic 标准错误；`max_tokens` 超限文案给出该模型自身上限 |
+| OpenRouter | `gen-<unix>-<rand>` | `prompt_tokens_details{cached_tokens, cache_write_tokens, audio_tokens, video_tokens}` | 见下方「错误信封 / 校验行为」 |
+| Vercel AI Gateway | `gen_<ULID>` | `prompt_tokens_details{audio_tokens, cached_tokens, video_tokens}` + 顶层 `cache_creation_input_tokens` | 见下方「错误信封 / 校验行为」 |
+| Novita AI | 32 位 hex（`hex32`） | 全套字段（含 `cache_write_tokens`、`image_tokens`、`cache_read_input_tokens`）⇒ 与 OpenRouter 那一栏重叠，**不可作判据** | 见下方「错误信封 / 校验行为」 |
+| 阿里 DashScope | `chatcmpl-<uuid>` + `request_id` | 标准 OpenAI 形状 | 见下方「错误信封 / 校验行为」 |
+| Anthropic 原生 | `msg_01…` | `input_tokens/output_tokens/cache_creation_input_tokens/cache_read_input_tokens` | 见下方「错误信封 / 校验行为」 |
+
+**错误信封 / 校验行为**（2026-10-03 从上表第 4 列拉出；文字未改）
+
+- OpenRouter：`"This endpoint's maximum context length is … use the context-compression plugin"`；
+  `"No available providers match the 'only' filter: …, Available providers are: …"`；响应体带 `provider`、`native_finish_reason`
+- Vercel AI Gateway：**网关自己**拦参数：`"Too big: expected number to be <=2"`（temperature），`"Invalid max_tokens value, the valid range of max_tokens is [1, N]"`；超限 `max_tokens` 时**不报错而是夹取**
+- Novita AI：`{"code":400,"reason":"INVALID_REQUEST_BODY","message":"max_tokens (current value: N) must be between 0 and M ","metadata":{}}`（**M 后有尾空格**）；`"model features vision not support"`
+- 阿里 DashScope：`{"error":{"message":"<400> InternalError.Algo.InvalidParameter: Temperature should be in [0.0, 2.0)","code":"invalid_parameter_error"}}`
+- Anthropic 原生：Anthropic 标准错误；`max_tokens` 超限文案给出该模型自身上限
 
 **判据说明（2026-10-01 补充）**：只有 **id 形状**与**错误信封**是可靠判据；`usage` 指纹**不作判据**——反例：
 Novita 通道的 `deepseek/deepseek-v4.1-flash` 的 `prompt_tokens_details` 同时含 `cache_write_tokens`（原以为 OpenRouter 专属）与 `image_tokens/text_tokens/cache_read_input_tokens`，是各家字段的并集；
