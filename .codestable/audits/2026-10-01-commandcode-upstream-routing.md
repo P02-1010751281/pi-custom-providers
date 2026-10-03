@@ -13,7 +13,14 @@
 | **阿里 DashScope / 百炼** | 强指纹 | `Qwen/Qwen3.6-Plus`、`Qwen/Qwen3.6-Max-Preview`、`3.7-Flash/Max/Plus`、`3.8-Flash/Max/Max-0902/Omni-Flash`、`moonshotai/Kimi-K2.7-Code`、`zai-org/GLM-5.2` |
 | **Anthropic 原生** | 直证（id 形状 + usage 形状） | `claude-*`（只走 `/messages`；其中多数被计划门挡住） |
 | **Gemini 原生** | 直证（报错文案） | `google/gemini-3.8-flash` |
-| 未定名签名 | — | `xiaomi/mimo-*`（"Param Incorrect"）、`nvidia/nemotron-3-ultra-550b-a55b`/`poolside/laguna-s-2.1-free`/`stepfun/Step-3.5-Flash`/`zai-org/GLM-5.1`（"Input should be less than or equal to …"）、`MiniMaxAI/MiniMax-M2.5`/`moonshotai/Kimi-K2.5`/`zai-org/GLM-5`（"exceeds the model limit of …"）、`MiniMaxAI/MiniMax-M3`（"…does not support max tokens > 524288 (2013)"）、`meituan/LongCat-2.0`（中文"参数校验失败"）、`tencent/hy4-preview`（成功，id 为带横线 UUID） |
+| 未定名签名 | — | `xiaomi/mimo-*`（"Param Incorrect"） |
+| 未定名签名 | — | `nvidia/nemotron-3-ultra-550b-a55b`/`poolside/laguna-s-2.1-free`/`stepfun/Step-3.5-Flash`/`zai-org/GLM-5.1`（"Input should be less than or equal to …"） |
+| 未定名签名 | — | `MiniMaxAI/MiniMax-M2.5`/`moonshotai/Kimi-K2.5`/`zai-org/GLM-5`（"exceeds the model limit of …"） |
+| 未定名签名 | — | `MiniMaxAI/MiniMax-M3`（"…does not support max tokens > 524288 (2013)"） |
+| 未定名签名 | — | `meituan/LongCat-2.0`（中文"参数校验失败"） |
+| 未定名签名 | — | `tencent/hy4-preview`（成功，id 为带横线 UUID） |
+
+> **拆分（2026-10-04，owner 指示）**：「未定名签名」这一格原有 6 组签名，拆成 6 行；前两列（通道 / 判定强度）按行重复，原来的「、」分隔符变成行界，各组文字逐字未改。
 
 ## 1. 探测方法与坑
 

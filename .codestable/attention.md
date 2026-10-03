@@ -134,6 +134,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - **排版纪律（文档）**：散文行一行一个意思、≤ 200 字；表格行与代码行按「一条记录 / 一句代码一行」豁免。
   - 多子句的单元格用 `<br>` 断开；换行类改动只允许加空白、行首 `- ` 标记与 `<br>`，验证法 = **去掉所有空白后逐字符相同**。
   - `CHANGELOG.md` 与 `audits/`（含已发布条目）在 2026-10-04 也按此排过一遍（owner 指示），措辞未改。
+  - 同日的**结构拆分**（owner 批准，只动「一件记录里塞了多件事」的三处）：`attention.md` 工具层一行 → 4 行、`audit-01` 未定名签名一格 6 组 → 6 行、`audit-02` §10 一格 3 组 → 表下 3 条；动过的存档在文件内留有「拆分（2026-10-04）」注明，各组文字逐字未改。
 
 **`.codestable/` 知识布局（v2）**
 
@@ -167,7 +168,10 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 | 文件 | 数据单元 | 方向 |
 |---|---|---|
-| `util.ts` / `types.ts` / `apis.ts` / `convention.ts` | JSON 编解码与原子落盘（`readJson`/`serializeJson`/`writeTextAtomic`，图叶子）/ 内部类型词汇（`Endpoint`/`ProviderDeclaration`/`EndpointChoice` 也在此）/ pi 的 api 词汇与模型尺寸默认值（图叶子）/ 未知 id 能力惯例（A 同族继承 `reasoning` + `thinkingLevelMap`，与线无关；<br>B 无同族时合成的 `{xhigh,max}` 仅 anthropic 线） | — |
+| `util.ts` | JSON 编解码与原子落盘（`readJson`/`serializeJson`/`writeTextAtomic`，图叶子） | — |
+| `types.ts` | 内部类型词汇（`Endpoint`/`ProviderDeclaration`/`EndpointChoice` 也在此） | — |
+| `apis.ts` | pi 的 api 词汇与模型尺寸默认值（图叶子） | — |
+| `convention.ts` | 未知 id 能力惯例（A 同族继承 `reasoning` + `thinkingLevelMap`，与线无关；<br>B 无同族时合成的 `{xhigh,max}` 仅 anthropic 线） | — |
 | `config.ts` | pi 全局 `models.json`（第 3 层的读 + 预报告；第 4 层 `modelOverrides` 由 pi 应用） | 读 |
 | `env.ts` | `.env` + pi 值表达式 | 读 + 解析 |
 | `builtin.ts` | pi 内置目录（读 + 白名单吸收 + drift 比较） | 读 |
