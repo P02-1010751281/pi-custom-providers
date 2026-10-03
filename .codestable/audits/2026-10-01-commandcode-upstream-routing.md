@@ -47,8 +47,11 @@ curl -s -X POST https://api.commandcode.ai/provider/v1/responses \
 - 上游主机名只在个别错误的**内层字符串化 JSON**里出现（`error.message` 里再嵌一层 `{"...","param":{"url":"https://api.novita.ai/..."}}`），要递归/正则挖，别只看外层。
 - 超限探针**不会**真的生成 token（除 Vercel 通道会静默夹取），代价约等于一次 400。
 
-**Responses 线现场验证（2026-10-02）**：2026-09-11 记录过一次 `POST /provider/v1/responses` → 404 `is not a registered API route`（当时用户 provider.json 里还没有这条线，`9740c80` 是 09-19 凭 `/models` 的 `supported_endpoints` 提示加上的）。今天同一路径已可用：**200** 且返回真 Responses 对象（`id: resp_01…`），流式也能跑（`content-type: text/event-stream`，事件链 `response.created → response.output_item.added → response.reasoning_summary_text.delta… → response.completed`，无 `response.failed`）；`POST /provider/responses`（少一层 `/v1`）仍 404。
-⇒ 端点表里 `apis["openai-responses"].baseUrl = https://api.commandcode.ai/provider/v1` 的写法正确（pi 自己拼 `/responses`，扩展的 `responses-test` 钉的就是这个拼法）。85 行的 `supported_endpoints` 虽都列了 `/responses`，但扩展**从不据 wire 推断协议**（`models-test` 有断言），所以表里 0 条用它、全走默认 `/chat/completions`：这是设计，不是缺陷。
+**Responses 线现场验证（2026-10-02）**：2026-09-11 记录过一次 `POST /provider/v1/responses` → 404 `is not a registered API route`（当时用户 provider.json 里还没有这条线，
+`9740c80` 是 09-19 凭 `/models` 的 `supported_endpoints` 提示加上的）。今天同一路径已可用：**200** 且返回真 Responses 对象（`id: resp_01…`），流式也能跑（`content-type: text/event-stream`，
+事件链 `response.created → response.output_item.added → response.reasoning_summary_text.delta… → response.completed`，无 `response.failed`）；`POST /provider/responses`（少一层 `/v1`）仍 404。
+⇒ 端点表里 `apis["openai-responses"].baseUrl = https://api.commandcode.ai/provider/v1` 的写法正确（pi 自己拼 `/responses`，扩展的 `responses-test` 钉的就是这个拼法）。
+85 行的 `supported_endpoints` 虽都列了 `/responses`，但扩展**从不据 wire 推断协议**（`models-test` 有断言），所以表里 0 条用它、全走默认 `/chat/completions`：这是设计，不是缺陷。
 
 ## 2. 五条通道的指纹（这是判定品牌的核心依据）
 
@@ -60,25 +63,41 @@ curl -s -X POST https://api.commandcode.ai/provider/v1/responses \
 | 阿里 DashScope | `chatcmpl-<uuid>` + `request_id` | 标准 OpenAI 形状 | `{"error":{"message":"<400> InternalError.Algo.InvalidParameter: Temperature should be in [0.0, 2.0)","code":"invalid_parameter_error"}}` |
 | Anthropic 原生 | `msg_01…` | `input_tokens/output_tokens/cache_creation_input_tokens/cache_read_input_tokens` | Anthropic 标准错误；`max_tokens` 超限文案给出该模型自身上限 |
 
-**判据说明（2026-10-01 补充）**：只有 **id 形状**与**错误信封**是可靠判据；`usage` 指纹**不作判据**——反例：Novita 通道的 `deepseek/deepseek-v4.1-flash` 的 `prompt_tokens_details` 同时含 `cache_write_tokens`（原以为 OpenRouter 专属）与 `image_tokens/text_tokens/cache_read_input_tokens`，是各家字段的并集；`Vercel` 通道也不是每个响应都带 `system_fingerprint`。
+**判据说明（2026-10-01 补充）**：只有 **id 形状**与**错误信封**是可靠判据；`usage` 指纹**不作判据**——反例：
+Novita 通道的 `deepseek/deepseek-v4.1-flash` 的 `prompt_tokens_details` 同时含 `cache_write_tokens`（原以为 OpenRouter 专属）与 `image_tokens/text_tokens/cache_read_input_tokens`，是各家字段的并集；
+`Vercel` 通道也不是每个响应都带 `system_fingerprint`。
 
 品牌判定所依据的**外部**证据：
-- **OpenRouter**：`GET https://openrouter.ai/api/v1/models` 是公开目录，`stealth/space-bunny-alpha` 在列（模态 `[text,image,video]`，ctx 1000000）；`GET https://openrouter.ai/api/v1/models/stealth/space-bunny-alpha/endpoints` 直供 `provider_name: "Stealth"`。运行期响应也带 `provider:"Stealth"`。
-- **Novita**：`https://docs.novita.ai/guides/llm-api` 的官方示例即 `base_url="https://api.novita.ai/openai"`、`model="deepseek/deepseek-v4.1-flash"`；`https://docs.novita.ai/api-reference/basic-error-code` 的错误名表里有 `INVALID_REQUEST_BODY`；`tencent/hy3-paid` 的错误体直接漏出 `url: https://api.novita.ai/...`。
-- **Vercel**：`https://ai-sdk.dev/providers/ai-sdk-providers/ai-gateway` 写明 AI Gateway 的 generation id 格式是 **`gen_`**（`getGenerationInfo(id)`）；本网关同通道模型的 id 正是 `gen_<ULID>`，且错误类名为 Vercel AI SDK 的 `AI_APICallError`。
-- **OpenAI 原厂文案**：`"You have uploaded an unsupported image. Please make sure your image is valid and has one of the following formats: webp, png, jpeg, and gif."` 见 community.openai.com 与 Portkey 错误库 —— 是「图无效」而非「模型不支持图」。
+- **OpenRouter**：`GET https://openrouter.ai/api/v1/models` 是公开目录，`stealth/space-bunny-alpha` 在列（模态 `[text,image,video]`，ctx 1000000）；
+  `GET https://openrouter.ai/api/v1/models/stealth/space-bunny-alpha/endpoints` 直供 `provider_name: "Stealth"`。运行期响应也带 `provider:"Stealth"`。
+- **Novita**：`https://docs.novita.ai/guides/llm-api` 的官方示例即 `base_url="https://api.novita.ai/openai"`、`model="deepseek/deepseek-v4.1-flash"`；
+  `https://docs.novita.ai/api-reference/basic-error-code` 的错误名表里有 `INVALID_REQUEST_BODY`；`tencent/hy3-paid` 的错误体直接漏出 `url: https://api.novita.ai/...`。
+- **Vercel**：`https://ai-sdk.dev/providers/ai-sdk-providers/ai-gateway` 写明 AI Gateway 的 generation id 格式是 **`gen_`**（`getGenerationInfo(id)`）；
+  本网关同通道模型的 id 正是 `gen_<ULID>`，且错误类名为 Vercel AI SDK 的 `AI_APICallError`。
+- **OpenAI 原厂文案**：`"You have uploaded an unsupported image. Please make sure your image is valid and has one of the following formats: webp, png, jpeg, and gif."`
+  见 community.openai.com 与 Portkey 错误库 —— 是「图无效」而非「模型不支持图」。
 
 ## 3. 逐模型分桶（按错误/成功签名，85/85 全覆盖）
 
-- **计划外 `MODEL_NOT_IN_PLAN`（23）**：`claude-sonnet-5`、`claude-sonnet-4-6`、`claude-fable-5`、`claude-fable-5-1`、`claude-haiku-4-5-20251001`、`claude-opus-5`、`claude-opus-5-5`、`claude-opus-4-8`、`claude-opus-4-7`、`gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-5.6-terra`、`gpt-5.5`、`gpt-5.4`、`gpt-5.4-mini`、`gpt-5.3-codex`、`google/gemini-3.6-flash`、`google/gemini-3.5-flash`、`google/gemini-3.5-flash-lite`、`google/gemini-3.1-flash-lite`、`sakana/fugu-ultra`、`meta/muse-spark-1.1`
+- **计划外 `MODEL_NOT_IN_PLAN`（23）**：`claude-sonnet-5`、`claude-sonnet-4-6`、`claude-fable-5`、`claude-fable-5-1`、`claude-haiku-4-5-20251001`、`claude-opus-5`、`claude-opus-5-5`、
+  `claude-opus-4-8`、`claude-opus-4-7`、`gpt-6.1-sol`、`gpt-6-astra`、`gpt-6-sol`、`gpt-5.6-terra`、`gpt-5.5`、`gpt-5.4`、`gpt-5.4-mini`、`gpt-5.3-codex`、`google/gemini-3.6-flash`、
+  `google/gemini-3.5-flash`、`google/gemini-3.5-flash-lite`、`google/gemini-3.1-flash-lite`、`sakana/fugu-ultra`、`meta/muse-spark-1.1`
   （403 `permission_error`，与上游无关，是当前 API key 的套餐不含这些模型）
-- **Vercel 通道（15）**：`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-luna`、`xai/grok-4.5`、`xai/grok-4.6`、`xai/grok-4.7`、`Qwen/Qwen3.8-27B`、`moonshotai/Kimi-K2.6`、`moonshotai/Kimi-K2.7-Code-Highspeed`、`stepfun/Step-3.7-Flash`、`stepfun/Step-5-Preview`、`zai-org/GLM-5.2-Fast`、`deepseek/deepseek-v4.1-flash-fast`、`deepseek/deepseek-v4-pro`、`deepseek/deepseek-v4-flash-vision-exp`
-- **Novita（8）**：`deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4-flash`、`deepseek/deepseek-v4-flash-fast`、`moonshotai/Kimi-K3`、`zai-org/GLM-5.3`、`z-ai/glm-5.3-flash`、`inclusionai/ling-3.1-flash:free`、`tencent/hy3-paid`
-- **OpenRouter（6）**：`stealth/space-bunny-alpha`、`google/gemini-3.7-flash`、`inclusionai/ling-3.0-flash-sante:free`、`MiniMaxAI/MiniMax-M2.7`（候选池 gmicloud/minimax/novita）、`thinkingmachines/inkling`（deepinfra/modal/thinkingmachines/togetherai）、`thinkingmachines/inkling-small`（deepinfra/thinkingmachines）
-- **DashScope（11）**：`Qwen/Qwen3.6-Plus`、`Qwen/Qwen3.6-Max-Preview`、`Qwen/Qwen3.7-Flash`、`Qwen/Qwen3.7-Max`、`Qwen/Qwen3.7-Plus`、`Qwen/Qwen3.8-Flash`、`Qwen/Qwen3.8-Max`、`Qwen/Qwen3.8-Max-0902`、`Qwen/Qwen3.8-Omni-Flash`、`moonshotai/Kimi-K2.7-Code`、`zai-org/GLM-5.2`
+- **Vercel 通道（15）**：`gpt-6-luna`、`gpt-5.6-sol`、`gpt-5.6-luna`、`xai/grok-4.5`、`xai/grok-4.6`、`xai/grok-4.7`、`Qwen/Qwen3.8-27B`、`moonshotai/Kimi-K2.6`、
+  `moonshotai/Kimi-K2.7-Code-Highspeed`、`stepfun/Step-3.7-Flash`、`stepfun/Step-5-Preview`、`zai-org/GLM-5.2-Fast`、`deepseek/deepseek-v4.1-flash-fast`、`deepseek/deepseek-v4-pro`、
+  `deepseek/deepseek-v4-flash-vision-exp`
+- **Novita（8）**：`deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4-flash`、`deepseek/deepseek-v4-flash-fast`、`moonshotai/Kimi-K3`、`zai-org/GLM-5.3`、`z-ai/glm-5.3-flash`、
+  `inclusionai/ling-3.1-flash:free`、`tencent/hy3-paid`
+- **OpenRouter（6）**：`stealth/space-bunny-alpha`、`google/gemini-3.7-flash`、`inclusionai/ling-3.0-flash-sante:free`、`MiniMaxAI/MiniMax-M2.7`（候选池 gmicloud/minimax/novita）、
+  `thinkingmachines/inkling`（deepinfra/modal/thinkingmachines/togetherai）、`thinkingmachines/inkling-small`（deepinfra/thinkingmachines）
+- **DashScope（11）**：`Qwen/Qwen3.6-Plus`、`Qwen/Qwen3.6-Max-Preview`、`Qwen/Qwen3.7-Flash`、`Qwen/Qwen3.7-Max`、`Qwen/Qwen3.7-Plus`、`Qwen/Qwen3.8-Flash`、`Qwen/Qwen3.8-Max`、
+  `Qwen/Qwen3.8-Max-0902`、`Qwen/Qwen3.8-Omni-Flash`、`moonshotai/Kimi-K2.7-Code`、`zai-org/GLM-5.2`
 - **Anthropic 原生（1 可验）**：`claude-sonnet-5-5`
 - **Gemini 原生（1）**：`google/gemini-3.8-flash`
-- **未定名签名（17）**：`xiaomi/mimo-v2.5`、`mimo-v2.5-pro`、`mimo-v2.6-flash`、`mimo-v2.6-pro`、`mimo-v2.6-pro-ultraspeed`（"Param Incorrect"）；`nvidia/nemotron-3-ultra-550b-a55b`、`poolside/laguna-s-2.1-free`、`stepfun/Step-3.5-Flash`、`zai-org/GLM-5.1`（"Input should be less than or equal to 10000000"）；`MiniMaxAI/MiniMax-M2.5`、`moonshotai/Kimi-K2.5`、`zai-org/GLM-5`（"exceeds the model limit of N"）；`MiniMaxAI/MiniMax-M3`、`z-ai/glm-5.3-flashx`、`meituan/LongCat-2.0`、`meta/muse-spark-1.3-contributor`、`tencent/hy4-preview`
+- **未定名签名（17）**：`xiaomi/mimo-v2.5`、`mimo-v2.5-pro`、`mimo-v2.6-flash`、`mimo-v2.6-pro`、`mimo-v2.6-pro-ultraspeed`（"Param Incorrect"）；
+  `nvidia/nemotron-3-ultra-550b-a55b`、`poolside/laguna-s-2.1-free`、`stepfun/Step-3.5-Flash`、`zai-org/GLM-5.1`（"Input should be less than or equal to 10000000"）；
+  `MiniMaxAI/MiniMax-M2.5`、`moonshotai/Kimi-K2.5`、`zai-org/GLM-5`（"exceeds the model limit of N"）；
+  `MiniMaxAI/MiniMax-M3`、`z-ai/glm-5.3-flashx`、`meituan/LongCat-2.0`、`meta/muse-spark-1.3-contributor`、`tencent/hy4-preview`
 - **网关级"上游暂时不可用"（3）**：`meta/muse-spark-1.2`、`meta/muse-spark-1.2-contributor`、`meta/muse-spark-1.3`
 
 ## 4. 输出上限实测（超限探针）

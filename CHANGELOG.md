@@ -1,42 +1,60 @@
 # 更新日志
 
-版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。历史例外：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样。
+版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。
+安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。历史例外：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样。
 
 ## v0.5.0 — 2026-10-03
 
 ### 命令面（破坏性）
 
-- **`/custom-providers` + `/refresh-custom-models` → 单一 `/providers`**：动词表 + 每动词旗标表驱动解析（新模块 `verbs.ts`），任何不匹配都回 `Usage:`（文案由表生成，带诊断行）。动词：`status [<id>]`（默认；`drift` 的计数并入其中）、`files`、`init`、`sync [<id>]`、`rescan [<id>]`。首 token 不命中动词表就当 `<id>`（所以 `drift` 现在是「未知 provider」+ `Usage:`）。
-- **`sync` 是一条完整流程**（`--write` / `--offline` 消失）：默认联网逐端点抓 `/models` → 只把**答了的端点**并进基底表 → 落盘（先留 `.bak`）；省略 id = 全部 vendor；`--dry-run` 只预览；`--prune` 必须带 id，且仍只在「该 vendor 本轮完整一轮」时删。失败或空答的端点跳过并在报告里点名，全部失败则不写盘。结尾提示 `run /providers rescan [<id>]`——盘变了不等于会话变了。
+- **`/custom-providers` + `/refresh-custom-models` → 单一 `/providers`**：动词表 + 每动词旗标表驱动解析（新模块 `verbs.ts`），任何不匹配都回 `Usage:`（文案由表生成，带诊断行）。动词：`status [<id>]`（默认；
+  `drift` 的计数并入其中）、`files`、`init`、`sync [<id>]`、`rescan [<id>]`。首 token 不命中动词表就当 `<id>`（所以 `drift` 现在是「未知 provider」+ `Usage:`）。
+- **`sync` 是一条完整流程**（`--write` / `--offline` 消失）：默认联网逐端点抓 `/models` → 只把**答了的端点**并进基底表 → 落盘（先留 `.bak`）；省略 id = 全部 vendor；`--dry-run` 只预览；`--prune` 必须带 id，且仍只在「该 vendor 本轮完整一轮」时删。
+  失败或空答的端点跳过并在报告里点名，全部失败则不写盘。结尾提示 `run /providers rescan [<id>]`——盘变了不等于会话变了。
 - **新增 `rescan`（唯一零写盘动词）**：重扫目录 + 用**新快照**重新注册，拾取手改的 `provider.json`/`models.json`/`accounts.json` 与新目录；删掉的目录会被真正撤销（`pi.unregisterProvider`，实测存在且立即生效）。`--dry-run` 只报会变什么。
 - **`drift` 动词删除**：计数进 `status` 概览行（`, drift N`），明细进 `status <id>`。
 
 ### 配置与写口
 
-- **`init` 改为向导 + 参数路径**：有 UI 时问缺的部分（id / baseUrl / api / modelsPath / key），无 UI 时 `init <id> --url … --api …` 缺项即 `Usage:`。新增第三个写口 `accounts.json`（`credentials.ts` 的 `writeAccountsFile`）：只在给了 key 且文件不存在时写、值原样落、绝不回显；字面量 key 落盘时会警告明文。
-- **删除出厂层**：`sources.ts` / `DEFAULTS` / `defaultAccount` / `envVar` 兜底 / `Vendor.aliases` 与目录撞名守卫全部删除，`collectVendors(root, piProviderIds)` 的输入只有目录。代价写在这里：`$CMD_API_KEY` / `$SCNET_API_KEY` 这类出厂密钥变量不再被隐含引用，旧目录需要自己写 `accounts.json`（或 `/login`）。
+- **`init` 改为向导 + 参数路径**：有 UI 时问缺的部分（id / baseUrl / api / modelsPath / key），无 UI 时 `init <id> --url … --api …` 缺项即 `Usage:`。
+  新增第三个写口 `accounts.json`（`credentials.ts` 的 `writeAccountsFile`）：只在给了 key 且文件不存在时写、值原样落、绝不回显；字面量 key 落盘时会警告明文。
+- **删除出厂层**：`sources.ts` / `DEFAULTS` / `defaultAccount` / `envVar` 兜底 / `Vendor.aliases` 与目录撞名守卫全部删除，`collectVendors(root, piProviderIds)` 的输入只有目录。
+  代价写在这里：`$CMD_API_KEY` / `$SCNET_API_KEY` 这类出厂密钥变量不再被隐含引用，旧目录需要自己写 `accounts.json`（或 `/login`）。
 - **#18 别名漂移修正**：`providerLayerFor(id, config)` 只查 `providers[id]`（`aliases` 参数删除）。
-- **#22/#23/#24**：`config.ts` 复刻 pi 的「schema 错 ⇒ 整份文件丢弃」；用户 `providers.<id>` 块里 pi 会在注册时抛错的四种形态（空块 / 只写 `api` / `models[]` 缺 `api` / `models[]` 缺 `baseUrl`）改为**调用 pi 之前预报告**（error 级即跳过该 provider），并给 `registerProvider` 加 try/catch 兜底，一个坏块不再连带带走后面的 provider。`oauth` 的两态（缺 `baseUrl` 抛错、非 `"radius"` 使 pi 整份丢文件）同样报出。
+- **#22/#23/#24**：`config.ts` 复刻 pi 的「schema 错 ⇒ 整份文件丢弃」；
+  用户 `providers.<id>` 块里 pi 会在注册时抛错的四种形态（空块 / 只写 `api` / `models[]` 缺 `api` / `models[]` 缺 `baseUrl`）改为**调用 pi 之前预报告**（error 级即跳过该 provider），并给 `registerProvider` 加 try/catch 兜底，
+  一个坏块不再连带带走后面的 provider。`oauth` 的两态（缺 `baseUrl` 抛错、非 `"radius"` 使 pi 整份丢文件）同样报出。
 
 ### 测试
 
-- 23 个用例全绿；`graph-test` 16 模块、无环、全可达。新增 `command-test`、`init-test`、`preflight-test`、`rescan-test`、`compat-keys-test`、`orphan-block-test`。关键路径用注入法证明敏感：静默忽略外来旗标 → `command-test` 红；去掉 `unregisterProvider` → `rescan-test` 红；去掉 accounts 文件保护 → `init-test` 红。
+- 23 个用例全绿；`graph-test` 16 模块、无环、全可达。新增 `command-test`、`init-test`、`preflight-test`、`rescan-test`、`compat-keys-test`、`orphan-block-test`。关键路径用注入法证明敏感：静默忽略外来旗标 → `command-test` 红；
+  去掉 `unregisterProvider` → `rescan-test` 红；去掉 accounts 文件保护 → `init-test` 红。
 
 ### 报告
 
-- **第 3 层不再提供模型内容（破坏性，2026-10-03）**：模型只有一个家 = `<id>/models.json`（`sync`/发现写它）。`providers.<id>.models[]` 过去被本包当补丁读（条目覆盖同名模型、新 id 建模型），现在**不读**并在命令里报告（pi 对扩展注册的 id 也只校验不应用这个数组）；补丁改走第 4 层 `modelOverrides[M]`，新模型写进模型表。`config.ts` 的 `applyModelPatch` 随之删除（本包不再有第二个 override applier）。
-- **§10 #18 的报告半边：`providers` 里没有目录、也不是 pi 内置 id 的 key 会被点名**（`config.ts orphanProviderBlocks`）：那些块是 config-only id，pi 自己注册、本扩展永不读取，别名旧 key 与打错的 id 都落在这一类。以前静默无效，现在 `providers.<key>: no directory for this id … nothing here reads this block`。新测试 `orphan-block-test.mjs`（注册 id / 账号 id / pi 内置 id 三种不报，旧 key 与错字两种报；注入法证明敏感）。取不到 pi 内置目录（老 pi 构建）时**不下结论、保持静默**，同 `drift` 口径。
-- **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、provider 级 `compat` 与 `modelOverrides[M].compat`；实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
+- **第 3 层不再提供模型内容（破坏性，2026-10-03）**：模型只有一个家 = `<id>/models.json`（`sync`/发现写它）。`providers.<id>.models[]` 过去被本包当补丁读（条目覆盖同名模型、新 id 建模型），现在**不读**并在命令里报告（pi 对扩展注册的 id 也只校验不应用这个数组）；
+  补丁改走第 4 层 `modelOverrides[M]`，新模型写进模型表。`config.ts` 的 `applyModelPatch` 随之删除（本包不再有第二个 override applier）。
+- **§10 #18 的报告半边：`providers` 里没有目录、也不是 pi 内置 id 的 key 会被点名**（`config.ts orphanProviderBlocks`）：那些块是 config-only id，pi 自己注册、本扩展永不读取，别名旧 key 与打错的 id 都落在这一类。
+  以前静默无效，现在 `providers.<key>: no directory for this id … nothing here reads this block`。新测试 `orphan-block-test.mjs`（注册 id / 账号 id / pi 内置 id 三种不报，旧 key 与错字两种报；注入法证明敏感）。
+  取不到 pi 内置目录（老 pi 构建）时**不下结论、保持静默**，同 `drift` 口径。
+- **§10 #15：报「对 `<api>` 无作用的 compat 键」**（`apis.ts` 的 `API_COMPAT_KEYS`/`inertCompatKeys`）：pi 的 `compat` 只被各协议实现的请求构造器读，而它的运行时 schema 是三个开放对象 schema 的并集，未知键一律通过校验、随后静默丢弃。
+  现在按 pi 的读键表点名这类键（`compat key "X" has no effect on <api>`，聚合到每协议一行），覆盖底座表条目、provider 级 `compat` 与 `modelOverrides[M].compat`；
+  实测读键数 `anthropic-messages` 13 / `openai-completions` 27 / `google-*` 0。新测试 `compat-keys-test.mjs` 从安装的 pi dist 复推同一张表并断言相等（三个方向的注入法都证明敏感）。
 
 ### 差分（v0.4.1 → v0.5.0，模型合成）
 
-对「目录 + 基底表 + 端点 + 第 3/4 层」8 个场景，注册结果 5 处差异，逐条可归因（配方与 runner 见 `.codestable/audits/2026-10-03-v0.4.1-v0.5.0-model-synthesis-differential.md`）：出厂默认账号消失（`scnet`/`commandcode` 无 `accounts.json` ⇒ `authHeader`/`envVar` 不再隐含，**升级动作：给这些目录写 `accounts.json`**）、旧 key 别名块不再生效（#18 B′）、pi 会拒的 `models[]` 补丁块改为报错并跳过该 provider（#22/#23；旧版是桩掩盖了 pi 的抛错）、第 3 层 `models[]` 补丁不再生效（场景 S8：注册 id 下的**合法** `models[]` 条目过去被本包当补丁应用，现在条目留在表外并报警告）、其余（协议 stamping / 端点解析 / 基底合成 / provider 级 compat 折算 / 多账号 / `modelOverrides`）完全一致。
+对「目录 + 基底表 + 端点 + 第 3/4 层」8 个场景，注册结果 5 处差异，逐条可归因（配方与 runner 见 `.codestable/audits/2026-10-03-v0.4.1-v0.5.0-model-synthesis-differential.md`）：
+出厂默认账号消失（`scnet`/`commandcode` 无 `accounts.json` ⇒ `authHeader`/`envVar` 不再隐含，**升级动作：给这些目录写 `accounts.json`**）、旧 key 别名块不再生效（#18 B′）、pi 会拒的 `models[]` 补丁块改为报错并跳过该 provider（#22/#23；
+旧版是桩掩盖了 pi 的抛错）、第 3 层 `models[]` 补丁不再生效（场景 S8：
+注册 id 下的**合法** `models[]` 条目过去被本包当补丁应用，现在条目留在表外并报警告）、其余（协议 stamping / 端点解析 / 基底合成 / provider 级 compat 折算 / 多账号 / `modelOverrides`）完全一致。
 
 ## v0.4.1 — 2026-10-02
 
 ### 修复
 
-- **惯例继承不再看协议线**（`00193f0`）：`convention.ts` 的 A 步（同族继承）以前只在 `api === "anthropic-messages"` 时才把同族条目的 `thinkingLevelMap` 一并继承，于是本网关 OpenAI 线上新发现的同族 id 永远拿不到 `xhigh` / `max`，顶多到 `high` 且**不报错**。现在任何协议线上都继承。B 步（`CONVENTION_FAMILIES` 合成 `{xhigh,max}`）仍只给 anthropic 线，因为那是推断而不是继承；无同族可继承时仍是 `reasoning: false`。差分：对 v0.4.0 的 9 个场景只有 2 个变化，均落在该分支上。
+- **惯例继承不再看协议线**（`00193f0`）：
+  `convention.ts` 的 A 步（同族继承）以前只在 `api === "anthropic-messages"` 时才把同族条目的 `thinkingLevelMap` 一并继承，于是本网关 OpenAI 线上新发现的同族 id 永远拿不到 `xhigh` / `max`，顶多到 `high` 且**不报错**。现在任何协议线上都继承。
+  B 步（`CONVENTION_FAMILIES` 合成 `{xhigh,max}`）仍只给 anthropic 线，因为那是推断而不是继承；无同族可继承时仍是 `reasoning: false`。差分：对 v0.4.0 的 9 个场景只有 2 个变化，均落在该分支上。
 
 ### 文档
 
@@ -54,15 +72,20 @@
 
 ### 破坏性
 
-- **去掉出厂模型表**（`b5d8e4c`）：`extensions/custom-providers/` 里不再带 vendor 的模型目录。provider 的模型基底表 = 你自己的 `~/.pi/agent/custom-providers/<id>/models.json`；目录里只有 `provider.json` 时该 provider 注册 **0 个模型**，等实时发现（`/refresh-custom-models`、`sync --write`）或你补表。升级见 README「从 v0.3.0 升级」。
+- **去掉出厂模型表**（`b5d8e4c`）：`extensions/custom-providers/` 里不再带 vendor 的模型目录。provider 的模型基底表 = 你自己的 `~/.pi/agent/custom-providers/<id>/models.json`；
+  目录里只有 `provider.json` 时该 provider 注册 **0 个模型**，等实时发现（`/refresh-custom-models`、`sync --write`）或你补表。升级见 README「从 v0.3.0 升级」。
 
 ### 修复
 
-- **发现探针的凭据与请求头现在与 pi 完全一致**（`feef5a5`）：以前探针在 `live.ts` 里自己按协议挑凭据、自己定 auth 形态，而 pi 是按 provider 的 `authHeader` 决定是否追加 `Authorization: Bearer` —— 两者会分岔（anthropic 线少发 Bearer）。现在选择归 `credentials.ts`（`registrationCredential` / `discoveryCredential`）：探针发的头 = 协议默认（`anthropic-messages` → `x-api-key` + `anthropic-version`，其余 → `Bearer`）∪（`authHeader` 为真时补 `Bearer`），等同 pi 的 `withConfiguredAuth`。`credential-test` 守：bearer 规则对着 pi 的 `composeModelProvider` 断言、协议默认头对着 Anthropic SDK 的真请求头断言；Command Code 线上实测两种头都 200、同一批 86 个模型。
+- **发现探针的凭据与请求头现在与 pi 完全一致**（`feef5a5`）：以前探针在 `live.ts` 里自己按协议挑凭据、自己定 auth 形态，而 pi 是按 provider 的 `authHeader` 决定是否追加 `Authorization: Bearer` —— 两者会分岔（anthropic 线少发 Bearer）。
+  现在选择归 `credentials.ts`（`registrationCredential` / `discoveryCredential`）：
+  探针发的头 = 协议默认（`anthropic-messages` → `x-api-key` + `anthropic-version`，其余 → `Bearer`）∪（`authHeader` 为真时补 `Bearer`），等同 pi 的 `withConfiguredAuth`。`credential-test` 守：
+  bearer 规则对着 pi 的 `composeModelProvider` 断言、协议默认头对着 Anthropic SDK 的真请求头断言；Command Code 线上实测两种头都 200、同一批 86 个模型。
 - **模型字段全量往返**（`4c5ef7d`）：`samplingParams` / `inputLimits` / `promptCache` / `cost.tiers` 以前能被 `models.json` 接受却静默丢掉，现在读写完整往返。
 - **`!command` 用 pi 的 shell**（`06aa386`）：Windows 上 pi 用 Git Bash，扩展以前用平台默认 shell，会误报「无 API key」。现在直接用 pi 的 `getShellConfig()`，时间预算也一致。
 - **`provider.json` 里写 `models` / `modelOverrides` 会点名去哪**（`11631a6`）：以前只是一句通用 unknown key 提示；现在说明它属于本目录的 `models.json`（模型表只有这一个家，pi 全局 `models.json` 的第 3/4 层是补丁层）。
-- **`accounts.json` 的键就是凭据那份清单**（`2dd7127`）、**用 pi 自己的 reader 读 pi 全局 `models.json`**（`8de3205`）、**同一个问题只报一遍**（`ae7478a`）、**账号与 provider 撞 id 跳过并报告**（`52d2a05`）、**协议翻转时 layer 的 baseUrl 也算真实端点**（`24b9be3` `c069d48`）。
+- **`accounts.json` 的键就是凭据那份清单**（`2dd7127`）、**用 pi 自己的 reader 读 pi 全局 `models.json`**（`8de3205`）、**同一个问题只报一遍**（`ae7478a`）、**账号与 provider 撞 id 跳过并报告**（`52d2a05`）、
+  **协议翻转时 layer 的 baseUrl 也算真实端点**（`24b9be3` `c069d48`）。
 
 ### 重构
 
