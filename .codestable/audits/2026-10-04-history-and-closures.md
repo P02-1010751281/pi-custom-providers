@@ -44,3 +44,4 @@
 - 本包曾把别名块当第 3 层读（漂移），v0.5.0 已删（404）；差分会看见注册 id 下合法 `models[]` 补丁从「被应用」变为「不生效」（388）。
 - v0.5.0 删掉了「目录名撞出厂 `aliases`」那条守卫（出厂层已不存在，`aliases` 字段随之删除）（旧 §引擎行为）。
 - `builtin.ts` 的 `capabilityAuthority`/`builtinLevelMap` 随模型目录生成器一起删除（旧 §引擎行为）。
+- 迁移前 `session_start` 是唯一的自动刷新路径；`refreshModels` 钩子加入后两者共存（旧 §引擎行为）。

@@ -45,7 +45,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 ### 测试
 
-- `node tests/run-all.mjs` 跑全部（23 个；`harness.mjs`/`run-all.mjs` 不是用例）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑例如 `node tests/apis-test.mjs` / `directory-test.mjs` / `accounts-test.mjs` / `credential-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `env-test.mjs` / `pi-surface-test.mjs` / `pi-native-test.mjs`。
+- `node tests/run-all.mjs` 跑全部（24 个；`harness.mjs`/`run-all.mjs` 不是用例）；新增/改名后不用改清单（`run-all` 按目录扫）。单跑例如 `node tests/apis-test.mjs` / `directory-test.mjs` / `accounts-test.mjs` / `credential-test.mjs` / `sync-test.mjs` / `vanished-test.mjs` / `convention-test.mjs` / `responses-test.mjs` / `env-test.mjs` / `pi-surface-test.mjs` / `pi-native-test.mjs`。
 
 - `credential-test.mjs` 守发现探针的凭据：顺序（本次会话 → 账号 → pi 全局 `models.json` 的 provider 层）、auth 形态（协议默认 + `authHeader` 补 `Authorization: Bearer`）、以及无凭据时不发请求。形态不靠注释：bearer 那条对着 pi 自己的 `composeModelProvider`（拿我们真注册的 payload 跑）断言，`x-api-key`/`anthropic-version` 对着 pi-ai 实际用的 Anthropic SDK 的真请求头断言。
 - `env-test.mjs` 把 `env.ts` 的值语法（含 `!command` 跑在哪个 shell）逐例对照 pi 自己的 `resolveConfigValueUncached`；`pi-surface-test.mjs` 把 `MODEL_KEYS` 与 pi 的 `ModelDefinitionSchema` 双向对照（从 `dist/core/model-config.js` 读，pi 不导出它）并做全字段读写往返。这两个事实 pi 都不导出，只能这样钉。`graph-test.mjs` 另守 `apis.ts` 与 `util.ts` 两个图叶子（词汇层不许长出依赖）。
@@ -90,7 +90,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
     - `apis.ts` pi 的 api 词汇（协议 id + 别名 + `FALLBACK_CONTEXT_WINDOW`/`FALLBACK_MAX_TOKENS`；图叶子）
     - `util.ts` JSON 编解码与落盘词汇（`readJson`/`JsonRead`、`serializeJson`、`writeTextAtomic` + 对象类型 + 三个守卫；依赖图的叶子，只 import `node:fs`/`node:path`，不 import 任何本地模块）
   - **载荷：一个数据单元一个文件**
-    - `config.ts` pi 全局 `models.json` 层（第 3 层复刻：`readModelsConfig`/`validateModelsConfig`/`providerBlockFor`/`providerLayerFor`/`preflightLayer`；不再有模型补丁 applier，`applyModelPatch` 已删）
+    - `config.ts` pi 全局 `models.json` 层（第 3 层复刻：`readModelsConfig`/`validateModelsConfig`/`providerBlockFor`/`providerLayerFor`/`preflightLayer`；只读配置，不应用任何补丁）
     - `env.ts` .env 解析 + pi 值语法解析
     - `endpoints.ts` 端点表（读 + `init` 的 `writeProviderFile`）
     - `model-table.ts` 模型基底表（读 + `sync` 的 `FIELD_ORDER`/`serializeBaseTable`/`diffBaseTable`/`writeBaseTable`）
@@ -296,7 +296,7 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 ### pi 的注册与刷新钩子
 
-- provider 注册支持 pi 的 `refreshModels` 钩子：`pi update --models`、凭据变更、联网启动都会触发；返回值**替换**扩展注册的模型列表（不是合并），并可用 `context.publish({ persist })` 写入 `~/.pi/agent/models-store.json`。迁移前 `session_start` 是唯一的自动刷新路径（现在两者并存）。
+- provider 注册支持 pi 的 `refreshModels` 钩子：`pi update --models`、凭据变更、联网启动都会触发；返回值**替换**扩展注册的模型列表（不是合并），并可用 `context.publish({ persist })` 写入 `~/.pi/agent/models-store.json`。两条自动刷新路径并存：`session_start` 与这个钩子。
 
 - **坑**：pi 的 `ModelRuntime.registerProvider` 结尾是 `void this.refresh({ allowNetwork: false })`（`model-runtime.js`），所以每次重新注册都会紧跟着跑一轮**离线** `refreshModels`。如果实现者在联网刷新后只把 live 结果注册进去而不落盘，这轮离线反射会把值降级回基底表（`live.ts` 用进程内 `liveSnapshots` 顶住，优先级：memo > persisted > 基底表；`tests/pi-native-test.mjs` 就是这个回归测试）。
 
