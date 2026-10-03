@@ -15,15 +15,14 @@
 ## 安装
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.0
-```
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.1
 
 GitHub 镜像把 host 换成 `git:github.com/P02-1010751281/pi-custom-providers`。版本历史见 [CHANGELOG.md](CHANGELOG.md)；升级前建议看一眼下面的「迁移」。
 
 **两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。日常用方式 A；本地改代码用方式 B（改完随后 `/reload`）：
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.0                      # 方式 A
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.1                      # 方式 A
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B
 ```
 
@@ -35,7 +34,7 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 3. **用** —— `/providers status` 看注册结果；模型随后就能在 pi 的模型选择器里选
 4. **手改过文件之后** —— `/providers rescan my-relay` 让当前会话看见（新目录、手改的 `provider.json`/`models.json`/`accounts.json`、删掉的目录）。只有**扩展代码**变了才需要 pi 的 `/reload`
 
-配置长什么样、字段怎么写，见下面的「配置」一节；升级到 v0.5.0 要先做哪几件事，见「从 v0.4.1 升级」。
+配置长什么样、字段怎么写，见下面的「配置」一节；升级到 v0.5.0 及以后要先做哪几件事，见「从 v0.4.1 升级」。
 
 ## 为什么独立成包
 

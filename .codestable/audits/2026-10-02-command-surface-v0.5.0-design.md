@@ -177,7 +177,7 @@
 | §11–§14（改动清单/测试计划/部署/风险）、§15、§18 | 历史 | 不搬（git 留痕） |
 | §16 已定决策 1–18 | 逐条对过：1–17 已在 README/attention/代码；#17（provider 级 compat 只贴**有效默认协议**上的模型，刻意偏离 pi）在 README；#18 的能力权威随 v0.4.0 删生成器后只剩 `convention.ts`/`builtin.ts` 在跑 | 不搬 |
 
-**§10 逐条对账清单**（2026-10-04 从表格「处置」格拆出；文字未改）
+**§10 逐条对账清单**（2026-10-03 从表格「处置」格拆出；文字未改）
 
 - **未落地 4 条**：#14 旧 `wire` 键不报、#18 别名下的块已改为报「没有目录的 key」（`orphanProviderBlocks`，2026-10-03 落地）、#24 config 侧 `oauth` 不报（口径见下方处置，缺 `baseUrl` 那半已并入预报告）、#27 只做到「无凭据仍注册」未做警告
 - **#15 已落地**（compat 无作用键报告：`apis.ts API_COMPAT_KEYS`/`inertCompatKeys` + `compat-keys-test.mjs` 从 pi dist 复推钉住；`#22/#23` 亦已落地）

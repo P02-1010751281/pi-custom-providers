@@ -1,6 +1,6 @@
 # 从 attention.md 搬出的历史叙事与闭合记录
 
-> **归档**（2026-10-04，owner 指示）：历史叙事归 `CHANGELOG.md` 与 `audits/`，`attention.md` 只写当前事实。
+> **归档**（2026-10-03，owner 指示）：历史叙事归 `CHANGELOG.md` 与 `audits/`，`attention.md` 只写当前事实。
 > 这里是从 `attention.md` 原文搬出的段落，逐字保留以便查证；正文里对应位置已改为「当前规则」。
 > 已发版条目的用户可见部分在 `CHANGELOG.md`（v0.5.0 起逐条对照）。
 

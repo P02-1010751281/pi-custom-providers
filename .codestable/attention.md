@@ -24,11 +24,12 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
-- **当前已发版 = `v0.5.0`**（命令面收成单一 `/providers` + 删出厂层 + 第 3 层不再提供模型内容；破坏性三条见 README 迁移段，逐条变更以 `CHANGELOG.md` 为准）。tag 已推双远端，`~/.pi` 的 pin = `@v0.5.0`，README 安装行与本文一致。
+- **当前已发版 = `v0.5.1`**（纯文档 + 测试的 PATCH，`extensions/` 零改动）：README 白话化、attention 索引与 schema 事实块、全库排版规整、新增 `schema-doc-test`。
+  - 破坏性变更仍自 `v0.5.0` 起（见 README 迁移段）；tag 已推双远端，`~/.pi` 的 pin = `@v0.5.1`，README 安装行与本文一致。
 
 ## 已知技术债（明确未做，不是遗漏）
 
-- 当前没有待办项（2026-10-01 清零）；闭合记录见 `audits/2026-10-04-history-and-closures.md`。
+- 当前没有待办项（2026-10-01 清零）；闭合记录见 `audits/2026-10-03-history-and-closures.md`。
 
 
 
@@ -133,8 +134,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `tests/` **必须保持扁平**：`run-all.mjs` 是 `readdirSync` 单层扫描（不递归），放进子目录的测试会静默不被执行。`tests/fixtures/` 是数据不是测试（当前唯一的子目录）。
 - **排版纪律（文档）**：散文行一行一个意思、≤ 200 字；表格行与代码行按「一条记录 / 一句代码一行」豁免。
   - 多子句的单元格用 `<br>` 断开；换行类改动只允许加空白、行首 `- ` 标记与 `<br>`，验证法 = **去掉所有空白后逐字符相同**。
-  - `CHANGELOG.md` 与 `audits/`（含已发布条目）在 2026-10-04 也按此排过一遍（owner 指示），措辞未改。
-  - 同日的**结构拆分**（owner 批准，只动「一件记录里塞了多件事」的三处）：`attention.md` 工具层一行 → 4 行、`audit-01` 未定名签名一格 6 组 → 6 行、`audit-02` §10 一格 3 组 → 表下 3 条；动过的存档在文件内留有「拆分（2026-10-04）」注明，各组文字逐字未改。
+  - `CHANGELOG.md` 与 `audits/`（含已发布条目）在 2026-10-03 也按此排过一遍（owner 指示），措辞未改。
+  - 同日的**结构拆分**（owner 批准，只动「一件记录里塞了多件事」的三处）：`attention.md` 工具层一行 → 4 行、`audit-01` 未定名签名一格 6 组 → 6 行、`audit-02` §10 一格 3 组 → 表下 3 条；动过的存档在文件内留有「拆分（2026-10-03）」注明，各组文字逐字未改。
 
 **`.codestable/` 知识布局（v2）**
 
@@ -277,7 +278,7 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 
 ### pi 的字段与 schema
 
-**pi 的三张配置 schema（`dist/core/model-config.js`，2026-10-04 复推）**
+**pi 的三张配置 schema（`dist/core/model-config.js`，2026-10-03 复推）**
 
 - `ProviderConfigSchema`（`providers.<id>` 块，10 字段）：`name`、`baseUrl`、`apiKey`、`api`、`oauth`（只能是字面量 `"radius"`）、`headers`、`compat`、`authHeader`、
   `models[]`（= `ModelDefinitionSchema` 的数组）、`modelOverrides`（= `Record<modelId, ModelOverrideSchema>`）。
