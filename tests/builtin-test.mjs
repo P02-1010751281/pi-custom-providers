@@ -1,6 +1,6 @@
 import { loadTs, assert, runCommand, seedDefaultProviders, stubPi, withFetch, PI } from "./harness.mjs";
 
-const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift, unanimousFacts } = await loadTs("extensions/custom-providers/builtin.ts");
+const { loadBuiltinCatalog, absorbCompat, normalizeModelId, summarizeDrift, unanimousFacts, vendorFacts } = await loadTs("extensions/custom-providers/builtin.ts");
 
 // --- pi's built-in catalog is readable through the loader alias ---------------
 // pi maps `@earendil-works/pi-ai` to its compat entry; dist/index.js has no
@@ -49,6 +49,30 @@ for (const [key, entry] of expected) {
 }
 assert(agreed > 0 && contested > 0, `the catalog must exercise both outcomes (agreed ${agreed}, contested ${contested})`);
 assert(unanimousFacts("zzz-no-such-model", builtin) === undefined, "an id nobody ships has no facts");
+
+// --- `vendor` is derived too: the maker's own row, read straight from compat --------
+// Which provider is a family's vendor is policy (VENDOR_HOSTS); what is pinned here is the lookup:
+// the values must equal the named vendor's own row, a reseller must not be mistaken for a maker,
+// and a dated snapshot must find its base model.
+const vendorCases = [
+	["Kimi-K3", "moonshotai", "kimi-k3", /^(moonshotai|kimi-coding)/],
+	["GLM-5.2", "zai", "glm-5.2", /^zai/],
+	["Qwen3.8-Flash", "qwen-token-plan", "qwen3.8-flash", /^qwen-token-plan/],
+	["MiniMax-M3", "minimax", "MiniMax-M3", /^minimax/],
+	["DeepSeek-V4-Pro-0813", "deepseek", "deepseek-v4-pro", /^deepseek$/],
+];
+for (const [id, provider, vendorId, hostRe] of vendorCases) {
+	const row = (raw.getModels(provider) ?? []).find((model) => String(model.id) === vendorId);
+	const facts = vendorFacts(id, builtin);
+	assert(row && facts, `${id}: ${provider}'s own ${vendorId} row exists and is found (got ${facts?.provider})`);
+	assert(hostRe.test(facts.provider), `${id}: the fact comes from the maker (${facts.provider}), not a reseller`);
+	assert(facts.contextWindow === row.contextWindow && facts.maxTokens === row.maxTokens, `${id}: the numbers are ${provider}'s own (got ${facts.contextWindow}/${facts.maxTokens})`);
+	assert(JSON.stringify(facts.input) === JSON.stringify(row.input), `${id}: the modalities are ${provider}'s own (got ${facts.input})`);
+}
+// 转售自己不是厂商：阿里的计划里也上架 MiniMax/Kimi，但阿里不是它们的厂商。
+assert(vendorFacts("MiniMax-M2.5", builtin) === undefined, "a plan reselling another maker's model is not that model's vendor");
+assert(vendorFacts("GLM-5.1", builtin) === undefined, "a maker that does not list the id yields no vendor fact");
+assert(vendorFacts("zzz-no-such-model", builtin) === undefined, "an id nobody ships has no vendor fact");
 
 // --- absorption is a whitelist, limited to the Anthropic wire -----------------
 assert(absorbCompat({ id: "claude-opus-5", api: "anthropic-messages" }, builtin)?.supportsTemperature === false, "Opus 5 absorbs supportsTemperature: false");

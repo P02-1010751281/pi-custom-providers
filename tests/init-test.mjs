@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { agentPath, assert, loadTs, runCommand, startExtension, withFetch } from "./harness.mjs";
 
 const { readAccountsFile } = await loadTs("extensions/custom-providers/credentials.ts");
-const { loadBuiltinCatalog } = await loadTs("extensions/custom-providers/builtin.ts");
+const { loadBuiltinCatalog, unanimousFacts, vendorFacts } = await loadTs("extensions/custom-providers/builtin.ts");
 const ext = await startExtension();
 const notify = [];
 const last = () => notify.at(-1) ?? "";
@@ -75,9 +75,20 @@ assert(json("bad", "provider.json").modelsPath === "/v1/models", "a discovery pa
 process.env.AUTO_KEY = "test-key";
 delete process.env.MISSING_KEY;
 const catalog = await loadBuiltinCatalog();
-// Derived, not hardcoded: only an id pi's own hosts agree on may be filled (see builtin-test.mjs).
-const settledId = [...catalog.unanimous.keys()].find((key) => catalog.unanimous.get(key).maxTokens !== undefined);
-assert(settledId, "the catalog carries an id whose hosts agree on the output cap for this case");
+// Derived, not hardcoded: the maker's own entry first, the all-providers-agree values second.
+// The id is picked so the two sources *disagree* (57 ids do — e.g. deepseek-v4-pro, where only the
+// maker states the windows), otherwise this case could not tell the precedence apart.
+const settled = [...catalog.vendor.keys()]
+	.map((key) => ({ key, facts: vendorFacts(key, catalog), agreed: unanimousFacts(key, catalog) }))
+	.find(
+		(entry) =>
+			entry.facts?.maxTokens !== undefined &&
+			entry.facts.contextWindow !== undefined &&
+			entry.facts.maxTokens <= entry.facts.contextWindow &&
+			(entry.agreed?.contextWindow !== entry.facts.contextWindow || entry.agreed?.maxTokens !== entry.facts.maxTokens),
+	);
+assert(settled, "the catalog carries a vendor id whose own numbers differ from the agreement for this case");
+const settledId = settled.key;
 await withFetch(
 	async () => ({ ok: true, json: async () => ({ data: [{ id: settledId }, { id: "zzz-auto-sync" }] }) }),
 	() => runCommand(ext.commands, "init auto --url https://auto.example/v1 --api openai-completions --models-path /models --key $AUTO_KEY", notify),
@@ -85,7 +96,8 @@ await withFetch(
 assert(existsSync(file("auto", "models.json")), "init fetches the live list");
 const autoModels = json("auto", "models.json").models;
 assert(autoModels.map((model) => model.id).sort().join(",") === [settledId, "zzz-auto-sync"].sort().join(","), `and writes it to the vendor's models.json (got ${autoModels.map((model) => model.id).join(",")})`);
-assert(autoModels.find((model) => model.id === settledId).maxTokens === catalog.unanimous.get(settledId).maxTokens, "a discovered id takes the built-in catalog's uncontested windows");
+const settledRow = autoModels.find((model) => model.id === settledId);
+assert(settledRow.maxTokens === settled.facts.maxTokens && settledRow.contextWindow === settled.facts.contextWindow, `a discovered id takes its maker's / the agreed windows (got ${settledRow.contextWindow}/${settledRow.maxTokens})`);
 assert(autoModels.find((model) => model.id === "zzz-auto-sync").maxTokens === 16384, "an id the catalog does not carry keeps the conservative fallback");
 assert(last().includes("registered auto in this session"), `init reports the registration (got ${last()})`);
 assert(ext.providers.get("auto").models.length === 2, "and the session carries the table without a rescan or a second sync");

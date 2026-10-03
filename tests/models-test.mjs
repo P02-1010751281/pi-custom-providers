@@ -87,25 +87,30 @@ assert(repaired[0].cost && typeof repaired[0].cost.input === "number" && repaire
 const hardened = api.applyLiveModels([{ id: "no-input", name: "n", reasoning: false, contextWindow: 1000, maxTokens: 10, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }], []);
 assert(Array.isArray(hardened.models[0].input), "a base entry without an input array still yields one (the raw sync re-read can produce such a row)");
 
-// --- d': an unseen id takes built-in values only where every provider agrees ------
+// --- an unseen id: the model maker's own entry first, the wire as a ceiling -------
 // A hand-made catalog keeps this hermetic: what is under test is the precedence, not pi's
 // current model list (builtin-test.mjs derives the real one).
-const fakeCatalog = (unanimous) => ({ byId: new Map(), votes: new Map(), unanimous, rejectsTemperature: new Set(), providers: new Set(), available: true });
-const facts = new Map([
-	["settledmodel", { contextWindow: 4242, maxTokens: 99, input: ["text", "image"] }],
-	["partialmodel", { maxTokens: 77 }],
+const fakeCatalog = (vendor, unanimous) => ({ byId: new Map(), vendor, votes: new Map(), unanimous, rejectsTemperature: new Set(), providers: new Set(), available: true });
+const makerRow = (provider, contextWindow, maxTokens, input) => ({ provider, id: "x", reasoning: false, input, contextWindow, maxTokens });
+const vendorFacts = new Map([["vendormodel", makerRow("maker", 4242, 999, ["text", "image"])]]);
+const agreedFacts = new Map([
+	["vendormodel", { contextWindow: 111, maxTokens: 22, input: ["text"] }],
+	["agreedmodel", { contextWindow: 1234, maxTokens: 77, input: ["text", "image"] }],
 ]);
-const withCatalog = api.applyLiveModels([], [{ id: "Settled-Model" }, { id: "Partial-Model" }, { id: "unknown-model" }], "openai-completions", fakeCatalog(facts));
-const settled = withCatalog.models.find((model) => model.id === "Settled-Model");
-assert(settled.contextWindow === 4242 && settled.maxTokens === 99 && settled.input.includes("image"), "an id every provider agrees on takes the catalog's windows and modalities");
-const partial = withCatalog.models.find((model) => model.id === "Partial-Model");
-assert(partial.maxTokens === 77 && partial.contextWindow === 128000 && !partial.input.includes("image"), "a partially agreed id takes only the agreed field and keeps the fallback for the rest");
+const withCatalog = api.applyLiveModels([], [{ id: "Vendor-Model" }, { id: "Agreed-Model" }, { id: "unknown-model" }], "openai-completions", fakeCatalog(vendorFacts, agreedFacts));
+const vendorModel = withCatalog.models.find((model) => model.id === "Vendor-Model");
+assert(vendorModel.contextWindow === 4242 && vendorModel.maxTokens === 999 && vendorModel.input.includes("image"), "the model maker's own entry beats the all-providers-agree map");
+const agreedModel = withCatalog.models.find((model) => model.id === "Agreed-Model");
+assert(agreedModel.contextWindow === 1234 && agreedModel.maxTokens === 77, "a family with no vendor entry falls back to the all-agree values");
 const unknownModel = withCatalog.models.find((model) => model.id === "unknown-model");
-assert(unknownModel.maxTokens === 16384 && unknownModel.contextWindow === 128000, "an id the catalog does not carry keeps the conservative fallback");
-assert(withCatalog.filled.join(",") === "Settled-Model,Partial-Model", `the round names the ids it filled (got ${withCatalog.filled.join(",")})`);
-const wireWins = api.applyLiveModels([], [{ id: "Settled-Model", context_length: 555 }], "openai-completions", fakeCatalog(facts));
-assert(wireWins.models[0].contextWindow === 555 && wireWins.models[0].maxTokens === 99, "the wire's own context window outranks the catalog's, which still supplies the output cap");
-const noCatalog = api.applyLiveModels([], [{ id: "Settled-Model" }], "openai-completions");
+assert(unknownModel.maxTokens === 16384 && unknownModel.contextWindow === 128000, "neither source leaves the conservative fallback");
+assert(withCatalog.filled.join(", ") === "Vendor-Model (vendor maker), Agreed-Model (every provider agrees)", `the round names each id and its source (got ${withCatalog.filled.join(", ")})`);
+const capped = api.applyLiveModels([], [{ id: "Vendor-Model", context_length: 555 }], "openai-completions", fakeCatalog(vendorFacts, agreedFacts));
+assert(capped.models[0].contextWindow === 555, "the wire's window caps the vendor's spec (a gateway's budget is harder)");
+assert(capped.models[0].maxTokens === 555, "and the output cap is clamped into the window that survived");
+const specWins = api.applyLiveModels([], [{ id: "Vendor-Model", context_length: 9999999 }], "openai-completions", fakeCatalog(vendorFacts, agreedFacts));
+assert(specWins.models[0].contextWindow === 4242, "a larger wire window does not raise the model's spec");
+const noCatalog = api.applyLiveModels([], [{ id: "Vendor-Model" }], "openai-completions");
 assert(noCatalog.models[0].maxTokens === 16384 && noCatalog.filled.length === 0, "without a catalog nothing is filled");
 
 // --- models.json: absent vs broken ---------------------------------------------

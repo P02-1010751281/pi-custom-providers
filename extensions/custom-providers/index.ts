@@ -434,7 +434,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 		const diff = diffBaseTable(vendor.id, file, merged, vendor.models);
 		const report = [
 			...summarizeDiff(diff),
-			...(filled.size > 0 ? [`filled from pi's built-in catalog (every provider agrees): ${[...filled].join(", ")}`] : []),
+			...(filled.size > 0 ? [`filled from pi's built-in catalog: ${[...filled].join(", ")}`] : []),
 			...(!prune && result.vanished.length > 0 ? [`vanished (kept, pass --prune to drop): ${result.vanished.join(", ")}`] : []),
 			...notes.map((note) => `skipped ${note}`),
 		];
@@ -509,7 +509,7 @@ export default async function customProviders(pi: ExtensionAPI) {
 				`accounts: ${status.accounts.length > 0 ? status.accounts.join(", ") : "none"}`,
 				...(status.error ? [`error: ${status.error}`] : []),
 				...status.unknown.map((id) => `new: ${id}`),
-			...(status.filled.length > 0 ? [`new ids filled from pi's built-in catalog (every provider agrees): ${toastLines(status.filled)}`] : []),
+			...(status.filled.length > 0 ? [`new ids filled from pi's built-in catalog: ${toastLines(status.filled)}`] : []),
 				...(drift.length > 0 ? [`built-in catalog (reported, not applied): ${toastLines(drift, 8)}`] : []),
 				...[...new Set(status.issues.map((issue) => `${issue.level}: ${issue.message}`))],
 			];

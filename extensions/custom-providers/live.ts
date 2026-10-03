@@ -9,7 +9,7 @@
  * loaded extension instance (the test harness re-imports for a clean slate).
  */
 import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS } from "./apis.ts";
-import { unanimousFacts, type BuiltinCatalog } from "./builtin.ts";
+import { unanimousFacts, vendorFacts, type BuiltinCatalog, type UnanimousFacts } from "./builtin.ts";
 import { conventionCapability } from "./convention.ts";
 import { discoveryCredential, unresolvedReference } from "./credentials.ts";
 import { mergeHeaders, synthesizeModels, ZERO_COST, type ModelEntry, type ProviderEntry } from "./providers.ts";
@@ -70,13 +70,12 @@ function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_lengt
  * other field stays base-owned — a reseller's bare-id registry must not silently downgrade
  * a curated model to pi's defaults. An id the base table has never seen has no curated entry to
  * protect, so it is synthesized: `reasoning` from the naming convention in `convention.ts`, and
- * `contextWindow` / `maxTokens` / `input` from pi's built-in catalog when *every* built-in
- * provider shipping that id agrees on them (`unanimousFacts`). A disagreement means those numbers
- * are a host's serving limits, not a model fact — one id spans 65536…1048576 output tokens across
- * pi's own catalog — so the entry keeps the conservative fallback instead of copying one host's
- * numbers (a gateway that caps lower answers 400 for an over-large `maxTokens`). A context window
- * the wire itself reported outranks the catalog: only this gateway's answer describes this
- * gateway. Curated parameters still only ever come from the base table.
+ * `contextWindow` / `maxTokens` / `input` from pi's built-in catalog — the model maker's own entry
+ * first (`vendorFacts`), then the values every provider shipping the id agrees on
+ * (`unanimousFacts`). A context window the wire itself reported caps both: a gateway's budget is
+ * harder than the model's spec, and an over-large `contextWindow` would make *every* request
+ * exceed it, not just a long one. `maxTokens` is capped to the window that ends up in the entry.
+ * Curated parameters still only ever come from the base table.
  */
 export function applyLiveModels(models: readonly ModelEntry[], rows: readonly LiveModelRow[], api?: string, builtin?: BuiltinCatalog): { models: ModelEntry[]; unknown: string[]; filled: string[] } {
 	const byId = cloneById(models);
@@ -91,19 +90,29 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 		}
 		unknown.push(row.id);
 		const convention = conventionCapability(models, row.id, api);
-		const facts = builtin ? unanimousFacts(row.id, builtin) : undefined;
+		const vendor = builtin ? vendorFacts(row.id, builtin) : undefined;
+		const agreed = builtin ? unanimousFacts(row.id, builtin) : undefined;
 		const wireContext = numberOr(row.context_length ?? row.contextWindow);
-		// Counted only when a catalog value is actually used: a fact the wire outranks is not a fill.
-		const contextFromCatalog = wireContext === undefined && facts?.contextWindow !== undefined;
-		if (facts && (contextFromCatalog || facts.maxTokens !== undefined || facts.input !== undefined)) filled.push(row.id);
+		// 厂商 spec 优先，探测到的窗口只能压低它：网关自己的预算比模型能力更硬。
+		const specContext = vendor?.contextWindow ?? agreed?.contextWindow;
+		const specMax = vendor?.maxTokens ?? agreed?.maxTokens;
+		const catalogInput = vendor?.input ?? agreed?.input;
+		const ctxSource = specContext === undefined ? "wire" : wireContext === undefined ? "catalog" : wireContext <= specContext ? "wire" : "catalog";
+		const contextWindow = ctxSource === "wire" ? wireContext ?? FALLBACK_CONTEXT_WINDOW : (specContext as number);
+		const maxTokens = Math.min(specMax ?? FALLBACK_MAX_TOKENS, contextWindow);
+		// Only a value that reached the entry counts as a fill, and the entry names where it came from.
+		const used = (facts: UnanimousFacts | undefined) => facts !== undefined && ((ctxSource === "catalog" && facts.contextWindow !== undefined) || facts.maxTokens !== undefined || facts.input !== undefined);
+		const vendorUsed = used(vendor);
+		const source = vendorUsed ? `vendor ${(vendor as { provider: string }).provider}` : used(agreed) ? "every provider agrees" : undefined;
+		if (source) filled.push(`${row.id} (${source})`);
 		byId.set(row.id, {
 			id: row.id,
 			name: stringOr(row.name) ?? row.id,
 			reasoning: convention?.reasoning ?? false,
 			...(convention?.thinkingLevelMap ? { thinkingLevelMap: convention.thinkingLevelMap } : {}),
-			input: facts?.input ? [...facts.input] : ["text"],
-			contextWindow: wireContext ?? facts?.contextWindow ?? FALLBACK_CONTEXT_WINDOW,
-			maxTokens: facts?.maxTokens ?? FALLBACK_MAX_TOKENS,
+			input: catalogInput ? [...catalogInput] : ["text"],
+			contextWindow,
+			maxTokens,
 			cost: { ...ZERO_COST },
 		});
 	}

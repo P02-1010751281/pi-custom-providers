@@ -122,30 +122,46 @@ assert(last().includes("demo") && last().includes("second"), `no id syncs every 
 await run("sync nope --dry-run");
 assert(last().includes("No provider directory"), `an unknown id is reported (got ${last()})`);
 
-// --- d': a discovered id is filled from the built-in catalog only where hosts agree ------
-// Both ids are derived from the catalog: the popular ones differ per host (GLM-5.3 is shipped by
-// 15 providers with five different output caps), so a hardcoded expectation would rot — and
-// would have hidden the real yield of the rule.
+// --- a discovered id: the maker's own entry, the wire as a ceiling, then agreement ----------
+// Every id is derived from the catalog — which numbers a vendor states changes with pi's build,
+// so a hardcoded expectation would rot (GLM-5.3 is shipped by 15 providers with five caps).
 const builtinApi = await loadTs("extensions/custom-providers/builtin.ts");
 const catalog = await builtinApi.loadBuiltinCatalog();
-const settledId = [...catalog.unanimous.keys()].find((key) => catalog.unanimous.get(key).contextWindow !== undefined && catalog.unanimous.get(key).maxTokens !== undefined);
-const contestedId = [...catalog.byId.keys()].find((key) => catalog.unanimous.get(key)?.maxTokens === undefined);
-assert(settledId && contestedId, "the catalog must offer an id whose hosts agree and one whose output cap they do not");
-const settledFacts = catalog.unanimous.get(settledId);
-const contestedFacts = catalog.unanimous.get(contestedId) ?? {};
-const disagreement = answered([{ id: settledId }, { id: contestedId }, { id: "zzz-unknown-id" }]);
+const filledKeys = [...catalog.vendor.keys()].filter((key) => catalog.vendor.get(key).contextWindow > 0 && catalog.vendor.get(key).maxTokens > 0);
+const vendorKey = filledKeys[0];
+const cappedKey = filledKeys[1];
+const agreedKey = [...catalog.unanimous.keys()].find((key) => !catalog.vendor.has(key) && catalog.unanimous.get(key).contextWindow !== undefined && catalog.unanimous.get(key).maxTokens !== undefined);
+const contestedKey = [...catalog.byId.keys()].find((key) => !catalog.vendor.has(key) && catalog.unanimous.get(key)?.maxTokens === undefined);
+assert(vendorKey && cappedKey && agreedKey && contestedKey, "the catalog must exercise a vendor entry, an agreed id and a contested one");
+const vendorHere = builtinApi.vendorFacts(vendorKey, catalog);
+const cappedHere = builtinApi.vendorFacts(cappedKey, catalog);
+const agreedFacts = catalog.unanimous.get(agreedKey);
+const contestedFacts = catalog.unanimous.get(contestedKey) ?? {};
+const disagreement = answered([{ id: vendorKey }, { id: agreedKey }, { id: contestedKey }, { id: "zzz-unknown-id" }]);
 await run("sync demo --dry-run", disagreement);
-assert(last().includes("filled from pi's built-in catalog"), `a fill is reported, not silent (got ${last()})`);
+const report = last();
+assert(report.includes("filled from pi's built-in catalog"), `a fill is reported, not silent (got ${report})`);
+assert(report.includes(`${vendorKey} (vendor ${vendorHere.provider})`), `the report names the maker it took the values from (got ${report})`);
+assert(report.includes(`${agreedKey} (every provider agrees)`), `and the agreement fallback by name (got ${report})`);
+assert(!report.includes(`${contestedKey} (vendor`), "an id with no vendor entry is never reported as vendor-sourced");
 await run("sync demo", disagreement);
 const filledTable = JSON.parse(readFileSync(file, "utf8")).models;
-const settledRow = filledTable.find((model) => model.id === settledId);
-assert(settledRow.contextWindow === settledFacts.contextWindow && settledRow.maxTokens === settledFacts.maxTokens, `an agreed id is written with the catalog's windows (got ${settledRow.contextWindow}/${settledRow.maxTokens})`);
-const contestedRow = filledTable.find((model) => model.id === contestedId);
+const vendorRow = filledTable.find((model) => model.id === vendorKey);
+assert(vendorRow.contextWindow === vendorHere.contextWindow && vendorRow.maxTokens === vendorHere.maxTokens, `the maker's own entry is written for an unseen id (got ${vendorRow.contextWindow}/${vendorRow.maxTokens})`);
+const agreedRow = filledTable.find((model) => model.id === agreedKey);
+assert(agreedRow.contextWindow === agreedFacts.contextWindow && agreedRow.maxTokens === agreedFacts.maxTokens, `an id with no vendor entry takes the agreed values (got ${agreedRow.contextWindow}/${agreedRow.maxTokens})`);
+const contestedRow = filledTable.find((model) => model.id === contestedKey);
 assert(contestedRow.maxTokens === 16384, `a contested output cap keeps the conservative fallback (got ${contestedRow.maxTokens})`);
-assert(contestedRow.contextWindow === (contestedFacts.contextWindow ?? 128000), "a contested id takes only the fields its hosts agree on");
+assert(contestedRow.contextWindow === (contestedFacts.contextWindow ?? 128000), "a contested id takes only the fields its hosts agree on and falls back for the rest");
 const unknownRow = filledTable.find((model) => model.id === "zzz-unknown-id");
-assert(unknownRow.maxTokens === 16384 && unknownRow.contextWindow === 128000, "an id the catalog does not carry keeps both fallbacks");
+assert(unknownRow.maxTokens === 16384 && unknownRow.contextWindow === 128000, "an id neither source covers keeps both fallbacks");
 assert(last().includes("registered demo in this session"), "and the write still applies itself");
+// 探测到的窗口只能是上限：线上只报小值时，厂商的 spec 不得把它撑大；输出上限也跟着被夹。
+const ceiling = Math.max(1, Math.min(cappedHere.contextWindow, cappedHere.maxTokens) - 1);
+await run("sync demo", answered([{ id: cappedKey, context_length: ceiling }]));
+const cappedRow = JSON.parse(readFileSync(file, "utf8")).models.find((model) => model.id === cappedKey);
+assert(cappedRow.contextWindow === ceiling, `the wire's own window caps the vendor's spec (got ${cappedRow.contextWindow}, vendor said ${cappedHere.contextWindow})`);
+assert(cappedRow.maxTokens === ceiling, `and the output cap is clamped into the window that survived (got ${cappedRow.maxTokens}, vendor said ${cappedHere.maxTokens})`);
 
 console.log(`sync diff: +${diff.added.length} ~${diff.changed.length} -${diff.removed.length}`);
 console.log("OK");

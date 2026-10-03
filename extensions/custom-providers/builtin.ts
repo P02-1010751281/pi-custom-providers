@@ -22,16 +22,58 @@
  *      field over the providers shipping the same id, so a lone third-party host
  *      cannot flip a model (design decision 18's majority rule, kept for reporting
  *      after the shipped model table was removed).
- *   3. `unanimousFacts` — synthesize the fields of an id the base table has never seen,
- *      but only from values *every* built-in provider shipping it agrees on. A
- *      disagreement means the numbers are a host's serving limits, not a model fact
- *      (one id spans 65536…1048576 output tokens across pi's own catalog), so nothing
- *      is copied and the entry keeps the conservative fallback. The base table stays
- *      the only place where a *choice* is written.
+ *   3. `vendorFacts` / `unanimousFacts` — synthesize the fields of an id the base table has
+ *      never seen. The model maker's own entry (`vendorFacts`: `deepseek`, `moonshotai`,
+ *      `zai`, `qwen-token-plan*`, `minimax*`, ...) is the closest thing to a model fact, so it
+ *      wins; a family with no vendor entry falls back to the values *every* built-in provider
+ *      shipping the id agrees on (`unanimousFacts`). Neither may outrank a context window the
+ *      wire itself reported — a gateway's own budget is harder than the model's spec — and
+ *      `maxTokens` is capped to the window that ends up in the entry. A pi build without those
+ *      exports, or an unknown family, keeps the conservative fallback. The base table stays the
+ *      only place where a *choice* is written.
  *
  * A pi build that lacks the alias or those exports degrades to an empty catalog:
  * nothing is absorbed, nothing is reported, nothing throws.
  */
+
+/**
+ * Which built-in providers are a model family's *own* vendor, per pi's catalog. pi ships both the
+ * vendor's plan (`deepseek`, `moonshotai`, `zai`, `qwen-token-plan*`, `minimax*` — measured from the
+ * installed pi) and resellers that use bare ids too (`opencode`), so the boundary cannot be read off
+ * the id shape and is stated here instead. A new vendor plan is a one-line addition.
+ */
+const VENDOR_HOSTS: readonly { readonly family: RegExp; readonly hosts: readonly string[] }[] = [
+	{ family: /^deepseek/, hosts: ["deepseek"] },
+	{ family: /^kimi/, hosts: ["moonshotai", "moonshotai-cn", "kimi-coding"] },
+	{ family: /^glm/, hosts: ["zai", "zai-coding-cn"] },
+	{ family: /^qwen/, hosts: ["qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual"] },
+	{ family: /^minimax/, hosts: ["minimax", "minimax-cn"] },
+	{ family: /^claude/, hosts: ["anthropic"] },
+	{ family: /^gpt|^o[1-9]/, hosts: ["openai", "openai-codex"] },
+	{ family: /^gemini/, hosts: ["google", "google-vertex"] },
+	{ family: /^grok/, hosts: ["xai"] },
+	{ family: /^mimo/, hosts: ["xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp"] },
+];
+
+/** The vendor hosts for a normalized id, by family; `undefined` for a family pi's catalog does not know. */
+function vendorHostsFor(key: string): readonly string[] | undefined {
+	return VENDOR_HOSTS.find((entry) => entry.family.test(key))?.hosts;
+}
+
+/**
+ * A dated snapshot and its base model are the vendor's own two names for one model
+ * (`DeepSeek-V4-Pro-0813` / `deepseek-v4-pro`), so the vendor lookup retries without a trailing
+ * `MMDD`. Only used for that retry — `normalizeModelId` itself stays as it is, since merging keys
+ * globally would move ids other readers already compare by.
+ */
+function stripSnapshot(key: string): string {
+	const match = /^(.+?)(\d{4})$/.exec(key);
+	if (!match) return key;
+	const month = Number(match[2].slice(0, 2));
+	const day = Number(match[2].slice(2));
+	if (month < 1 || month > 12 || day < 1 || day > 31) return key;
+	return match[1];
+}
 
 /** pi's compat flags this package is willing to absorb (see the module doc). */
 export interface CatalogCompat {
@@ -69,6 +111,11 @@ export interface BuiltinCatalog {
 	/** Normalized id -> the first built-in entry seen for it. */
 	byId: ReadonlyMap<string, BuiltinModelInfo>;
 	/**
+	 * Normalized id -> the entry from the model maker's own provider (`VENDOR_HOSTS`), when pi's
+	 * catalog ships one. The preferred source for an id the base table has never seen.
+	 */
+	vendor: ReadonlyMap<string, BuiltinModelInfo>;
+	/**
 	 * Normalized id -> per-field votes across the providers shipping it. Capabilities are
 	 * model facts, so the majority decides and the provider order stops mattering.
 	 */
@@ -92,6 +139,7 @@ export interface BuiltinCatalog {
 
 export const EMPTY_BUILTIN_CATALOG: BuiltinCatalog = {
 	byId: new Map(),
+	vendor: new Map(),
 	votes: new Map(),
 	unanimous: new Map(),
 	rejectsTemperature: new Set(),
@@ -122,6 +170,7 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 		};
 		if (typeof piAi.getProviders !== "function" || typeof piAi.getModels !== "function") return EMPTY_BUILTIN_CATALOG;
 		const byId = new Map<string, BuiltinModelInfo>();
+		const vendor = new Map<string, BuiltinModelInfo>();
 		const votes = new Map<string, { reasoning: [number, number]; image: [number, number] }>();
 		/** Per id: the distinct values seen, so agreement can be read off after the walk. */
 		const seen = new Map<string, { context: Set<number>; max: Set<number>; input: Map<string, readonly string[]> }>();
@@ -138,16 +187,16 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 				const input = Array.isArray(model.input) ? model.input.map(String) : [];
 				if (input.length > 0) fields.input.set([...input].sort().join("\u0000"), input);
 				seen.set(key, fields);
-				if (!byId.has(key)) {
-					byId.set(key, {
-						provider,
-						id: model.id,
-						reasoning: model.reasoning === true,
-						input: Array.isArray(model.input) ? model.input : [],
-						contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : 0,
-						maxTokens: typeof model.maxTokens === "number" ? model.maxTokens : 0,
-					});
-				}
+				const info: BuiltinModelInfo = {
+					provider,
+					id: model.id,
+					reasoning: model.reasoning === true,
+					input: Array.isArray(model.input) ? model.input : [],
+					contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : 0,
+					maxTokens: typeof model.maxTokens === "number" ? model.maxTokens : 0,
+				};
+				if (!byId.has(key)) byId.set(key, info);
+				if (vendorHostsFor(key)?.includes(provider) && !vendor.has(key)) vendor.set(key, info);
 				const vote = votes.get(key) ?? { reasoning: [0, 0] as [number, number], image: [0, 0] as [number, number] };
 				vote.reasoning[model.reasoning === true ? 0 : 1] += 1;
 				vote.image[(Array.isArray(model.input) ? model.input : []).includes("image") ? 0 : 1] += 1;
@@ -163,15 +212,32 @@ export async function loadBuiltinCatalog(): Promise<BuiltinCatalog> {
 			if (fields.input.size === 1) facts.input = [...fields.input.values()][0];
 			if (facts.contextWindow !== undefined || facts.maxTokens !== undefined || facts.input !== undefined) unanimous.set(key, facts);
 		}
-		return { byId, votes, unanimous, rejectsTemperature, providers: new Set(piAi.getProviders().map(String)), available: byId.size > 0 };
+		return { byId, vendor, votes, unanimous, rejectsTemperature, providers: new Set(piAi.getProviders().map(String)), available: byId.size > 0 };
 	} catch {
 		return EMPTY_BUILTIN_CATALOG;
 	}
 }
 
 /**
+ * The model maker's own facts for one id — `undefined` when pi's catalog ships no vendor entry for
+ * its family (or the vendor does not list that model), which is when `unanimousFacts` takes over.
+ * A dated snapshot also matches its base model (`DeepSeek-V4-Pro-0813` -> `deepseek-v4-pro`).
+ */
+export function vendorFacts(id: string, catalog: BuiltinCatalog): (UnanimousFacts & { provider: string }) | undefined {
+	const key = normalizeModelId(id);
+	const info = catalog.vendor.get(key) ?? catalog.vendor.get(stripSnapshot(key));
+	if (!info) return undefined;
+	return {
+		provider: info.provider,
+		...(info.contextWindow > 0 ? { contextWindow: info.contextWindow } : {}),
+		...(info.maxTokens > 0 ? { maxTokens: info.maxTokens } : {}),
+		...(info.input.length > 0 ? { input: info.input } : {}),
+	};
+}
+
+/**
  * The uncontested facts for one model id — `undefined` when its hosts disagree (or nobody ships
- * it), which is the only case in which a discovered id may take catalog values.
+ * it), which is the fallback source for a discovered id.
  */
 export function unanimousFacts(id: string, catalog: BuiltinCatalog): UnanimousFacts | undefined {
 	return catalog.unanimous.get(normalizeModelId(id));
