@@ -210,9 +210,11 @@ pi 在**注册时**就用它自己内置的模型表校验用户写的 `provider
 |---|---|---|
 | `/providers [<id>]` | 总览，或单个 provider 详情（协议分布、账号、校验问题、与 pi 内置目录的差异明细） | 否 |
 | `/providers files` | 扫描结果：每个目录的 id、来源、模型数、账号，被忽略的目录，文件校验问题 | 否 |
-| `/providers init [<id>] --url <u> --api <a> [--models-path <p>] [--key <v>] [--force]` | 有 UI 走向导（问缺的部分，key 直接收但会警告明文）；无 UI 必须给 `--url`/`--api`。写 `provider.json`，给了 key 且 `accounts.json` 不存在时写它 | `provider.json`、`accounts.json` |
+| `/providers init [<id>]` | 有 UI 走向导（问缺的部分，key 直接收但会警告明文）；无 UI 必须给 `--url`/`--api`。写 `provider.json`，给了 key 且 `accounts.json` 不存在时写它 | `provider.json`、`accounts.json` |
 | `/providers sync [<id>] [--dry-run] [--prune]` | 联网抓 `/models` → 逐端点跳过失败/空答 → 写基底表；省略 id = 全部 vendor；`--prune` 必须带 id | `<id>/models.json` |
 | `/providers rescan [<id>] [--dry-run]` | 重扫目录 + 用**新快照**重新注册（拾取手改的文件、新目录，并撤销已删目录）；永不写盘 | 否 |
+
+`init` 的旗标：`--url <u> --api <a> [--models-path <p>] [--key <v>] [--force]`。
 
 `sync` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 默认保留并在摘要里标为「kept」，加 `--prune` 才真删（仅当该 vendor 本轮**所有可发现端点都成功且非空**才算「消失」，任一失败/空答则跳过该端点并点名，全部失败则不写盘）。
 写完提示 `run /providers rescan [<id>]` —— 盘变了不等于会话变了。

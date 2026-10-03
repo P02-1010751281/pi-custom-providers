@@ -135,7 +135,10 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - **排版纪律（文档）**：散文行一行一个意思、≤ 200 字；表格行与代码行按「一条记录 / 一句代码一行」豁免。
   - 多子句的单元格用 `<br>` 断开；换行类改动只允许加空白、行首 `- ` 标记与 `<br>`，验证法 = **去掉所有空白后逐字符相同**。
   - `CHANGELOG.md` 与 `audits/`（含已发布条目）在 2026-10-03 也按此排过一遍（owner 指示），措辞未改。
-  - 同日的**结构拆分**（owner 批准，只动「一件记录里塞了多件事」的三处）：`attention.md` 工具层一行 → 4 行、`audit-01` 未定名签名一格 6 组 → 6 行、`audit-02` §10 一格 3 组 → 表下 3 条；动过的存档在文件内留有「拆分（2026-10-03）」注明，各组文字逐字未改。
+  - 同日的**结构拆分**（owner 批准；只动「一件记录里塞了多件事」的格：格内留指针，长枚举移到表下列表，文字逐字未改）：
+    - 第一批：`attention.md` 工具层一行 → 4 行；`audit-01` 未定名签名一格 6 组 → 6 行；`audit-02` §10 一格 3 组 → 表下 3 条。
+    - 第二批（当日稍后，把 `>200` 表格行清零）：`README.md` 的 `init` 旗标一条；`attention.md` 流程表「所有者」整列 + 阶段 3/5 细则 + azure 来源顺序；`audit-01` 结论速览第 3 列 3 条 + 指纹表第 4 列 5 条；`audit-02` §10 的「落地 20 条」；`audit-03` 三行的归因。
+    - 动过的存档在文件内留有「拆分（2026-10-03）」注明。
 
 **`.codestable/` 知识布局（v2）**
 
@@ -150,18 +153,45 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 顺序只有一处可读：`index.ts`（唯一编排者）。模块之间不横向互调，只有同阶段复用（`live.refreshEntry` 调 `providers.synthesizeModels`——注册与刷新必须算出同一张基底表）。
 
-表里列的是每段的**数据/变换所有者**；`index.ts` 是唯一编排者，按顺序调用它们，所以每个阶段都有它的调用点（不重复列）。**一段可以消费多个单元**（阶段 2 = accounts.json 单元 + id 命名空间；阶段 3 = pi 全局层单元 + 装配变换）：判据约束的是**单元的归宿**（一个单元只能有一个文件），不是「一段只能有一个文件」。
+表里列的是每段的**数据/变换**，**所有者（代码路径）在表下逐段列出**；`index.ts` 是唯一编排者，按顺序调用它们，所以每个阶段都有它的调用点（不重复列）。
+**一段可以消费多个单元**（阶段 2 = accounts.json 单元 + id 命名空间；阶段 3 = pi 全局层单元 + 装配变换）：判据约束的是**单元的归宿**（一个单元只能有一个文件），不是「一段只能有一个文件」。
 
-| # | 阶段 | 输入 | 变换 / 归宿 | 数据/变换所有者 |
-|---|---|---|---|---|
-| 0 | 环境 | `~/.pi/agent/.env`、`~/.omp/agent/.env` | 只补不覆盖；`$VAR`/`!cmd` 请求时才解析 | `env.ts loadEnvFile`/`resolveConfigValue` |
-| 1 | 目录层·读 | `<id>/provider.json`/`models.json`/`accounts.json` | 逐文件校验 → `DirectoryVendor`；<br>接管白名单（builtin id 需 `override:true`） | `directory.ts scanProviderRoot`→`loadDirectory`(`endpoints.ts readProviderFile`/`model-table.ts readModelsFile`/`credentials.ts readAccountsFile`)→`vendorFromDirectory`→`collectVendors`（输入只有目录） |
-| 2 | 账号/id 分配 | `accounts` + `default` 指针 + pi 已有 id | `default` 占基 id、其余 `<id>-<name>`；撞车跳过并报告 | `credentials.ts resolveAccounts` → `directory.ts collectVendors` → `providers.ts collectEntries` |
-| 3 | 分层合成 | ①`<id>/models.json` ②`provider.json` ③pi 全局 `providers.<id>`（provider 字段；<br>其 `models[]` 不读） ④`modelOverrides` | 逐字段 patch 叠链；<br>`baseUrl = config.baseUrl ?? model.baseUrl`；<br>每模型落端点（默认协议不带 `api`）；<br>headers 逐层合并后贴到条目；<br>内置目录白名单吸收（`providers.ts:128`，注册与刷新两条路径都走） | `config.ts readModelsConfig`/`providerLayerFor`/`preflightLayer`（pi 全局层；<br>第 4 层由 pi 应用）→ `providers.ts synthesizeModels`（装配；<br>端点落法调 `endpoints.ts resolveModelEndpoint`）← `builtin.ts absorbCompat` |
-| 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 | `providers.ts baseTableView`（视图变换）+ `index.ts registerEntry`（注册 + `statusOf` 记账） |
-| 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | auth 形态也照 pi：按协议默认（anthropic 用 `x-api-key`）+ `authHeader` 时补 `Authorization: Bearer`（pi 的 `withConfiguredAuth` 就是这两个头）；<br>旧快照当**基底条目**恢复（保参数）；<br>只增不删；<br>失败只记 `lastErrors`、保旧快照（能力字段走 `convention.ts`） | `live.ts vendorEndpoints`/`discover`/`mergeStoredSnapshot`/`applyLiveModels`/`refreshEntry` |
-| 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 | `status.ts problemLines`/`toastLines`/`apiSplit`（报告文本）；`index.ts` 的命令分支只负责路由与 `notify` |
-| 7 | 写回（三条出口） | 阶段 5 的发现结果 / `init` 的声明与密钥 | `sync`：基底 ⊕ 发现 → diff → 写盘（`.bak`）；<br>`init`：写 `provider.json`、`accounts.json`（已有则不动） | `model-table.ts writeBaseTable`/`diffBaseTable`/`serializeBaseTable`、`endpoints.ts writeProviderFile`、`credentials.ts writeAccountsFile`（落盘都走 `util.ts writeTextAtomic`） |
+| # | 阶段 | 输入 | 变换 / 归宿 |
+|---|---|---|---|
+| 0 | 环境 | `~/.pi/agent/.env`、`~/.omp/agent/.env` | 只补不覆盖；`$VAR`/`!cmd` 请求时才解析 |
+| 1 | 目录层·读 | `<id>/provider.json`/`models.json`/`accounts.json` | 逐文件校验 → `DirectoryVendor`；<br>接管白名单（builtin id 需 `override:true`） |
+| 2 | 账号/id 分配 | `accounts` + `default` 指针 + pi 已有 id | `default` 占基 id、其余 `<id>-<name>`；撞车跳过并报告 |
+| 3 | 分层合成 | ①`<id>/models.json` ②`provider.json` ③pi 全局 `providers.<id>`（provider 字段；<br>其 `models[]` 不读） ④`modelOverrides` | 逐字段 patch 叠链（细则见下） |
+| 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 |
+| 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | auth 形态与合并细则（四条见下） |
+| 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 |
+| 7 | 写回（三条出口） | 阶段 5 的发现结果 / `init` 的声明与密钥 | `sync`：基底 ⊕ 发现 → diff → 写盘（`.bak`）；<br>`init`：写 `provider.json`、`accounts.json`（已有则不动） |
+
+**各阶段的所有者（代码路径，2026-10-03 从表格「数据/变换所有者」列拉出；文字未改）**
+
+- 0 环境：`env.ts loadEnvFile`/`resolveConfigValue`
+- 1 目录层·读：`directory.ts scanProviderRoot`→`loadDirectory`(`endpoints.ts readProviderFile`/`model-table.ts readModelsFile`/`credentials.ts readAccountsFile`)→
+  `vendorFromDirectory`→`collectVendors`（输入只有目录）
+- 2 账号/id 分配：`credentials.ts resolveAccounts` → `directory.ts collectVendors` → `providers.ts collectEntries`
+- 3 分层合成：`config.ts readModelsConfig`/`providerLayerFor`/`preflightLayer`（pi 全局层；第 4 层由 pi 应用）→ `providers.ts synthesizeModels`（装配；端点落法调 `endpoints.ts resolveModelEndpoint`）← `builtin.ts absorbCompat`
+- 4 注册：`providers.ts baseTableView`（视图变换）+ `index.ts registerEntry`（注册 + `statusOf` 记账）
+- 5 实时发现：`live.ts vendorEndpoints`/`discover`/`mergeStoredSnapshot`/`applyLiveModels`/`refreshEntry`
+- 6 报告：`status.ts problemLines`/`toastLines`/`apiSplit`（报告文本）；`index.ts` 的命令分支只负责路由与 `notify`
+- 7 写回（三条出口）：`model-table.ts writeBaseTable`/`diffBaseTable`/`serializeBaseTable`、`endpoints.ts writeProviderFile`、`credentials.ts writeAccountsFile`（落盘都走 `util.ts writeTextAtomic`）
+
+**阶段 3 的叠链细则**（「逐字段 patch 叠链」之外的四条，同列拉出；文字未改）
+
+- `baseUrl = config.baseUrl ?? model.baseUrl`
+- 每模型落端点（默认协议不带 `api`）
+- headers 逐层合并后贴到条目
+- 内置目录白名单吸收（`providers.ts:128`，注册与刷新两条路径都走）
+
+**阶段 5 的抓取细则**（原「变换 / 归宿」格四条，同列拉出；文字未改）
+
+- auth 形态也照 pi：按协议默认（anthropic 用 `x-api-key`）+ `authHeader` 时补 `Authorization: Bearer`（pi 的 `withConfiguredAuth` 就是这两个头）
+- 旧快照当**基底条目**恢复（保参数）
+- 只增不删
+- 失败只记 `lastErrors`、保旧快照（能力字段走 `convention.ts`）
 
 两条回路：**①自愈**：阶段 5 新 id → pi `publish({persist})` 落 `models-store.json` → 下次作 `context.stored` 回来；**②人**：阶段 6 报「新 id / 消失 id」→ 人跑 `sync [--prune]` → 阶段 1 的 `models.json` 变厚 → 阶段 3 认得。
 
@@ -221,12 +251,14 @@ pi 把 `model.baseUrl` 原样交给各协议 SDK，拼接规则各不相同 —�
 | `openai-completions` | `model.baseUrl` + SDK 拼 `/chat/completions` | `openai-completions.js:575` |
 | `openai-responses` | `<baseUrl>/responses` | `openai-responses.js:203` |
 | `openai-codex-responses` | 尾 `/codex/responses` 原样；尾 `/codex` → `+/responses`；否则 `+/codex/responses` | `openai-codex-responses.js:455-462` |
-| `azure-openai-responses` | Azure 主机且路径为空/`/openai`/`/openai/v1/responses` → **强制改写 `/openai/v1`**；<br>`model.baseUrl` 只是第三来源（`options.azureBaseUrl` > `AZURE_OPENAI_BASE_URL` > `AZURE_OPENAI_RESOURCE_NAME` > model.baseUrl） | `azure-openai-responses.js:136-181` |
+| `azure-openai-responses` | Azure 主机且路径为空/`/openai`/`/openai/v1/responses` → **强制改写 `/openai/v1`**（baseUrl 来源顺序见下） | `azure-openai-responses.js:136-181` |
 | `google-generative-ai` | `httpOptions.baseUrl = model.baseUrl`（SDK 自拼版本/方法路径） | `google-generative-ai.js:266-267` |
 | `google-vertex` | `resolveCustomBaseUrl(model.baseUrl)` + `ResourceScope.COLLECTION`（baseUrl 自带版本段时行为不同） | `google-vertex.js:293-320` |
 | `mistral-conversations` | 补尾 `/` 后 `new URL("v1/chat/completions", baseUrl)` ⇒ baseUrl 只到根 | `mistral-conversations.js:159-161` |
 | `bedrock-converse-stream` | **不是路径拼接**：`model.baseUrl` 就是 endpoint（`config.endpoint = model.baseUrl`），region 从 hostname 推 | `bedrock-converse-stream.js:52-58,965-985` |
 | `pi-messages` | 去尾 `/` 后拼 `/messages` | `pi-messages.js:250` |
+
+`azure-openai-responses` 的 `model.baseUrl` 只是第三来源（`options.azureBaseUrl` > `AZURE_OPENAI_BASE_URL` > `AZURE_OPENAI_RESOURCE_NAME` > model.baseUrl）。
 
 ### 环境变量与凭证
 
