@@ -56,7 +56,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 - `env-test.mjs` 把 `env.ts` 的值语法（含 `!command` 跑在哪个 shell）逐例对照 pi 自己的 `resolveConfigValueUncached`；
   `pi-surface-test.mjs` 把 `MODEL_KEYS` 与 pi 的 `ModelDefinitionSchema` 双向对照（从 `dist/core/model-config.js` 读，pi 不导出它）并做全字段读写往返。这两个事实 pi 都不导出，只能这样钉。
   `graph-test.mjs` 另守 `apis.ts` 与 `util.ts` 两个图叶子（词汇层不许长出依赖）。
-- `docs-structure-test.mjs` 守 tracked 文档的形状：围栏成对（闭合围栏不带 info string、不短于开启者）、每张表的行与表头格数一致且都有分隔行、散文行 ≤200 字（表格行与围栏内行豁免）、文档写的套件数 == `tests/` 实际数。
+- `docs-structure-test.mjs` 守 tracked 文档的形状：围栏成对（闭合围栏不带 info string、不短于开启者）、每张表的行与表头格数一致且都有分隔行、散文行 ≤200 字（表格行与围栏内行豁免）、标题前有空行、缩进条目不悬空（上方同一列表里得有更浅的条目）、文档写的套件数 == `tests/` 实际数。
   立这条是因为这类检查原先只在仓库外的手工脚本里：v0.5.1 的 `README.md` 带着一个未闭合的围栏出厂（后面两段被渲染成代码），而当时那个脚本只翻转一个布尔、从不校验配对。
 
 **各测试文件的职责与纪律**

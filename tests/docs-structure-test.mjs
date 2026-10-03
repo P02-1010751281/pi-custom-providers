@@ -5,11 +5,13 @@
  * two paragraphs after the fence rendered as code and every check still said OK.
  *
  * This guard reads every tracked document (`README.md`, `CHANGELOG.md`, `.codestable/**\/*.md`) and
- * pins the four structural rules `attention.md` writes down:
+ * pins the six structural rules `attention.md` writes down:
  *   - fences pair up: a closing fence carries no info string and is not shorter than its opener;
  *   - every row of a table has as many cells as its header, and every table has a separator row;
  *   - a prose line stays within 200 code points — table rows and lines inside a fence are exempt,
  *     because the rule is one record or one code statement per line;
+ *   - every heading is preceded by a blank line;
+ *   - an indented bullet has a bullet above it at a smaller indent (no orphan sub-bullets);
  *   - the suite count the documents state matches what `tests/` holds.
  * Prose means any line outside a fence that is not a table row, so an indented continuation line is
  * checked too; code in these documents is expected to live in a fence. A fence indented four spaces
@@ -20,6 +22,11 @@ import path from "node:path";
 import { assert, REPO_ROOT } from "./harness.mjs";
 
 const BUDGET = 200;
+const FENCE = /^ {0,3}(`{3,})(.*)$/;
+const TABLE_ROW = /^\s*\|/;
+const HEADING = /^#{1,6}\s/;
+const SUB_BULLET = /^(\s+)- /;
+const BULLET = /^\s*([-*+]|\d+\.)\s/;
 
 /** Every tracked document: the ones at the repo root plus everything under `.codestable`. */
 function trackedDocs() {
@@ -37,6 +44,10 @@ function trackedDocs() {
 	return files.sort();
 }
 
+/** A cell count that ignores inline code spans and escaped pipes. */
+const cells = (line) => (line.replace(/`[^`]*`/g, "").match(/(?<!\\)\|/g) ?? []).length;
+const indentOf = (line) => line.match(/^\s*/)[0].length;
+
 const DOCS = trackedDocs();
 // A walk that silently finds nothing would make every rule below pass.
 for (const required of ["README.md", "CHANGELOG.md", ".codestable/attention.md"]) {
@@ -46,59 +57,79 @@ for (const required of ["README.md", "CHANGELOG.md", ".codestable/attention.md"]
 	);
 }
 
-const FENCE = /^ {0,3}(`{3,})(.*)$/;
-const TABLE_ROW = /^\s*\|/;
-/** A cell count that ignores inline code spans and escaped pipes. */
-const cells = (line) => (line.replace(/`[^`]*`/g, "").match(/(?<!\\)\|/g) ?? []).length;
-
 const problems = [];
 const counts = { fences: 0, tables: 0 };
 
 for (const file of DOCS) {
 	const rel = path.relative(REPO_ROOT, file);
 	const lines = readFileSync(file, "utf8").split("\n");
-	let open = null; // the fence that is currently open
-	let table = null; // the table that is currently open
 
-	for (const [index, line] of lines.entries()) {
-		const at = index + 1;
+	// Pair fences once and remember which lines belong to a block, so no rule below has to
+	// re-derive what a fence is.
+	const inside = new Set();
+	let open = null;
+	lines.forEach((line, index) => {
 		const fence = FENCE.exec(line);
-
-		if (fence && open === null) {
-			open = { line: at, ticks: fence[1].length };
-			table = null; // a fence inside a table run ends it
+		if (open === null) {
+			if (!fence) return;
+			open = { line: index + 1, ticks: fence[1].length };
+			inside.add(index);
 			counts.fences += 1;
-			continue;
+			return;
 		}
-		if (fence) {
-			const closes = fence[2].trim() === "" && fence[1].length >= open.ticks;
-			if (closes) open = null;
-			else problems.push(`${rel}:${at}: fence-like line cannot close the block opened at line ${open.line}`);
-			continue;
-		}
-		if (open !== null) continue; // inside a fence: neither a table row nor prose
+		inside.add(index);
+		if (!fence) return;
+		if (fence[2].trim() === "" && fence[1].length >= open.ticks) open = null;
+		else problems.push(`${rel}:${index + 1}: fence-like line cannot close the block opened at line ${open.line}`);
+	});
+	if (open !== null) problems.push(`${rel}:${open.line}: unclosed fence`);
+
+	let table = null;
+	const endTable = () => {
+		if (table !== null && !table.separator) problems.push(`${rel}:${table.line}: table has no separator row`);
+		table = null;
+	};
+
+	lines.forEach((line, index) => {
+		const at = index + 1;
+		if (inside.has(index)) return endTable();
 
 		if (TABLE_ROW.test(line)) {
 			const width = cells(line);
-			const separator = line.replace(/[|\-:\s]/g, "") === "" && line.includes("-");
 			if (table === null) {
-				table = { line: at, width, separator };
+				table = { line: at, width, separator: false };
 				counts.tables += 1;
-			} else {
-				if (width !== table.width) problems.push(`${rel}:${at}: table row has ${width} cells, header at line ${table.line} has ${table.width}`);
-				if (separator) table.separator = true;
+			} else if (width !== table.width) {
+				problems.push(`${rel}:${at}: table row has ${width} cells, header at line ${table.line} has ${table.width}`);
 			}
-			continue;
+			if (table !== null && line.replace(/[|\-:\s]/g, "") === "" && line.includes("-")) table.separator = true;
+			return;
 		}
-
-		if (table !== null && !table.separator) problems.push(`${rel}:${table.line}: table has no separator row`);
-		table = null;
+		endTable();
 
 		const length = [...line].length;
 		if (length > BUDGET) problems.push(`${rel}:${at}: ${length} code points (budget ${BUDGET})`);
-	}
-	if (open !== null) problems.push(`${rel}:${open.line}: unclosed fence`);
-	if (table !== null && !table.separator) problems.push(`${rel}:${table.line}: table has no separator row`);
+
+		if (HEADING.test(line) && index > 0 && lines[index - 1].trim() !== "") {
+			problems.push(`${rel}:${at}: heading is not preceded by a blank line`);
+		}
+
+		const bullet = SUB_BULLET.exec(line);
+		if (!bullet) return;
+		// Walk up to the nearest less-indented content line: a sub-bullet needs a bullet there.
+		const indent = bullet[1].length;
+		let parent = null;
+		for (let above = index - 1; above >= 0; above -= 1) {
+			if (inside.has(above) || lines[above].trim() === "") continue;
+			if (indentOf(lines[above]) >= indent) continue;
+			parent = lines[above];
+			break;
+		}
+		if (parent === null || !BULLET.test(parent)) {
+			problems.push(`${rel}:${at}: sub-bullet (indent ${indent}) has no parent bullet above it`);
+		}
+	});
+	endTable();
 }
 
 assert(problems.length === 0, `tracked documents are well-formed:\n  ${problems.join("\n  ")}`);
