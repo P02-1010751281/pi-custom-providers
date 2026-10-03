@@ -7,8 +7,7 @@
  * `sync --write` stores (design §4/§5.2/§5.3).
  */
 import { absorbCompat, type BuiltinCatalog, type CatalogCompat } from "./builtin.ts";
-import { FALLBACK_CONTEXT_WINDOW, FALLBACK_MAX_TOKENS, inertCompatKeys } from "./apis.ts";
-import { applyModelPatch } from "./config.ts";
+import { inertCompatKeys } from "./apis.ts";
 import { resolveModelEndpoint } from "./endpoints.ts";
 import type { Account, CatalogModel, LoadIssue, ModelCompat, ProviderDeclaration, Vendor } from "./types.ts";
 import { isObject, stringOr, type JsonObject } from "./util.ts";
@@ -78,40 +77,26 @@ export function mergeHeaders(...layers: (JsonObject | undefined)[]): JsonObject 
 }
 
 /**
- * Synthesize one provider entry's model list: base table ⊕ `models.json` patches, with the
- * endpoint, headers and compat of the layer the model ends up on (design §4/§5.2/§5.3).
+ * Synthesize one provider entry's model list from the vendor's own table (`<id>/models.json`, or a
+ * fresh discovery), with the endpoint, headers and compat of the layer the model ends up on
+ * (design §4/§5.2/§5.3). The model table is the single home for model content: the user's
+ * `providers.<id>.models[]` is *not* read (pi validates that array and never applies it; the
+ * caller reports it), and per-model tweaks belong to the fourth layer, `modelOverrides`.
  * `issues` collects everything that had to be reported instead of applied.
  */
 export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builtin: BuiltinCatalog, issues: LoadIssue[]): ModelEntry[] {
 	const { vendor } = entry;
 	const declaration = vendor.declaration;
-	const patches = new Map<string, JsonObject>();
-	for (const row of Array.isArray(layer.models) ? (layer.models as unknown[]) : []) {
-		if (!isObject(row)) continue;
-		const id = stringOr(row.id);
-		if (!id) {
-			issues.push({ level: "warning", message: `${entry.id}: models[] entry has no "id"` });
-			continue;
-		}
-		patches.set(id, row);
-	}
 	const base = new Map<string, CatalogModel>();
 	for (const model of vendor.models) base.set(model.id, { ...model, input: [...model.input], cost: { ...model.cost } });
-	for (const [id, row] of patches) {
-		if (base.has(id)) continue;
-		// An id only the user declares still needs a complete entry for pi: `registerProvider`
-		// throws on a model without cost, and pi's request path dereferences it.
-		base.set(id, { id, name: id, reasoning: false, input: ["text"], contextWindow: FALLBACK_CONTEXT_WINDOW, maxTokens: FALLBACK_MAX_TOKENS, cost: { ...ZERO_COST } });
-	}
 
 	const multiEndpoint = Object.keys(declaration.apis).length > 0;
 	const models: ModelEntry[] = [];
 	/** compat keys pi's request builder will not read, per protocol — collected, named once. */
 	const noEffect = new Map<string, Set<string>>();
 	for (const [id, raw] of base) {
-		const patch = patches.get(id);
-		const merged = applyModelPatch(raw as unknown as JsonObject, patch ?? {}) as unknown as CatalogModel;
-		const choice = resolveModelEndpoint(declaration, layer, merged);
+		const model = raw as unknown as CatalogModel;
+		const choice = resolveModelEndpoint(declaration, layer, model);
 		for (const issue of choice.issues) issues.push({ level: "warning", message: `${entry.id}: ${issue}` });
 		const endpoint = choice.endpoint;
 
@@ -123,7 +108,7 @@ export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builti
 		const absorbed = absorbCompat({ id, api: endpoint.api }, builtin);
 		const compat: ModelCompat = {
 			...absorbed,
-			...(merged.compat ?? {}),
+			...(model.compat ?? {}),
 			...(choice.stampApi ? {} : isObject(layer.compat) ? layer.compat : {}),
 		};
 
@@ -142,12 +127,12 @@ export function synthesizeModels(entry: ProviderEntry, layer: JsonObject, builti
 		const accountSuffix = entry.base || !entry.account ? "" : ` (${entry.account.id})`;
 		const protocolSuffix = multiEndpoint && choice.stampApi ? ` (${endpoint.api})` : "";
 		models.push({
-			...merged,
+			...model,
 			id,
-			name: `${merged.name}${accountSuffix}${protocolSuffix}`,
+			name: `${model.name}${accountSuffix}${protocolSuffix}`,
 			...(choice.stampApi ? { api: endpoint.api } : {}),
 			...(choice.stampBaseUrl ? { baseUrl: endpoint.baseUrl } : {}),
-			headers: mergeHeaders(declaration.headers, endpoint.headers, entry.account?.headers, merged.headers),
+			headers: mergeHeaders(declaration.headers, endpoint.headers, entry.account?.headers, model.headers),
 			...(Object.keys(compat).length > 0 ? { compat } : {}),
 		});
 	}

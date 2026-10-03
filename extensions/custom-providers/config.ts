@@ -155,16 +155,3 @@ export function orphanProviderBlocks(config: JsonObject, registered: Iterable<st
 		}));
 }
 
-/**
- * Apply one `models.json` entry onto a base model. Every field is a patch: what the entry
- * writes wins, what it omits keeps the base value (pi's own `modelOverrides` semantics).
- * `apiKey` / `authHeader` / `models` are provider-level fields, not model fields.
- */
-export function applyModelPatch(base: JsonObject, row: JsonObject): JsonObject {
-	const patch: JsonObject = {};
-	for (const [key, value] of Object.entries(row)) {
-		if (key === "id" || key === "provider" || value === undefined || value === null) continue;
-		patch[key] = value;
-	}
-	return { ...base, ...patch };
-}

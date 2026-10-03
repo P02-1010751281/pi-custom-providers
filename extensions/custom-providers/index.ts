@@ -133,6 +133,16 @@ function registerEntry(
 	issues.push(...preflight);
 	if (preflight.some((issue) => issue.level === "error")) return undefined;
 
+	// The model table is the single home for model content: pi only *validates* a user `models[]`
+	// array for a provider an extension registers and never applies it, so reading those entries
+	// would make the config layer a second home for the same fact. Reported, not read.
+	if (Array.isArray(patch.models) && patch.models.length > 0) {
+		issues.push({
+			level: "warning",
+			message: `providers.${entry.id}.models[] is not read for a provider this extension registers (pi only validates it); models live in ${entry.vendor.id}/models.json and a per-model tweak belongs in modelOverrides`,
+		});
+	}
+
 	// The startup status: what this provider looks like before any network I/O, so the status
 	// command has something to report even if pi never runs a refresh in this session.
 	record(statusOf(entry, builtin, defaultApi, { models: resolved, live: false, unknown: [], vanished: vanishedByVendor.get(entry.vendor.id) ?? [], issues }));

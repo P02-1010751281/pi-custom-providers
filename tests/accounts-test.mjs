@@ -87,14 +87,15 @@ assert(accountReport.includes("an account holds apiKey, authHeader, headers"), "
 assert(accountReport.includes('unknown key "envVar"'), `envVar is not a user key here either (got: ${accountReport})`);
 assert(accountReport.includes("invalid name"), "an invalid account name is reported");
 
-// `providers.<accountId>` is the native way to give one account its own model overrides.
-// A `models[]` entry is a *new model* to pi, so it has to name `api` and `baseUrl` itself
-// (measured: pi throws without them). Patching one of our models is `modelOverrides`' job.
-reset({ providers: { demo: { models: [{ id: "m", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 100 }] }, "demo-work": { models: [{ id: "m", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 4096, contextWindow: 2048 }] } } });
+// `providers.<accountId>` is the native way to give one account its own provider block: the layer
+// chain is the vendor id's block plus the account id's block. Model content is not read from the
+// config layer any more (the table is its one home), so an account's own layer shows on
+// provider-level fields and headers.
+reset({ providers: { demo: { models: [{ id: "m", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 100 }] }, "demo-work": { baseUrl: "https://demo.example/work" } } });
 vendor({ default: "main", main: { apiKey: "$MAIN_KEY" }, work: { apiKey: "$WORK_KEY" } });
 ext = await startExtension();
-assert(ext.providers.get("demo").models[0].maxTokens === 100, "the base provider reads its own models.json block");
-assert(ext.providers.get("demo-work").models[0].maxTokens === 4096 && ext.providers.get("demo-work").models[0].contextWindow === 2048, "an account layers its own block over the base one");
+assert(ext.providers.get("demo").models[0].maxTokens === ext.providers.get("demo-work").models[0].maxTokens, "both accounts read the vendor's model table (the config layer does not patch it)");
+assert(ext.providers.get("demo-work").baseUrl === "https://demo.example/work", "an account layers its own block over the base one");
 assert(ext.providers.get("demo-work").models[0].name.includes("(work)"), `an account's models are labelled with the account (got ${ext.providers.get("demo-work").models[0].name})`);
 
 // --- an account id that collides is skipped and reported, not merged (§7/§10 #13) ------

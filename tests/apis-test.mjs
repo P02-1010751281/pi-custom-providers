@@ -62,19 +62,24 @@ assert(scnet.models.every((model) => model.cost && typeof model.cost.input === "
 assert(plain.providers.get("commandcode").models.find((model) => model.id === "claude-sonnet-5").baseUrl === anthropicMessagesBaseUrl, "a model whose default endpoint cannot serve it is pointed at the declared endpoint");
 
 // --- moving one model to the vendor's second protocol endpoint -----------------
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { models: [{ id: "GLM-5.2", api: "anthropic-messages", baseUrl: SCNetAnthropic }] } } }));
+// The model table is a model's only home, so the endpoint is chosen there: a `<id>/models.json`
+// entry carrying `api` moves that model to the matching `apis.<api>` endpoint (the config layer's
+// `models[]` is not read).
+writeFileSync(agentPath("custom-providers", "scnet", "models.json"), JSON.stringify({ models: FIXTURE_MODELS.scnet.map((model) => (model.id === "GLM-5.2" ? { ...model, api: "anthropic-messages" } : model)) }));
 const perModel = await startExtension();
 const models = perModel.providers.get("scnet").models;
 const glm = models.find((model) => model.id === "GLM-5.2");
 assert(glm.api === "anthropic-messages", "the model's own api moves it to that endpoint");
 assert(glm.baseUrl === SCNetAnthropic, `the moved model is stamped with the endpoint's baseUrl (got ${glm.baseUrl})`);
 assert(glm.name.endsWith("(anthropic-messages)"), `a multi-endpoint vendor labels the protocol in the display name (got ${glm.name})`);
-assert(glm.contextWindow === 1000000 && glm.maxTokens === 131072, "moving a model keeps the base table's parameters (the patch is per field)");
+assert(glm.contextWindow === 1000000 && glm.maxTokens === 131072, "moving a model keeps the rest of the table entry's parameters");
 assert(models.filter((model) => model.id === "GLM-5.2").length === 1, "the same id is not registered twice");
 assert(models.filter((model) => model.id !== "GLM-5.2").every((model) => model.baseUrl === undefined), "no other model is touched");
 assert(perModel.providers.get("scnet").baseUrl === SCNet.declaration.baseUrl, "a per-model move does not move the provider's endpoint");
 
 // --- flipping the provider's default protocol ----------------------------------
+// Back to the table as seeded: the case above moved one model, this one moves the whole provider.
+writeFileSync(agentPath("custom-providers", "scnet", "models.json"), JSON.stringify({ models: FIXTURE_MODELS.scnet }));
 writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { scnet: { api: "anthropic-messages", baseUrl: SCNetAnthropic } } }));
 const wholeVendor = await startExtension();
 assert(wholeVendor.providers.get("scnet").api === "anthropic-messages", "providers.<id>.api flips the provider's protocol");
@@ -111,18 +116,16 @@ assert(typo.providers.get("scnet").api === "openai-completions", "a misspelled p
 assert(report.includes("anthropick"), `a misspelled provider api is reported (got: ${report})`);
 
 // --- only the registered id is a config layer -----------------------------------
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { codecommand: { models: [{ id: "claude-opus-5", api: "anthropic-messages", baseUrl: anthropicMessagesBaseUrl, maxTokens: 1234 }] } } }));
+// The layer is read through provider-level fields (`api`/`baseUrl`/`compat`/credentials), not
+// through `models[]`, which stays out of the model table either way.
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { codecommand: { baseUrl: "https://alias.example/v1" } } }));
 const aliased = await startExtension();
-const aliasOpus = aliased.providers.get("commandcode").models.find((model) => model.id === "claude-opus-5");
-assert(aliasOpus !== undefined, "the vendor's own table still registers its models");
-assert(aliasOpus.maxTokens !== 1234, "a pre-rename `providers.codecommand` block is not read (pi only resolves the registered id)");
+assert(aliased.providers.get("commandcode").models.some((model) => model.id === "claude-opus-5"), "the vendor's own table still registers its models");
+assert(aliased.providers.get("commandcode").baseUrl !== "https://alias.example/v1", "a pre-rename `providers.codecommand` block is not read (pi only resolves the registered id)");
 
-writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { commandcode: { models: [{ id: "claude-opus-5", api: "anthropic-messages", baseUrl: anthropicMessagesBaseUrl, maxTokens: 1234 }] } } }));
+writeFileSync(agentPath("models.json"), JSON.stringify({ providers: { commandcode: { baseUrl: "https://canonical.example/v1" } } }));
 const canonical = await startExtension();
-assert(
-	canonical.providers.get("commandcode").models.find((model) => model.id === "claude-opus-5")?.maxTokens === 1234,
-	"the registered id still configures the provider",
-);
+assert(canonical.providers.get("commandcode").baseUrl === "https://canonical.example/v1", "the registered id still configures the provider");
 
 console.log(`apis: ${apis.BUILTIN_APIS.join(", ")}`);
 console.log(`scnet endpoints: ${SCNet.declaration.api} ${SCNet.declaration.baseUrl} | anthropic-messages ${SCNetAnthropic}`);

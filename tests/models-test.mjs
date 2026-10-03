@@ -99,7 +99,7 @@ assert(
 	JSON.stringify(cfg.providerLayerFor("commandcode", { providers: { codecommand: { authHeader: true } } })) === "{}",
 	"an alias key is not a config layer: pi resolves `providers.<id>` by the registered id only",
 );
-assert(JSON.stringify(cfg.applyModelPatch({ id: "m", contextWindow: 1000, cost: { input: 1 } }, { maxTokens: 5 }).contextWindow) === "1000", "a models.json entry patches fields instead of replacing the entry");
+assert(cfg.applyModelPatch === undefined, "the config layer has no model patcher: pi applies its own modelOverrides, we never re-implement it");
 
 console.log(`validated ${total} fixture models`);
 console.log("OK");

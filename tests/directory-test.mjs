@@ -102,10 +102,11 @@ assert(demo?.models.length === 1, "a directory vendor registers as its own provi
 assert(demo.models[0].api === "anthropic-messages" && demo.models[0].baseUrl === "https://demo.example/anthropic", "the model's api selects the declared endpoint");
 assert(demo.api === "openai-completions" && demo.baseUrl === "https://demo.example/v1", "the provider keeps the default endpoint");
 
-// A models.json patch is a patch: unnamed fields keep the base value (pi's own semantics).
+// The config layer's `models[]` is not read (pi validates that array and never applies it), so the
+// model keeps the value its own table gave it — the drop is reported (preflight-test).
 reset({ providers: { demo: { models: [{ id: "demo-model", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 4096 }] } } });
 const patched = (await startExtension()).providers.get("demo").models[0];
-assert(patched.maxTokens === 4096 && patched.contextWindow === 4096, "the user patch overrides one field and keeps the rest of the base entry");
+assert(patched.maxTokens === 512 && patched.contextWindow === 4096, "the config layer's models[] does not reach the model table");
 
 // --- takeover boundary ------------------------------------------------------------
 // `anthropic` is a pi built-in provider id: a directory may only claim it explicitly.

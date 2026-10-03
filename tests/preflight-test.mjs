@@ -65,16 +65,16 @@ const load = async (contents) => {
 	assert((await piThrows()).includes("baseUrl"), "pi agrees");
 }
 
-// --- a short patch is legal when the block carries api+baseUrl (the kept layer's recipe) ------
-// Keeping our `models[]` read is only useful if the entries can survive pi's validation, and the
-// cheap form does: provider-level `api`+`baseUrl` plus a bare `{id, maxTokens}` entry is accepted
-// by pi (measured 2026-10-03) and patched by this package. Only `baseUrl` (or neither) is not.
+// --- a legal `models[]` block: pi accepts it, and we still do not read it --------------------
+// The model table is the one home for model content. pi validates the array (a bare entry needs
+// api+baseUrl at entry or block level) and never applies it; we do not read it either, and say so
+// instead of leaving the entries looking applied.
 {
 	const { ext, status } = await load({ providers: { demo: { api: "openai-completions", baseUrl: "https://user.example/v1", models: [{ id: "m1", maxTokens: 7 }] } } });
-	assert(ext.providers.has("demo"), "block-level api+baseUrl accept a bare model patch");
-	assert(ext.providers.get("demo").models.some((model) => model.id === "m1" && model.maxTokens === 7), "and this package applies it");
+	assert(ext.providers.has("demo"), "block-level api+baseUrl accept a bare model entry (pi's own rule)");
 	assert((await piThrows()) === undefined, "pi accepts the same bytes — no entry-level api/baseUrl needed");
-	assert(!status.includes("no \"api\""), `with nothing reported (got ${status})`);
+	assert(ext.providers.get("demo").models.every((model) => model.maxTokens !== 7), "but the entry does not reach the model table");
+	assert(status.includes("is not read for a provider this extension registers"), `and the drop is reported (got ${status})`);
 }
 
 // --- a block that fails pi's *schema*: pi discards the whole file, so we read none of it --
@@ -110,9 +110,10 @@ for (const [what, block] of [
 // --- a legitimate block is applied, unchanged (the report must not fire on good input) ----
 {
 	const { ext, status } = await load({ providers: { demo: { models: [{ id: "m1", api: "openai-completions", baseUrl: "https://demo.example/v1", maxTokens: 7 }] } } });
-	assert(ext.providers.has("demo"), "a legal block registers the provider");
-	assert(ext.providers.get("demo").models.some((model) => model.id === "m1" && model.maxTokens === 7), "and this package reads it as a patch — pi itself would not apply it (case above)");
-	assert(!status.includes("discards") && !status.includes("must specify"), `with nothing reported (got ${status})`);
+	assert(ext.providers.has("demo"), "a legal entry-only block registers the provider");
+	assert(ext.providers.get("demo").models.every((model) => model.maxTokens !== 7), "the entries stay out of the model table");
+	assert(status.includes("is not read for a provider this extension registers"), `the drop is reported (got ${status})`);
+	assert(!status.includes("discards") && !status.includes("must specify"), `and not as a pi rejection (got ${status})`);
 }
 
 console.log("OK");
