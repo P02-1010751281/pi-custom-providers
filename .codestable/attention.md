@@ -167,7 +167,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 | 4 | 注册 | 合成后的表 + 基底视图 | `pi.registerProvider`——进 pi provider 表的唯一入口 |
 | 5 | 实时发现 | `baseUrl + modelsPath` 的 `/models` 答案 + pi 的 `context.stored` | auth 形态与合并细则（四条见下） |
 | 6 | 报告 | `statuses` + `globalIssues` | `problemLines` 顺序：错误→校验警告→刷新失败→新 id→消失 id→无实时数据；8 行裁剪 |
-| 7 | 写回（三条出口） | 阶段 5 的发现结果 / `init` 的声明与密钥 | `sync`：基底 ⊕ 发现 → diff → 写盘（`.bak`）；<br>`init`：写 `provider.json`、`accounts.json`（已有则不动） |
+| 7 | 写回（三条出口） | 阶段 5 的发现结果 / `init` 的声明与密钥 | `sync`：基底 ⊕ 发现 → diff → 写盘（`.bak`）→ 注册；<br>`init`：写 `provider.json`、`accounts.json`（已有则不动）→ 注册 |
 
 **各阶段的所有者（代码路径，2026-10-03 从表格「数据/变换所有者」列拉出；文字未改）**
 
@@ -236,10 +236,13 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 **两个对等接口**（同层通信只有这两处）：扩展 ↔ pi（`apis.ts` 的 api 词汇 + `endpoints.ts` 的端点落法 + `index.ts` 的 `registerProvider`/`context.stored`/`publish`）；
 扩展 ↔ 上游站（`live.ts` 的 `/models` 请求构造，凭据来自 `credentials.ts`，头来自 `provider.json.headers`）。
 
-**端到端原则的推论**（本扩展的四条保守性，都写在「引擎行为」里）：① 中间层不固化端的策略——`sync` 只写「基底 ⊕ 发现」，不烘焙 `providers.<id>`/`modelOverrides`；② 状态变更须由端显式发起——`--dry-run` 只预览、`--prune` 才删、`init`/`rescan` 是明示动作；
+**端到端原则的推论**（四条保守性，都写在「引擎行为」里）：① 中间层不固化端的策略——`sync` 只写「基底 ⊕ 发现」，不烘焙 `providers.<id>`/`modelOverrides`；② 状态变更须由端显式发起——`--dry-run` 只预览、`--prune` 才删、`init`/`sync` 是明示动作（写完即应用，见下）；
 ③ 不可靠输入不破坏端状态——坏文件 `fail-closed`、空答案/失败不清表、消失 id 只报告、`.bak`+temp+rename；④ 不越层写——永不写 pi 全局 `models.json`。
 
 **不适用处（不要硬凑）**：没有逐跳转发/路由表（一次性解析）；没有同层对等通信（provider 之间不交互）；没有重传/序号（靠「只增不删」而不是重传保可靠）；`status.ts` 不是一层，是带外管理面。
+
+**写盘动词自带应用**：「盘变了 → 会话变了」不再由 `rescan` 独占：`init`/`sync` 写完就用 `applyVendors`（`rescan` 的同一个实现）注册自己的结果，`rescan` 退回带外编辑。
+`sync` 全部端点因**缺凭据**被跳过时以 warning 点名那条解析不出的引用（`credentials.ts unresolvedReference`），并提示重启 pi / `/reload`——未设置的 `$VAR` 在 pi 的语法里是静默 `undefined`。
 
 **Demux 键与端口**：`<id>` → 账号 `<id>-<name>` → 模型 `id`；`apis` 表 = 同一主机（`baseUrl`）上的多个服务 ≡ 端口表（所以 Anthropic 线的 `baseUrl` 要短一截）；`modelsPath` = 服务上的资源路径；报告 8 行裁剪 = 显示层 MTU。
 

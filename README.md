@@ -5,7 +5,7 @@
 - 一个厂商的两个协议端点（OpenAI 线 + Anthropic 线）注册成**一个** provider —— pi 的模型 id 在 provider 内必须唯一，所以协议只能按**模型**选，这正是本包要补的那一块。
 - 模型参数（`contextWindow`/`maxTokens`/`cost`/`reasoning`…）写在你自己的 `<id>/models.json`，或由 `/models` 发现生成；仓库不附带任何厂商数据。
 - 凭据只放 `<id>/accounts.json`，支持环境变量、keyring、密码库、加密文件（都能用 `!command` 接）。
-- 只有一个命令：`/providers`（查看 / init / sync / rescan）。
+- 只有一个命令：`/providers`（查看 / init / sync / rescan）——写盘类动词（`init`/`sync`）写完自己应用到会话，`rescan` 留给手改文件/目录之后。
 
 本包无 `package.json`，pi 按约定目录 `extensions/` 自动发现，git 安装不依赖 npm。
 
@@ -31,7 +31,7 @@ rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-provid
 
 1. **写端点声明** —— `/providers init my-relay --url https://relay.example/v1 --api openai-completions --models-path /models`
    （有 UI 时走向导，缺什么问什么；`--key` 可以顺手把凭据写进 `accounts.json`）
-2. **给模型** —— `/providers sync my-relay` 抓 `/models` 生成一份 `models.json`，或手写这个文件把参数补齐（发现只给 id/名字/上下文，能力字段得自己写）
+2. **给模型** —— `/providers sync my-relay` 抓 `/models` 生成一份 `models.json`（写完即在本会话生效），或手写这个文件把参数补齐（发现只给 id/名字/上下文，能力字段得自己写）
 3. **用** —— `/providers status` 看注册结果；模型随后就能在 pi 的模型选择器里选
 4. **手改过文件之后** —— `/providers rescan my-relay` 让当前会话看见（新目录、手改的 `provider.json`/`models.json`/`accounts.json`、删掉的目录）。只有**扩展代码**变了才需要 pi 的 `/reload`
 
@@ -212,13 +212,14 @@ pi 在**注册时**就用它自己内置的模型表校验用户写的 `provider
 | `/providers [<id>]` | 总览，或单个 provider 详情（协议分布、账号、校验问题、与 pi 内置目录的差异明细） | 否 |
 | `/providers files` | 扫描结果：每个目录的 id、来源、模型数、账号，被忽略的目录，文件校验问题 | 否 |
 | `/providers init [<id>]` | 有 UI 走向导（问缺的部分，key 直接收但会警告明文）；无 UI 必须给 `--url`/`--api`。写 `provider.json`，给了 key 且 `accounts.json` 不存在时写它 | `provider.json`、`accounts.json` |
-| `/providers sync [<id>] [--dry-run] [--prune]` | 联网抓 `/models` → 逐端点跳过失败/空答 → 写基底表；省略 id = 全部 vendor；`--prune` 必须带 id | `<id>/models.json` |
-| `/providers rescan [<id>] [--dry-run]` | 重扫目录 + 用**新快照**重新注册（拾取手改的文件、新目录，并撤销已删目录）；永不写盘 | 否 |
+| `/providers sync [<id>] [--dry-run] [--prune]` | 联网抓 `/models` → 逐端点跳过失败/空答 → 写基底表 → **当场注册**；省略 id = 全部 vendor；`--prune` 必须带 id | `<id>/models.json` |
+| `/providers rescan [<id>] [--dry-run]` | 把**带外改动**应用到会话：重扫目录 + 用**新快照**重新注册（手改的文件、新目录，并撤销已删目录）；永不写盘、不联网 | 否 |
 
 `init` 的旗标：`--url <u> --api <a> [--models-path <p>] [--key <v>] [--force]`。
 
 `sync` 写的是**基底 ⊕ 发现**，不含第 3/4 层用户覆盖（否则一次 sync 就把用户覆盖烤进基底）；发现里消失的 id 默认保留并在摘要里标为「kept」，加 `--prune` 才真删（仅当该 vendor 本轮**所有可发现端点都成功且非空**才算「消失」，任一失败/空答则跳过该端点并点名，全部失败则不写盘）。
-写完提示 `run /providers rescan [<id>]` —— 盘变了不等于会话变了。
+写完即注册并应用到本会话（`sync`/`init` 自带；`rescan` 只给手改文件/目录用）。
+全部端点因**缺凭据**被跳过时不写盘，并以 warning 点名那条解析不出的引用（会话中途往 `.env` 加变量要重启 pi 或 `/reload`）。
 
 ## 密钥解析
 
@@ -275,9 +276,9 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 |---|---|
 | pi 的模型选择器里没有这个 provider | `/providers files` 看目录有没有被忽略（必须能解析 `provider.json`）；`/providers status` 看 error 行 |
 | provider 在，但一个模型都没有 | 该目录没有 `models.json`，发现也没成功：`/providers sync <id>`，或手写模型表 |
-| 请求报 401 / `No API key found for "<id>"` | 凭据：`<id>/accounts.json` 存在吗；`$VAR` 在 `~/.pi/agent/.env` 里有值吗（未设置的变量**静默**解析不出，不会报错） |
+| 请求报 401 / `No API key found for "<id>"` | 凭据：`<id>/accounts.json` 存在吗；`$VAR` 在 `~/.pi/agent/.env` 里有值吗（未设置的变量**静默**解析不出，不会报错）；`sync` 会以 warning 点名那条引用并提示重启 / `/reload` |
 | 模型数突然变少 | 不会因为上游返回空列表而变（空答案按「跳过」处理，不删不报）；看 `status` 的 drift 计数与「消失 id」段 |
-| 手改了 `models.json` 但会话里没变 | 盘变了不等于会话变了：`/providers rescan <id>`；只有**扩展代码**变了才 `/reload` |
+| 手改了 `models.json` 但会话里没变 | 手改不会自己进会话：`/providers rescan <id>`（`sync`/`init` 会自己应用）；只有**扩展代码**变了才 `/reload` |
 | 同一个 provider 出现两次 | 目录副本与 `pi install` 包安装同时存在，二选一（见「安装」） |
 | `/providers` 回了 `Usage:` | 动词或旗标写错了（文案由动词表生成）；不带参数是总览 |
 
