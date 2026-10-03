@@ -65,6 +65,18 @@ const load = async (contents) => {
 	assert((await piThrows()).includes("baseUrl"), "pi agrees");
 }
 
+// --- a short patch is legal when the block carries api+baseUrl (the kept layer's recipe) ------
+// Keeping our `models[]` read is only useful if the entries can survive pi's validation, and the
+// cheap form does: provider-level `api`+`baseUrl` plus a bare `{id, maxTokens}` entry is accepted
+// by pi (measured 2026-10-03) and patched by this package. Only `baseUrl` (or neither) is not.
+{
+	const { ext, status } = await load({ providers: { demo: { api: "openai-completions", baseUrl: "https://user.example/v1", models: [{ id: "m1", maxTokens: 7 }] } } });
+	assert(ext.providers.has("demo"), "block-level api+baseUrl accept a bare model patch");
+	assert(ext.providers.get("demo").models.some((model) => model.id === "m1" && model.maxTokens === 7), "and this package applies it");
+	assert((await piThrows()) === undefined, "pi accepts the same bytes — no entry-level api/baseUrl needed");
+	assert(!status.includes("no \"api\""), `with nothing reported (got ${status})`);
+}
+
 // --- a block that fails pi's *schema*: pi discards the whole file, so we read none of it --
 for (const [what, block] of [
 	["a non-string apiKey", { apiKey: 123, models: [{ id: "m1", api: "openai-completions", maxTokens: 7 }] }],
