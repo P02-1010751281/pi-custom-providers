@@ -117,6 +117,8 @@ pi 把 `model.baseUrl` **原样**交给 Anthropic SDK，而 SDK 自己会在后�
   "work": { "apiKey": "!pass show scnet/work" } }
 ```
 
+**凭据文件就叫 `accounts.json`**（`extensions/custom-providers/credentials.ts` 是读写它的模块名，不是另一个文件名；`accounts.json` 只出现在 `<id>/` 目录里，不写进 `provider.json`，也不写 pi 全局的 `auth.json`）。一个 provider 的所有账号都在这一个文件里。
+
 `default` 是**账号 id 字符串指针**：被指向的账号注册为 `<id>`，其余注册为 `<id>-<name>`（上例 → `scnet` 与 `scnet-work`）。账号**只装认证**（`apiKey` / `authHeader` / `headers`）。
 
 - 没有 `apiKey` 的账号被跳过并报告；非法账号名同理。
@@ -148,6 +150,8 @@ pi 在**注册时**就用它自己内置的模型表校验用户写的 `provider
 - 要**给某个模型打补丁**（改 `maxTokens` / `contextWindow` / 显示名），正确的位置是第 4 层的 `modelOverrides[M]`：pi 最后应用它，且实测可用。
 
 本扩展会把这些被 pi 拒掉的块**在调用 pi 之前**报出来（含上面三句 pi 原文），一个坏块不会连带带走后面的 provider。
+
+同一条道理适用于**没有目录的 key**：`providers` 里如果有一个 id 既不是这里的目录（含账号 id `<id>-<name>`）、也不是 pi 内置 provider，pi 会把它当 config-only provider 自己注册，而本扩展**永远不会读它的块** —— 别名旧 key、打错的 id 都落在这一类，命令里会点名（`providers.<key>: no directory for this id … nothing here reads this block`），不会静默无效。
 
 ## 命令
 
