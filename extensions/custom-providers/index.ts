@@ -50,7 +50,7 @@ import path from "node:path";
 import { getAgentDir, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { normalizeApi, BUILTIN_APIS } from "./apis.ts";
 import { loadBuiltinCatalog, summarizeDrift, type BuiltinCatalog } from "./builtin.ts";
-import { preflightLayer, providerBlockFor, readModelsConfig } from "./config.ts";
+import { orphanProviderBlocks, preflightLayer, providerBlockFor, readModelsConfig } from "./config.ts";
 import { isLiteralCredential, registrationCredential, writeAccountsFile } from "./credentials.ts";
 import { collectVendors } from "./directory.ts";
 import { loadEnvFile } from "./env.ts";
@@ -214,6 +214,9 @@ export default async function customProviders(pi: ExtensionAPI) {
 		...scanned.issues,
 		...collected.issues,
 	];
+	// A block under an id nothing answers to is inert (pi registers the id itself, with no models),
+	// so saying so is the only way the user learns it stopped being read.
+	globalIssues.push(...orphanProviderBlocks(config, collected.entries.map((entry) => entry.id), builtin.providers));
 	const statuses = new Map<string, ProviderStatus>();
 	const record = (status: ProviderStatus, options: { keepExisting?: boolean } = {}): void => {
 		if (options.keepExisting && statuses.has(status.id)) return;

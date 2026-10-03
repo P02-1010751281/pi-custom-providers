@@ -131,6 +131,26 @@ export function providerBlockFor(id: string, config: JsonObject): JsonObject | u
 }
 
 /**
+ * `providers.<key>` blocks whose id nothing here answers to. This package registers ids that have
+ * a directory (or an account under one) and pi has models for its built-in ids; a key outside both
+ * sets is a config-only id — pi registers it itself, this package never reads it — so a block left
+ * under a former, aliased or mistyped id looks applied and does nothing: the "configured but
+ * ineffective" class #18 was about. Reported, never dropped silently. The two sets are what this
+ * package can know; an id another extension registers is beyond them.
+ */
+export function orphanProviderBlocks(config: JsonObject, registered: Iterable<string>, builtin: Iterable<string>): LoadIssue[] {
+	const providers = isObject(config.providers) ? config.providers : {};
+	const known = new Set([...registered, ...builtin]);
+	return Object.keys(providers)
+		.filter((id) => !known.has(id))
+		.sort()
+		.map((id) => ({
+			level: "warning" as const,
+			message: `providers.${id}: no directory for this id and no pi built-in provider; nothing here reads this block (a former key, or a typo?)`,
+		}));
+}
+
+/**
  * Apply one `models.json` entry onto a base model. Every field is a patch: what the entry
  * writes wins, what it omits keeps the base value (pi's own `modelOverrides` semantics).
  * `apiKey` / `authHeader` / `models` are provider-level fields, not model fields.
