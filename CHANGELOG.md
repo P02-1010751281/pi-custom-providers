@@ -2,6 +2,7 @@
 
 版本规则见 `.codestable/attention.md`：新增 feature 与破坏性变更升 MINOR（0.x 阶段），fix / 文档 / chore 升 PATCH。每个版本对应一个 annotated tag，tag 说明与本文同源。
 安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。历史例外：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样。
+排版：散文一行一个意思、≤ 200 字（表格行与代码行按一条记录 / 一句代码一行豁免）。**已发布条目措辞冻结**：2026-10-04 只对它们做过换行规整（去空白后逐字相同、未增删一个字），所以条目字节可能与 tag 里的不同——tag 的原始字节在 git 历史里，措辞以本文为准。
 
 ## v0.5.0 — 2026-10-03
 
