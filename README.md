@@ -15,14 +15,15 @@
 ## 安装
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.1
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.2
+```
 
 GitHub 镜像把 host 换成 `git:github.com/P02-1010751281/pi-custom-providers`。版本历史见 [CHANGELOG.md](CHANGELOG.md)；升级前建议看一眼下面的「迁移」。
 
 **两种安装方式只能选一种**，否则 pi 会同时加载两份、provider 注册两次。日常用方式 A；本地改代码用方式 B（改完随后 `/reload`）：
 
 ```bash
-pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.1                      # 方式 A
+pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@v0.5.2                      # 方式 A
 rm -rf ~/.pi/agent/extensions/custom-providers && cp -R extensions/custom-providers ~/.pi/agent/extensions/   # 方式 B
 ```
 
