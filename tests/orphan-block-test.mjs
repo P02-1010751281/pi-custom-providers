@@ -5,7 +5,7 @@
  * only way its author learns it stopped being read. Reported, never dropped silently.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
-import { agentPath, assert, runCommand, seedDefaultProviders, startExtension, TEST_VENDORS } from "./harness.mjs";
+import { agentPath, assert, loadTs, runCommand, seedDefaultProviders, startExtension, TEST_VENDORS } from "./harness.mjs";
 
 /** `demo` + its two accounts (so `demo-work` is an id this package does register). */
 mkdirSync(agentPath("custom-providers", "demo"), { recursive: true });
@@ -40,5 +40,13 @@ assert(status.includes("providers.scnettt: no directory for this id"), `a typo i
 assert(!status.includes("providers.demo: no directory"), "a registered id is not reported");
 assert(!status.includes("providers.demo-work: no directory"), "an account id this package registers is not reported");
 assert(!status.includes("providers.anthropic: no directory"), "a pi built-in id is not reported (pi configures its own provider)");
+
+// The claim needs both sets: without pi's catalog a built-in id cannot be told from an orphan, so
+// the check falls silent (the same rule `drift` follows) instead of reporting someone's own config.
+const { orphanProviderBlocks } = await loadTs("extensions/custom-providers/config.ts");
+const block = { providers: { scnettt: {} } };
+assert(orphanProviderBlocks(block, ["demo"], { available: false, providers: ["anthropic"] }).length === 0, "no catalog → no claim");
+assert(orphanProviderBlocks(block, ["demo"], { available: true, providers: ["anthropic"] }).length === 1, "with the catalog the orphan is reported");
+assert(orphanProviderBlocks(block, ["demo", "scnettt"], { available: true, providers: ["anthropic"] }).length === 0, "a registered id is not an orphan");
 
 console.log("OK");

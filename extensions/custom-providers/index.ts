@@ -214,9 +214,10 @@ export default async function customProviders(pi: ExtensionAPI) {
 		...scanned.issues,
 		...collected.issues,
 	];
-	// A block under an id nothing answers to is inert (pi registers the id itself, with no models),
-	// so saying so is the only way the user learns it stopped being read.
-	globalIssues.push(...orphanProviderBlocks(config, collected.entries.map((entry) => entry.id), builtin.providers));
+	// A block under an id nothing answers to is inert (pi registers the id itself), so saying so is
+	// the only way the user learns it stopped being read. The check needs pi's id list; without it
+	// it stays quiet rather than guessing (the function decides).
+	globalIssues.push(...orphanProviderBlocks(config, collected.entries.map((entry) => entry.id), builtin));
 	const statuses = new Map<string, ProviderStatus>();
 	const record = (status: ProviderStatus, options: { keepExisting?: boolean } = {}): void => {
 		if (options.keepExisting && statuses.has(status.id)) return;

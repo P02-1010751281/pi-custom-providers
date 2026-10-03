@@ -137,10 +137,15 @@ export function providerBlockFor(id: string, config: JsonObject): JsonObject | u
  * under a former, aliased or mistyped id looks applied and does nothing: the "configured but
  * ineffective" class #18 was about. Reported, never dropped silently. The two sets are what this
  * package can know; an id another extension registers is beyond them.
+ *
+ * Without pi's catalog (`available: false` — a build whose pi-ai has no `getProviders`) the second
+ * set is unknown, so a built-in id cannot be told from an orphan and nothing is claimed: same rule
+ * as `drift` in `index.ts`.
  */
-export function orphanProviderBlocks(config: JsonObject, registered: Iterable<string>, builtin: Iterable<string>): LoadIssue[] {
+export function orphanProviderBlocks(config: JsonObject, registered: Iterable<string>, builtin: { available: boolean; providers: Iterable<string> }): LoadIssue[] {
+	if (!builtin.available) return [];
 	const providers = isObject(config.providers) ? config.providers : {};
-	const known = new Set([...registered, ...builtin]);
+	const known = new Set([...registered, ...builtin.providers]);
 	return Object.keys(providers)
 		.filter((id) => !known.has(id))
 		.sort()
