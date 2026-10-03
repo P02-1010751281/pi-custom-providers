@@ -23,6 +23,10 @@ const start = doc.indexOf("**pi 的三张配置 schema");
 if (start < 0) throw new Error("attention.md lost its schema block");
 const block = doc.slice(start, doc.indexOf("\n\n- pi 的 `calculateCost()`", start));
 if (block.length < 200) throw new Error("schema block looks truncated");
+// The prose may be reflowed onto several lines (one idea per line, see the layout
+// rule in attention.md), so the count assertions compare whitespace-free text: the
+// wording contract is `…块，N 字段`, not one physical line.
+const flat = block.replace(/\s+/g, "");
 
 const schemas = {
 	ProviderConfigSchema: schemaKeys("ProviderConfigSchema"),
@@ -51,8 +55,9 @@ if (missing.length) {
 // The counts in the prose must match what pi actually declares.
 for (const [name, keys] of Object.entries(schemas)) {
 	const label = { ProviderConfigSchema: "`providers.<id>` 块", ModelDefinitionSchema: "`<id>/models.json` 条目", ModelOverrideSchema: "" }[name];
-	if (label && !block.includes(`${label}，${keys.length} 字段`)) {
-		console.error(`${name}: doc must state "…${label}，${keys.length} 字段"`);
+	const expected = `${label}，${keys.length} 字段`;
+	if (label && !flat.includes(expected.replace(/\s+/g, ""))) {
+		console.error(`${name}: doc must state "…${expected}"`);
 		process.exit(1);
 	}
 }
