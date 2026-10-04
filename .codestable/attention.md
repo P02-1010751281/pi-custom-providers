@@ -89,7 +89,7 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
   - 默认**保留**，只有 `sync <id> --prune` 才从 `models.json` 删。
   - 未知新 id 的 `reasoning`/`thinkingLevelMap` **不从 pi 内置目录兜底**（已否决）：能力只信上游信息/探测结果。
   - 但 `contextWindow`/`maxTokens`/`input` 会先看内置目录里**该模型厂商自己的条目**（`builtin.vendor` / `vendorFacts`）。
-    - 厂商 host 是显式政策表：`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`——pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
+    - 厂商 host 是显式政策表：`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`/`meta`(muse)…——pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
     - 日期快照也认基名（`DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`），只用于这次回退，不动 `normalizeModelId`。
     - 厂商条目缺该 id（或该族没有厂商 host）时退回 `builtin.unanimous`（**每家**上架该 id 的 provider 都给同一个值）；两者都没有则留兜底。
     - 再加一步服务档尾缀回退：厂商没上架该 id、但上架了基名时借基名（`vendorBaseFacts`，`GLM-5.2-Fast` → zai 的 `glm-5.2`，报告作 `vendor zai via glm-5.2`）。

@@ -268,7 +268,9 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
     - `inputLimits` = `{maxRequestBytes, images:{resize:{maxWidth, maxHeight, maxBytes, jpegQuality}, maxPerMessage, maxPerRequest}}`。
 - 只有 `/models` **新引入**的 id（基底表没有）才走 `convention.ts` 的惯例兜底：① 同族继承——从基底表里第一条同族条目继承 `reasoning` 与 `thinkingLevelMap`，**与线无关**（同表同族条目是这个网关的策展事实，不是别家目录的拷贝）；
   - ② 已知可推理家族名单（`CONVENTION_FAMILIES`，精确匹配族名）——这一路没有同族可继承，`{xhigh, max}` 是凭空合成的，所以只在 `anthropic-messages` 线补。两步都不命中则保持 `reasoning: false`（不猜）。兜底会进启动报告（`new model(s) not in models.json`），不静默写盘。
-- 同一个新 id 的 `contextWindow`/`maxTokens`/`input` 会先看 pi 内置目录里**该模型厂商自己的条目**（`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`；日期快照也认基名，如 `DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`）。
+- 同一个新 id 的 `contextWindow`/`maxTokens`/`input` 会先看 pi 内置目录里**该模型厂商自己的条目**（`vendorFacts`）。
+  - 厂商 host 是显式政策表（`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`/`meta`(muse)…），因为 pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
+  - 日期快照也认基名（`DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`），只用于这次回退，不动 `normalizeModelId`。
   - 厂商没上架这个 id（或该族根本没有厂商条目）时，才退回「**每家**上架该 id 的 provider 都给同一个值」的一致值；两者都没有则留兜底（`contextWindow` 128000、`maxTokens` 16384、`input` 仅 text）。
   - `-Fast` 这类**服务档尾缀**再加一步：厂商没上架该 id、但上架了它的基名（`GLM-5.2-Fast` → zai 的 `glm-5.2`）时借基名的条目——同型号的另一种服务档，只有费率和吞吐不同，而这两项不是我们填的字段。
     - 白名单只有 `fast`（实测同 host 内 34 对里 31 对 ctx/max 相同；`-flash` 只有 11/20、`-turbo` 1/5，而 `-max`/`-pro`/`-mini` 是另一个型号）。
