@@ -60,6 +60,8 @@ const vendorCases = [
 	["Qwen3.8-Flash", "qwen-token-plan", "qwen3.8-flash", /^qwen-token-plan/],
 	["MiniMax-M3", "minimax", "MiniMax-M3", /^minimax/],
 	["DeepSeek-V4-Pro-0813", "deepseek", "deepseek-v4-pro", /^deepseek$/],
+	// 这个网关按命名空间带厂商名（`meta/muse-spark-1.2`），厂商自己就上架了同一个 id。
+	["meta/muse-spark-1.2", "meta", "muse-spark-1.2", /^meta$/],
 ];
 for (const [id, provider, vendorId, hostRe] of vendorCases) {
 	const row = (raw.getModels(provider) ?? []).find((model) => String(model.id) === vendorId);

@@ -24,7 +24,7 @@
  *      after the shipped model table was removed).
  *   3. `vendorFacts` / `unanimousFacts` — synthesize the fields of an id the base table has
  *      never seen. The model maker's own entry (`vendorFacts`: `deepseek`, `moonshotai`,
- *      `zai`, `qwen-token-plan*`, `minimax*`, ...) is the closest thing to a model fact, so it
+ *      `zai`, `qwen-token-plan*`, `minimax*`, `meta` (muse), ...) is the closest thing to a model fact, so it
  *      wins; a family with no vendor entry falls back to the values *every* built-in provider
  *      shipping the id agrees on (`unanimousFacts`). Neither may outrank a context window the
  *      wire itself reported — a gateway's own budget is harder than the model's spec — and
@@ -38,7 +38,7 @@
 
 /**
  * Which built-in providers are a model family's *own* vendor, per pi's catalog. pi ships both the
- * vendor's plan (`deepseek`, `moonshotai`, `zai`, `qwen-token-plan*`, `minimax*` — measured from the
+ * vendor's plan (`deepseek`, `moonshotai`, `zai`, `qwen-token-plan*`, `minimax*`, `meta` — measured from the
  * installed pi) and resellers that use bare ids too (`opencode`), so the boundary cannot be read off
  * the id shape and is stated here instead. A new vendor plan is a one-line addition.
  */
@@ -53,6 +53,7 @@ const VENDOR_HOSTS: readonly { readonly family: RegExp; readonly hosts: readonly
 	{ family: /^gemini/, hosts: ["google", "google-vertex"] },
 	{ family: /^grok/, hosts: ["xai"] },
 	{ family: /^mimo/, hosts: ["xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn", "xiaomi-token-plan-sgp"] },
+	{ family: /^muse/, hosts: ["meta"] },
 ];
 
 /** The vendor hosts for a normalized id, by family; `undefined` for a family pi's catalog does not know. */
