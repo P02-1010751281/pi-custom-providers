@@ -91,12 +91,13 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
   - 但 `contextWindow`/`maxTokens`/`input` 会先看内置目录里**该模型厂商自己的条目**（`builtin.vendor` / `vendorFacts`）。
     - 厂商 host 是显式政策表：`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`/`meta`(muse)…——pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
     - 日期快照也认基名（`DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`），只用于这次回退，不动 `normalizeModelId`。
+    - 网关拼写与厂商不同时按**显式配对表**接上（`MAKER_ID_ALIASES`：`DeepSeek-V4.1-Flash` → 厂商 `deepseek-flash` 那一行，报告作 `vendor deepseek via deepseek-flash`）；id 形状从不用于猜配对，猜错就是把另一模型的能力按上去。
     - 厂商条目缺该 id（或该族没有厂商 host）时退回 `builtin.unanimous`（**每家**上架该 id 的 provider 都给同一个值）；两者都没有则留兜底。
     - 再加一步服务档尾缀回退：厂商没上架该 id、但上架了基名时借基名（`vendorBaseFacts`，`GLM-5.2-Fast` → zai 的 `glm-5.2`，报告作 `vendor zai via glm-5.2`）。
       - 白名单只有 `fast`（同 host 内 34 对里 31 对 ctx/max 相同；`-flash` 11/20、`-turbo` 1/5，`-max`/`-pro`/`-mini` 是另一型号），而且永远排在两个精确来源之后，精确命中不被它盖过。
     - **线上自报的 ctx 是上限**：厂商 1M 而网关报 128k 时取 128k——ctx 同时决定压缩点与 `maxTokens` 上限，写大了是每个请求都超预算 400，不只是长对话。`maxTokens` 再夹进最终窗口。
     - 取到的值在 `sync` 报告与 `status <id>` 里带来源点名（`<id> (vendor moonshotai)` / `<id> (every provider agrees)` / `<id> (vendor zai via glm-5.2)`），不静默。
-    - 实测覆盖率：SCNet 那 17 条里厂商条目只有 11 条（`deepseek` 名单无 V4.x、`zai` 无 GLM-5/5.1、`moonshotai` 无 K2.5、`minimax` 无 M2.5）。
+    - 实测覆盖率：SCNet 那 17 条里厂商条目覆盖 12 条（`zai` 无 GLM-5/5.1、`moonshotai` 无 K2.5、`minimax` 无 M2.5，`deepseek` 的 `deepseek-flash` 指 V4.1 而非 V4-Flash-0731），余下 5 条靠一致值。
   - 上游不给时走 `convention.ts` 惯例兜底：① 同族继承（基底表里第一条同族条目的 `reasoning`，anthropic 线连 `thinkingLevelMap` 一起继承）；
   - ② `CONVENTION_FAMILIES` 已知家族名单（精确匹配 `familyKey()`，anthropic 线补 `{xhigh,max}`，其它线不补 map）；
   - 两步不命中才 `reasoning:false`。

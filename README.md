@@ -271,13 +271,14 @@ base64 没有原生的值形式（pi 的语法里没有 base64），要内联就
 - 同一个新 id 的 `contextWindow`/`maxTokens`/`input` 会先看 pi 内置目录里**该模型厂商自己的条目**（`vendorFacts`）。
   - 厂商 host 是显式政策表（`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`/`meta`(muse)…），因为 pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
   - 日期快照也认基名（`DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`），只用于这次回退，不动 `normalizeModelId`。
+  - 网关拼写与厂商不同时按**显式配对表**接上（`DeepSeek-V4.1-Flash` → 厂商 `deepseek-flash` 那一行，报告作 `vendor deepseek via deepseek-flash`）；id 形状从不用于猜配对。
   - 厂商没上架这个 id（或该族根本没有厂商条目）时，才退回「**每家**上架该 id 的 provider 都给同一个值」的一致值；两者都没有则留兜底（`contextWindow` 128000、`maxTokens` 16384、`input` 仅 text）。
   - `-Fast` 这类**服务档尾缀**再加一步：厂商没上架该 id、但上架了它的基名（`GLM-5.2-Fast` → zai 的 `glm-5.2`）时借基名的条目——同型号的另一种服务档，只有费率和吞吐不同，而这两项不是我们填的字段。
     - 白名单只有 `fast`（实测同 host 内 34 对里 31 对 ctx/max 相同；`-flash` 只有 11/20、`-turbo` 1/5，而 `-max`/`-pro`/`-mini` 是另一个型号）。
     - 这一步永远排在两个精确来源之后：同 id 的厂商条目或一致值在，它就不参与。
   - **线**上自报的 `contextWindow` 是上限：厂商说 1M 而网关报 128k 时取 128k（ctx 写大了会让每个请求都超预算 400，不只是长对话）；`maxTokens` 也会被夹进最终窗口。
   - 填了哪些、从哪来，会在 `sync` 报告与 `status <id>` 里点名：`<id> (vendor moonshotai)` / `<id> (every provider agrees)` / `<id> (vendor zai via glm-5.2)`。
-  - 实测覆盖率：SCNet 那 17 条里厂商条目覆盖 11 条（`deepseek` 自己的名单里没有 V4.x、`zai` 没有 GLM-5/5.1、`moonshotai` 没有 K2.5、`minimax` 没有 M2.5），余下靠一致值。
+  - 实测覆盖率：SCNet 那 17 条里厂商条目覆盖 12 条（`zai` 没有 GLM-5/5.1、`moonshotai` 没有 K2.5、`minimax` 没有 M2.5，`deepseek` 的 `deepseek-flash` 指 V4.1 而不是 V4-Flash-0731），余下 5 条靠一致值。
 - `/providers status`（`drift` 自 v0.5.0 起不再是命令）把注册表与 pi 内置目录对一遍（`reasoning`/`input` 按多数票）；它**只报不改**，也不写回 `models.json`。
 
 ## 故障排查
