@@ -4,6 +4,40 @@
 安装/升级：`pi install ssh://forgejo@git.lentech.site/C02-1010751281/pi-custom-providers.git@vX.Y.Z`。历史例外：`v0.2.4`（2026-09-22）的破坏性变更走的是 PATCH——早于本规则生效日，保留原样。
 排版：散文一行一个意思、≤ 200 字（表格行与代码行按一条记录 / 一句代码一行豁免）。**已发布条目措辞冻结**：2026-10-03 只对它们做过换行规整（去空白后逐字相同、未增删一个字），所以条目字节可能与 tag 里的不同——tag 的原始字节在 git 历史里，措辞以本文为准。
 
+## v0.6.0 — 2026-10-04
+
+模型参数合成的 MINOR：表外新 id 改为「厂商 spec 优先 + 探测回退」，并把写盘动词收尾、缺凭据提示补齐。命令面与配置语义无破坏性变更。
+
+### 模型参数（新行为）
+
+- **厂商 spec 优先**（`builtin.ts`）：表外新 id 的 `contextWindow`/`maxTokens`/`input` 先看 pi 内置目录里**该模型厂商自己的条目**。
+  - 厂商 host 是显式政策表 `VENDOR_HOSTS`（家族 → host）：`deepseek`/`moonshotai`/`zai`/`qwen-token-plan*`/`minimax*`/`meta`(muse)…；pi 目录里没有可判定的标记，`opencode` 这类转售者也用裸 id。
+  - 该族没有厂商条目（或厂商没上架该 id）时，退回「**每家**上架该 id 的 provider 都给同一个值」的一致值；两者都没有才留兜底（128000 / 16384 / 仅 text）。
+- **三种改名也认**，都只用于这次回退、不动 `normalizeModelId`：
+  - 日期快照认基名：`DeepSeek-V4-Pro-0813` → `deepseek-v4-pro`。
+  - 服务档尾缀回退：厂商没上架 `-fast` 但上架了基名时借基名（`GLM-5.2-Fast` → zai 的 `glm-5.2`）；白名单只有 `fast`（实测同 host 内 34 对里 31 对 ctx/max 相同，`-flash` 只有 11/20、`-turbo` 1/5）。
+  - 网关拼写与厂商不同时按显式配对表 `MAKER_ID_ALIASES` 接上：`DeepSeek-V4.1-Flash` → 厂商 `deepseek-flash`；id 形状从不用于猜配对。
+- **线上自报的 `contextWindow` 是上限**：厂商说 1M 而网关报 128k 时取 128k——ctx 同时决定压缩点与 `maxTokens` 上限，写大了是每个请求都超预算 400；`maxTokens` 再夹进最终窗口。
+- **报告点名来源**：`<id> (vendor moonshotai)` / `<id> (every provider agrees)` / `<id> (vendor zai via glm-5.2)` / `<id> (vendor deepseek via deepseek-flash)`。
+
+### 命令面
+
+- **写盘动词自带应用**：`sync` / `init` 结束后按刚跑的那轮探测重新注册（`liveSnapshots` 记忆，不二次联网），`/providers sync` 之后不再需要 `/reload`。
+- **`init` 一条龙**：收尾自动跑一轮 sync（按 `--models-path` 抓列表 → 落 `<id>/models.json` → 注册），一个动词把目录从零带到可用。
+
+### 报告
+
+- **缺凭据升为 warning 并点名变量**：整轮端点都因缺凭据跳过时，报告写出解析为空的引用（`$VAR` 名，不是值），并说明启动后新加的 `.env` 需要重启或 `/reload`。
+
+### 文档
+
+- README 的「模型能力与模型表」段与 attention 的合成规则段按新规则重写（厂商 host 表、快照、尾缀、显式配对、线上上限、来源点名、SCNet 覆盖率 11 → 12/17）。
+
+### 测试
+
+- 25 个套件全绿；`builtin-test` 从安装的 pi 目录重推厂商事实与一致值（含 `meta/muse-spark-1.2`、显式配对、尾缀基名），`models-test` 钉逐字段优先级与报告标签，`sync-test` 钉基名回退落表，`init-test` 钉 `init` 的 sync 轮。
+- 注入证明逐条：删厂商 host 行、删配对行、尾缀不回退、报告标签丢基名或丢 `via`、白名单放宽到 `-flash` 各自让对应套件变红，且都逐字节还原。
+
 ## v0.5.3 — 2026-10-03
 
 纯测试 + 文档的 PATCH（`extensions/` 零改动）。把文档形态的六条规则从仓库外的手工脚本搬进受测的钩子，补上 v0.5.1 漏出厂围栏 bug 的根因。
