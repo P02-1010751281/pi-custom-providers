@@ -95,6 +95,17 @@ assert(vendorBaseFacts("GLM-5.2", builtin) === undefined, "an id without a tail 
 assert(vendorBaseFacts("Kimi-K2.5-Fast", builtin) === undefined, "a tail whose base the maker does not list either yields nothing");
 assert(vendorBaseFacts("GLM-5.2-Fast-0813", builtin)?.baseId === "glm-5.2", "a dated serving-profile id retries to the base (the two renames compose)");
 
+// --- 网关 id 与厂商 id 拼写不同：只按确认过的显式配对，绝不靠形状猜 -----------------------
+// 业主确认（2026-10-04）：厂商 `deepseek` 目录里的 `deepseek-flash` 就是网关的 `DeepSeek-V4.1-Flash`。
+const pairedRow = (raw.getModels("deepseek") ?? []).find((model) => String(model.id) === "deepseek-flash");
+const paired = vendorFacts("DeepSeek-V4.1-Flash", builtin);
+assert(pairedRow && paired, `a hand-paired gateway spelling finds the maker's own row (got ${paired?.provider})`);
+assert(paired.provider === "deepseek" && paired.viaId === "deepseek-flash", `and reports which maker row it used (got ${paired.provider} via ${paired.viaId})`);
+assert(paired.contextWindow === pairedRow.contextWindow && paired.maxTokens === pairedRow.maxTokens, `the numbers are that row's own (got ${paired.contextWindow}/${paired.maxTokens})`);
+assert(JSON.stringify(paired.input) === JSON.stringify(pairedRow.input), `the modalities are that row's own (got ${paired.input})`);
+assert(vendorFacts("DeepSeek-V4-Flash", builtin) === undefined, "the older generation is not the alias target (DeepSeek's own list has no such row)");
+assert(vendorBaseFacts("DeepSeek-V4.1-Flash-Fast", builtin)?.baseId === "deepseek-flash", "a serving-profile tail of a paired id retries to the maker's row");
+
 // --- absorption is a whitelist, limited to the Anthropic wire -----------------
 assert(absorbCompat({ id: "claude-opus-5", api: "anthropic-messages" }, builtin)?.supportsTemperature === false, "Opus 5 absorbs supportsTemperature: false");
 assert(absorbCompat({ id: "claude-opus-5", api: "openai-completions" }, builtin) === undefined, "nothing is absorbed on the OpenAI wire");

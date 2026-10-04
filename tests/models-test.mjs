@@ -127,6 +127,12 @@ assert(partial.filled.join(", ") === "Base-Model-Fast (vendor maker via base-mod
 const noBase = api.applyLiveModels([], [{ id: "Other-Model-Fast" }], "openai-completions", fakeCatalog(tailVendor, new Map()));
 assert(noBase.models[0].contextWindow === 128000 && noBase.filled.length === 0, "a tail whose base nobody lists keeps the fallback");
 
+// 厂商用自己的拼写上架（目录里的键是厂商那一行），网关用另一个拼写时（显式配对）报告点名厂商那一行。
+const pairedVendor = new Map([["deepseekflash", { provider: "deepseek", id: "deepseek-flash", reasoning: false, input: ["text", "image"], contextWindow: 1000000, maxTokens: 384000 }]]);
+const paired = api.applyLiveModels([], [{ id: "DeepSeek-V4.1-Flash" }], "openai-completions", fakeCatalog(pairedVendor, new Map()));
+assert(paired.models[0].contextWindow === 1000000 && paired.models[0].maxTokens === 384000 && paired.models[0].input.includes("image"), "a hand-paired gateway id takes the maker's row (numbers and modalities)");
+assert(paired.filled.join(", ") === "DeepSeek-V4.1-Flash (vendor deepseek via deepseek-flash)", `and the report names the maker's row (got ${paired.filled.join(", ")})`);
+
 // --- models.json: absent vs broken ---------------------------------------------
 assert(cfg.readModelsConfig().issue === undefined, "a missing models.json is not an issue (settings can come from the environment)");
 writeFileSync(modelsJson, "{ not json");

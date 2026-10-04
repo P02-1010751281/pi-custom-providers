@@ -25,7 +25,9 @@
  *   3. `vendorFacts` / `unanimousFacts` — synthesize the fields of an id the base table has
  *      never seen. The model maker's own entry (`vendorFacts`: `deepseek`, `moonshotai`,
  *      `zai`, `qwen-token-plan*`, `minimax*`, `meta` (muse), ...) is the closest thing to a model fact, so it
- *      wins; a family with no vendor entry falls back to the values *every* built-in provider
+ *      wins; a gateway id the maker spells differently (`deepseek-v4.1-flash` vs `deepseek-flash`) is paired
+ *      by hand (`MAKER_ID_ALIASES`) — an id's shape is never used to guess such a pairing; a family with no
+ *      vendor entry falls back to the values *every* built-in provider
  *      shipping the id agrees on (`unanimousFacts`). Neither may outrank a context window the
  *      wire itself reported — a gateway's own budget is harder than the model's spec — and
  *      `maxTokens` is capped to the window that ends up in the entry. A pi build without those
@@ -93,6 +95,20 @@ function stripSameModelTail(key: string): string {
 		if (key.length > tail.length && key.endsWith(tail)) return key.slice(0, -tail.length);
 	}
 	return key;
+}
+
+/**
+ * Gateway ids that name one model the maker's own provider lists under a different spelling, keyed by
+ * normalized gateway id. pi's catalog cannot supply the link: DeepSeek's short name drops the generation,
+ * so `deepseek-v4.1-flash` (the gateway) and `deepseek-flash` (the maker, 1M/384k, vision-capable) share no
+ * derivable stem. One row per confirmed pair, owner-confirmed, never inferred from an id's shape — a wrong
+ * pairing would hand a model capabilities another model has.
+ */
+const MAKER_ID_ALIASES: ReadonlyMap<string, string> = new Map([["deepseekv41flash", "deepseekflash"]]);
+
+/** The key the maker's own provider lists this model under: itself, unless it is a confirmed alias. */
+function makerKeyFor(key: string): string {
+	return MAKER_ID_ALIASES.get(key) ?? key;
 }
 
 /** pi's compat flags this package is willing to absorb (see the module doc). */
@@ -250,13 +266,18 @@ function factsOf(info: BuiltinModelInfo): UnanimousFacts {
 /**
  * The model maker's own facts for one id — `undefined` when pi's catalog ships no vendor entry for
  * its family (or the vendor does not list that model), which is when `unanimousFacts` takes over.
- * A dated snapshot also matches its base model (`DeepSeek-V4-Pro-0813` -> `deepseek-v4-pro`).
+ * A dated snapshot also matches its base model (`DeepSeek-V4-Pro-0813` -> `deepseek-v4-pro`), and a
+ * confirmed alias reaches the maker's own row for that model (`deepseek-v4.1-flash` -> `deepseek-flash`,
+ * reported as `viaId` so the reader can check the pairing).
  */
-export function vendorFacts(id: string, catalog: BuiltinCatalog): (UnanimousFacts & { provider: string }) | undefined {
+export function vendorFacts(id: string, catalog: BuiltinCatalog): (UnanimousFacts & { provider: string; viaId?: string }) | undefined {
 	const key = normalizeModelId(id);
-	const info = catalog.vendor.get(key) ?? catalog.vendor.get(stripSnapshot(key));
+	const stripped = stripSnapshot(key);
+	const direct = catalog.vendor.get(key) ?? catalog.vendor.get(stripped);
+	const makerKey = makerKeyFor(stripped);
+	const info = direct ?? (makerKey === stripped ? undefined : catalog.vendor.get(makerKey));
 	if (!info) return undefined;
-	return { provider: info.provider, ...factsOf(info) };
+	return { provider: info.provider, ...(direct ? {} : { viaId: info.id }), ...factsOf(info) };
 }
 
 /**
@@ -264,12 +285,13 @@ export function vendorFacts(id: string, catalog: BuiltinCatalog): (UnanimousFact
  * does not list the tailed id itself (`GLM-5.2-Fast` -> zai's `glm-5.2`): one model, two serving
  * profiles, and rate and throughput are not fields we fill. `undefined` when the exact id already
  * has a vendor entry (so this never overrides a direct hit) or when its base has none either.
- * `baseId` is the catalog's own spelling of the base model, for the report.
+ * `baseId` is the catalog's own spelling of the base model, for the report — which also names the maker's
+ * row when the base itself is a confirmed alias (`deepseek-v4.1-flash-fast` -> `deepseek-flash`).
  */
 export function vendorBaseFacts(id: string, catalog: BuiltinCatalog): (UnanimousFacts & { provider: string; baseId: string }) | undefined {
 	const key = normalizeModelId(id);
 	if (catalog.vendor.has(key) || catalog.vendor.has(stripSnapshot(key))) return undefined;
-	const base = stripSameModelTail(stripSnapshot(key));
+	const base = makerKeyFor(stripSameModelTail(stripSnapshot(key)));
 	if (base === key) return undefined;
 	const info = catalog.vendor.get(base);
 	if (!info) return undefined;

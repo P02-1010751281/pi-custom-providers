@@ -71,7 +71,8 @@ function patchLiveFields(known: ModelEntry, row: { name?: unknown; context_lengt
  * a curated model to pi's defaults. An id the base table has never seen has no curated entry to
  * protect, so it is synthesized: `reasoning` from the naming convention in `convention.ts`, and
  * `contextWindow` / `maxTokens` / `input` from pi's built-in catalog — the model maker's own entry
- * first (`vendorFacts`), then the values every provider shipping the id agrees on
+ * first (`vendorFacts`, which also reaches the maker's row for a hand-paired gateway spelling),
+ * then the values every provider shipping the id agrees on
  * (`unanimousFacts`), then — for a serving-profile tail the maker does not list
  * (`GLM-5.2-Fast` -> `glm-5.2`, `vendorBaseFacts`) — its base model's entry. A context window the
  * wire itself reported caps all of them: a gateway's budget is
@@ -108,9 +109,13 @@ export function applyLiveModels(models: readonly ModelEntry[], rows: readonly Li
 		// Only a value that reached the entry counts as a fill, and the entry names where it came from.
 		/** Which source a value would come from, in the order the entry prefers sources. */
 		const fromOf = (field: "contextWindow" | "maxTokens" | "input") => (vendor?.[field] !== undefined ? "vendor" : agreed?.[field] !== undefined ? "agree" : kin?.[field] !== undefined ? "base" : undefined);
+		// 厂商用自己的名字上架（`deepseek-flash`）而网关用另一个拼写时，报告点名厂商那一行，便于核对配对。
+		const vendorVia = (vendor as { viaId?: string } | undefined)?.viaId;
 		const label = (from: string | undefined) =>
 			from === "vendor"
-				? `vendor ${(vendor as { provider: string }).provider}`
+				? vendorVia === undefined
+					? `vendor ${(vendor as { provider: string }).provider}`
+					: `vendor ${(vendor as { provider: string }).provider} via ${vendorVia}`
 				: from === "agree"
 					? "every provider agrees"
 					: from === "base"
