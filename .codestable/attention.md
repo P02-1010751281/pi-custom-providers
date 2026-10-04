@@ -24,8 +24,8 @@ CodeStable 所有落盘产出的正文用**中文**：plan / design、plan revie
 
 发版流程（`node tests/run-all.mjs` 全绿 → commit → annotated tag → 双远端分推 master + tag → `pi install ...@<tag>` 重 pin → `~/.pi` pin 提交推送）见 `.agents/skills/pi-custom-providers-release-install/SKILL.md`。
 
-- **当前已发版 = `v0.5.3`**（纯测试 + 文档的 PATCH，`extensions/` 零改动）：把文档形态的六条规则搬进 `docs-structure-test.mjs`（含 v0.5.1 漏出厂围栏 bug 的根因），套件数 24 → 25。
-  - 破坏性变更仍自 `v0.5.0` 起（见 README 迁移段）；tag 已推双远端，`~/.pi` 的 pin = `@v0.5.3`，README 安装行与本文一致。
+- **当前已发版 = `v0.6.0`**（MINOR）：表外新 id 的参数合成改为「厂商 spec 优先 + 探测回退」（厂商 host 政策表、日期快照、服务档尾缀、网关与厂商拼写的显式配对，线上自报窗口作上限），`sync`/`init` 干完自己应用，缺凭据升 warning 并点名变量。
+  - 破坏性变更仍自 `v0.5.0` 起（见 README 迁移段）；tag 已推双远端，`~/.pi` 的 pin = `@v0.6.0`，README 安装行与本文一致。
 
 ## 已知技术债（明确未做，不是遗漏）
 
